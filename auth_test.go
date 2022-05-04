@@ -3,7 +3,7 @@ package mssql
 import (
 	"testing"
 
-	"github.com/denisenkom/go-mssqldb/integratedauth"
+	"github.com/microsoft/go-mssqldb/integratedauth"
 )
 
 type stubAuth struct {
