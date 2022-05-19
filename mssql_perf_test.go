@@ -218,6 +218,8 @@ func BenchmarkSelectParser(b *testing.B) {
 // The default value converter promotes every int type to bigint.
 // This benchmark forces that mismatch for comparing the query performance with the
 // fixed version of the driver that doesn't perform such promotion.
+// It may not show much of a time difference. Look for the actual query via plan or xevents
+// while the benchmark runs to make sure it's passing the correct int type.
 func BenchmarkSelectWithTypeMismatch(b *testing.B) {
 	connector, err := NewConnector(makeConnStr(b).String())
 	if err != nil {
