@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/bits"
 	"net"
 	"reflect"
 	"strings"
@@ -906,6 +907,33 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		return
 	}
 	switch val := val.(type) {
+	case int:
+		res.ti.TypeId = typeIntN
+		// if the value fits in a 32bit int, use 4 bytes
+		if bits.UintSize == 32 || int64(val) <= int64(0x7fffffff) {
+			res.buffer = make([]byte, 4)
+			res.ti.Size = 4
+			binary.LittleEndian.PutUint32(res.buffer, uint32(val))
+		} else {
+			res.ti.TypeId = typeIntN
+			res.buffer = make([]byte, 8)
+			res.ti.Size = 8
+			binary.LittleEndian.PutUint64(res.buffer, uint64(val))
+		}
+	case int8:
+		res.ti.TypeId = typeIntN
+		res.buffer = []byte{byte(val)}
+		res.ti.Size = 1
+	case int16:
+		res.ti.TypeId = typeIntN
+		res.buffer = make([]byte, 2)
+		res.ti.Size = 2
+		binary.LittleEndian.PutUint16(res.buffer, uint16(val))
+	case int32:
+		res.ti.TypeId = typeIntN
+		res.buffer = make([]byte, 4)
+		res.ti.Size = 4
+		binary.LittleEndian.PutUint32(res.buffer, uint32(val))
 	case int64:
 		res.ti.TypeId = typeIntN
 		res.buffer = make([]byte, 8)
