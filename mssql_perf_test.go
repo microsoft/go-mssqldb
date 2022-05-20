@@ -235,6 +235,7 @@ func BenchmarkSelectWithTypeMismatch(b *testing.B) {
 			if err != nil {
 				b.Fatal("Query failed:", err.Error())
 			}
+			defer rows.Close()
 			for rows.Next() {
 			}
 			if rows.Err() != nil {
@@ -248,6 +249,7 @@ func BenchmarkSelectWithTypeMismatch(b *testing.B) {
 			if err != nil {
 				b.Fatal("Query failed:", err.Error())
 			}
+			defer rows.Close()
 			for rows.Next() {
 			}
 			if rows.Err() != nil {
