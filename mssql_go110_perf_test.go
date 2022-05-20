@@ -24,6 +24,9 @@ func BenchmarkSelectWithTypeMismatch(b *testing.B) {
 		b.Fatal("Unable to query")
 	}
 	rows.Close()
+	if rows.Err() != nil {
+		b.Fatal("Rows error:", rows.Err())
+	}
 	b.Run("PromoteToBigInt", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			rows, err := conn.Query(`SELECT Count(*) from sys.all_objects where object_id > @obid`, sql.Named("obid", int64(-605853368)))
