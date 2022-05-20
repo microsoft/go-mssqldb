@@ -491,6 +491,7 @@ func TestParams(t *testing.T) {
 		int32(10),
 		int16(20),
 		int8(40),
+		int(10000),
 		"hello",
 		"",
 		[]byte{1, 2, 3},
@@ -535,6 +536,8 @@ func TestParams(t *testing.T) {
 				case int32:
 					same = decodedval == int64(intVal)
 				case int8:
+					same = decodedval == int64(intVal)
+				case int:
 					same = decodedval == int64(intVal)
 				default:
 					same = retval == val

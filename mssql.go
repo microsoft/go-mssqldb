@@ -909,8 +909,10 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 	switch val := val.(type) {
 	case int:
 		res.ti.TypeId = typeIntN
-		// if the value fits in a 32bit int, use 4 bytes
-		if bits.UintSize == 32 || int64(val) <= int64(0x7fffffff) {
+		// Rather than guess if the caller intends to pass a 32bit int from a 64bit app based on the
+		// value of the int, we'll just match the runtime size of int.
+		// Apps that want a 32bit int should use int32
+		if bits.UintSize == 32 {
 			res.buffer = make([]byte, 4)
 			res.ti.Size = 4
 			binary.LittleEndian.PutUint32(res.buffer, uint32(val))
