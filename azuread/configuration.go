@@ -27,9 +27,6 @@ const (
 	ActiveDirectoryApplication      = "ActiveDirectoryApplication"
 	ActiveDirectoryServicePrincipal = "ActiveDirectoryServicePrincipal"
 	scopeDefaultSuffix              = "/.default"
-	stsURLPublic                    = "management.azure.com"
-	stsURLGov                       = "management.usgovcloudapi.net"
-	stsURLChina                     = "management.chinacloudapi.cn"
 )
 
 type azureFedAuthConfig struct {
@@ -154,19 +151,6 @@ func splitAuthorityAndTenant(authorityUrl string) (string, string) {
 	return authority, tenant
 }
 
-func getCloudConfig(authority string) (cloud.Configuration, error) {
-	switch {
-	case strings.Contains(authority, stsURLPublic):
-		return cloud.AzurePublic, nil
-	case strings.Contains(authority, stsURLGov):
-		return cloud.AzureGovernment, nil
-	case strings.Contains(authority, stsURLChina):
-		return cloud.AzureChina, nil
-	}
-
-	return cloud.Configuration{}, fmt.Errorf("authority %s did not match any known cloud configuration", authority)
-}
-
 func (p *azureFedAuthConfig) provideActiveDirectoryToken(ctx context.Context, serverSPN, stsURL string) (string, error) {
 	var cred azcore.TokenCredential
 	var err error
@@ -205,15 +189,10 @@ func (p *azureFedAuthConfig) provideActiveDirectoryToken(ctx context.Context, se
 			cred, err = azidentity.NewManagedIdentityCredential(nil)
 		}
 	case ActiveDirectoryInteractive:
-		cloudConfig, cerr := getCloudConfig(authority)
-		if cerr != nil {
-			return "", cerr
-		}
+		cloudConfig := cloud.Configuration{ActiveDirectoryAuthorityHost: authority, Services: map[cloud.ServiceName]cloud.ServiceConfiguration{}}
 		opts := &azidentity.InteractiveBrowserCredentialOptions{ClientID: p.applicationClientID}
 		opts.Cloud = cloudConfig
-
 		cred, err = azidentity.NewInteractiveBrowserCredential(opts)
-
 	default:
 		// Integrated just uses Default until azidentity adds Windows-specific authentication
 		cred, err = azidentity.NewDefaultAzureCredential(nil)
