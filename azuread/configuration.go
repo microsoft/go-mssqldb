@@ -1,4 +1,3 @@
-// +build go1.18
 package azuread
 
 import (
@@ -187,11 +186,11 @@ func (p *azureFedAuthConfig) provideActiveDirectoryToken(ctx context.Context, se
 		case p.certificatePath != "":
 			certData, err := os.ReadFile(p.certificatePath)
 			if err != nil {
-			certs, key, err := azidentity.ParseCertificates(certData, []byte(p.clientSecret))
-			if err != nil {
-			cred, err = azidentity.NewClientCertificateCredential(tenant, p.clientID, certs, key, nil)
+				certs, key, err := azidentity.ParseCertificates(certData, []byte(p.clientSecret))
+				if err != nil {
+					cred, err = azidentity.NewClientCertificateCredential(tenant, p.clientID, certs, key, nil)
+				}
 			}
-		}
 		default:
 			cred, err = azidentity.NewClientSecretCredential(tenant, p.clientID, p.clientSecret, nil)
 		}
@@ -214,7 +213,7 @@ func (p *azureFedAuthConfig) provideActiveDirectoryToken(ctx context.Context, se
 		opts.Cloud = cloudConfig
 
 		cred, err = azidentity.NewInteractiveBrowserCredential(opts)
-	
+
 	default:
 		// Integrated just uses Default until azidentity adds Windows-specific authentication
 		cred, err = azidentity.NewDefaultAzureCredential(nil)
