@@ -43,8 +43,6 @@ func TestMakeGoLangScanType(t *testing.T) {
 }
 
 func TestMakeGoLangTypeName(t *testing.T) {
-	defer handlePanic(t)
-
 	tests := []struct {
 		typeName   string
 		typeString string

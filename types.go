@@ -1269,7 +1269,7 @@ func makeGoLangTypeName(ti typeInfo) string {
 		case 8:
 			return "BIGINT"
 		default:
-			panic("invalid size of INTNTYPE")
+			return ""
 		}
 	case typeFlt8:
 		return "FLOAT"
@@ -1280,7 +1280,7 @@ func makeGoLangTypeName(ti typeInfo) string {
 		case 8:
 			return "FLOAT"
 		default:
-			panic("invalid size of FLNNTYPE")
+			return ""
 		}
 	case typeBigVarBin:
 		return "VARBINARY"
@@ -1299,7 +1299,7 @@ func makeGoLangTypeName(ti typeInfo) string {
 		case 8:
 			return "MONEY"
 		default:
-			panic("invalid size of MONEYN")
+			return ""
 		}
 	case typeDateTim4:
 		return "SMALLDATETIME"
@@ -1312,7 +1312,7 @@ func makeGoLangTypeName(ti typeInfo) string {
 		case 8:
 			return "DATETIME"
 		default:
-			panic("invalid size of DATETIMEN")
+			return ""
 		}
 	case typeDateTime2N:
 		return "DATETIME2"
@@ -1343,7 +1343,8 @@ func makeGoLangTypeName(ti typeInfo) string {
 	case typeBigBinary:
 		return "BINARY"
 	default:
-		panic(fmt.Sprintf("not implemented makeGoLangTypeName for type %d", ti.TypeId))
+		// unsupported type
+		return ""
 	}
 }
 
