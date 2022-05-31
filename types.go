@@ -1040,7 +1040,7 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 		case 8:
 			return reflect.TypeOf(int64(0))
 		default:
-			panic("invalid size of INTNTYPE")
+			return reflect.TypeOf(new(interface{})).Elem()
 		}
 	case typeFlt8:
 		return reflect.TypeOf(float64(0))
@@ -1051,7 +1051,7 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 		case 8:
 			return reflect.TypeOf(float64(0))
 		default:
-			panic("invalid size of FLNNTYPE")
+			return reflect.TypeOf(new(interface{})).Elem()
 		}
 	case typeBigVarBin:
 		return reflect.TypeOf([]byte{})
@@ -1069,8 +1069,6 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 			return reflect.TypeOf([]byte{})
 		case 8:
 			return reflect.TypeOf([]byte{})
-		default:
-			panic("invalid size of MONEYN")
 		}
 	case typeDateTim4:
 		return reflect.TypeOf(time.Time{})
@@ -1082,8 +1080,6 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 			return reflect.TypeOf(time.Time{})
 		case 8:
 			return reflect.TypeOf(time.Time{})
-		default:
-			panic("invalid size of DATETIMEN")
 		}
 	case typeDateTime2N:
 		return reflect.TypeOf(time.Time{})
@@ -1114,7 +1110,7 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 	case typeVariant:
 		return reflect.TypeOf(nil)
 	default:
-		panic(fmt.Sprintf("not implemented makeGoLangScanType for type %d", ti.TypeId))
+		return reflect.TypeOf(new(interface{})).Elem()
 	}
 }
 
