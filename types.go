@@ -1069,6 +1069,8 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 			return reflect.TypeOf([]byte{})
 		case 8:
 			return reflect.TypeOf([]byte{})
+		default:
+			return reflect.TypeOf(new(interface{})).Elem()
 		}
 	case typeDateTim4:
 		return reflect.TypeOf(time.Time{})
@@ -1080,6 +1082,8 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 			return reflect.TypeOf(time.Time{})
 		case 8:
 			return reflect.TypeOf(time.Time{})
+		default:
+			return reflect.TypeOf(new(interface{})).Elem()
 		}
 	case typeDateTime2N:
 		return reflect.TypeOf(time.Time{})
@@ -1379,7 +1383,7 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 		case 8:
 			return 0, false
 		default:
-			panic("invalid size of INTNTYPE")
+			return 0, false
 		}
 	case typeFlt8:
 		return 0, false
@@ -1390,7 +1394,7 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 		case 8:
 			return 0, false
 		default:
-			panic("invalid size of FLNNTYPE")
+			return 0, false
 		}
 	case typeBit, typeBitN:
 		return 0, false
@@ -1403,7 +1407,7 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 		case 8:
 			return 0, false
 		default:
-			panic("invalid size of MONEYN")
+			return 0, false
 		}
 	case typeDateTim4, typeDateTime:
 		return 0, false
@@ -1414,7 +1418,7 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 		case 8:
 			return 0, false
 		default:
-			panic("invalid size of DATETIMEN")
+			return 0, false
 		}
 	case typeDateTime2N:
 		return 0, false
@@ -1463,7 +1467,8 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 	case typeBigBinary:
 		return int64(ti.Size), true
 	default:
-		panic(fmt.Sprintf("not implemented makeGoLangTypeLength for type %d", ti.TypeId))
+		// not implemented makeGoLangTypeLength for type
+		return 0, false
 	}
 }
 
