@@ -1507,7 +1507,7 @@ func makeGoLangTypePrecisionScale(ti typeInfo) (int64, int64, bool) {
 		case 8:
 			return 0, 0, false
 		default:
-			panic("invalid size of INTNTYPE")
+			return 0, 0, false
 		}
 	case typeFlt8:
 		return 0, 0, false
@@ -1518,7 +1518,7 @@ func makeGoLangTypePrecisionScale(ti typeInfo) (int64, int64, bool) {
 		case 8:
 			return 0, 0, false
 		default:
-			panic("invalid size of FLNNTYPE")
+			return 0, 0, false
 		}
 	case typeBit, typeBitN:
 		return 0, 0, false
@@ -1531,7 +1531,7 @@ func makeGoLangTypePrecisionScale(ti typeInfo) (int64, int64, bool) {
 		case 8:
 			return 0, 0, false
 		default:
-			panic("invalid size of MONEYN")
+			return 0, 0, false
 		}
 	case typeDateTim4, typeDateTime:
 		return 0, 0, false
@@ -1542,7 +1542,7 @@ func makeGoLangTypePrecisionScale(ti typeInfo) (int64, int64, bool) {
 		case 8:
 			return 0, 0, false
 		default:
-			panic("invalid size of DATETIMEN")
+			return 0, 0, false
 		}
 	case typeDateTime2N:
 		return int64(ti.Prec), int64(ti.Scale), true
@@ -1579,6 +1579,6 @@ func makeGoLangTypePrecisionScale(ti typeInfo) (int64, int64, bool) {
 	case typeBigBinary:
 		return 0, 0, false
 	default:
-		panic(fmt.Sprintf("not implemented makeGoLangTypePrecisionScale for type %d", ti.TypeId))
+		return 0, 0, false
 	}
 }
