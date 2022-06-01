@@ -52,6 +52,8 @@ func TestMakeGoLangTypeName(t *testing.T) {
 		{"typeDateTim4", "SMALLDATETIME", typeDateTim4},
 		{"typeBigBinary", "BINARY", typeBigBinary},
 		//TODO: Add other supported types
+
+		{"unimplemented type", "", typeUdt},
 	}
 
 	for _, tt := range tests {
@@ -62,8 +64,6 @@ func TestMakeGoLangTypeName(t *testing.T) {
 }
 
 func TestMakeGoLangTypeLength(t *testing.T) {
-	defer handlePanic(t)
-
 	tests := []struct {
 		typeName   string
 		typeVarLen bool
@@ -77,6 +77,8 @@ func TestMakeGoLangTypeLength(t *testing.T) {
 		{"typeBigVarChar", true, 10, typeBigVarChar, 10},
 		{"typeBigBinary", true, 30, typeBigBinary, 30},
 		//TODO: Add other supported types
+
+		{"unimplemented type", false, 0, typeUdt, 0},
 	}
 
 	for _, tt := range tests {
@@ -104,6 +106,8 @@ func TestMakeGoLangTypePrecisionScale(t *testing.T) {
 		{"typeDateTim4", typeDateTim4, false, 0, 0},
 		{"typeBigBinary", typeBigBinary, false, 0, 0},
 		//TODO: Add other supported types
+
+		{"unimplemented type", typeUdt, false, 0, 0},
 	}
 
 	for _, tt := range tests {
