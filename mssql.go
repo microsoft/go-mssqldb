@@ -917,7 +917,6 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 			res.ti.Size = 4
 			binary.LittleEndian.PutUint32(res.buffer, uint32(val))
 		} else {
-			res.ti.TypeId = typeIntN
 			res.buffer = make([]byte, 8)
 			res.ti.Size = 8
 			binary.LittleEndian.PutUint64(res.buffer, uint64(val))

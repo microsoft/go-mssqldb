@@ -403,16 +403,16 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			res.buffer = []byte(val)
 		case []byte:
 			res.buffer = val
-		case int64:
-			res.buffer = []byte(strconv.FormatInt(val, 10))
 		case int:
 			res.buffer = []byte(strconv.FormatInt(int64(val), 10))
 		case int8:
 			res.buffer = []byte(strconv.FormatInt(int64(val), 10))
-		case int32:
-			res.buffer = []byte(strconv.FormatInt(int64(val), 10))
 		case int16:
 			res.buffer = []byte(strconv.FormatInt(int64(val), 10))
+		case int32:
+			res.buffer = []byte(strconv.FormatInt(int64(val), 10))
+		case int64:
+			res.buffer = []byte(strconv.FormatInt(val, 10))
 		default:
 			err = fmt.Errorf("mssql: invalid type for varchar column: %T %s", val, val)
 			return
