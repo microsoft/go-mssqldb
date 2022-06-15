@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/denisenkom/go-mssqldb/internal/cp"
-	"github.com/denisenkom/go-mssqldb/internal/decimal"
+	"github.com/microsoft/go-mssqldb/internal/cp"
+	"github.com/microsoft/go-mssqldb/internal/decimal"
 )
 
 // fixed-length data types
@@ -1543,13 +1543,13 @@ func makeGoLangTypePrecisionScale(ti typeInfo) (int64, int64, bool) {
 			panic("invalid size of DATETIMEN")
 		}
 	case typeDateTime2N:
-		return 0, 0, false
+		return int64(ti.Prec), int64(ti.Scale), true
 	case typeDateN:
 		return 0, 0, false
 	case typeTimeN:
-		return 0, 0, false
+		return int64(ti.Prec), int64(ti.Scale), true
 	case typeDateTimeOffsetN:
-		return 0, 0, false
+		return int64(ti.Prec), int64(ti.Scale), true
 	case typeBigVarBin:
 		return 0, 0, false
 	case typeVarChar:

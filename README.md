@@ -1,14 +1,14 @@
 # A pure Go MSSQL driver for Go's database/sql package
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/denisenkom/go-mssqldb.svg)](https://pkg.go.dev/github.com/denisenkom/go-mssqldb)
-[![Build status](https://ci.appveyor.com/api/projects/status/jrln8cs62wj9i0a2?svg=true)](https://ci.appveyor.com/project/denisenkom/go-mssqldb)
-[![codecov](https://codecov.io/gh/denisenkom/go-mssqldb/branch/master/graph/badge.svg)](https://codecov.io/gh/denisenkom/go-mssqldb)
+[![Go Reference](https://pkg.go.dev/badge/github.com/microsoft/go-mssqldb.svg)](https://pkg.go.dev/github.com/microsoft/go-mssqldb)
+[![Build status](https://ci.appveyor.com/api/projects/status/jrln8cs62wj9i0a2?svg=true)](https://ci.appveyor.com/project/microsoft/go-mssqldb)
+[![codecov](https://codecov.io/gh/microsoft/go-mssqldb/branch/master/graph/badge.svg)](https://codecov.io/gh/microsoft/go-mssqldb)
 
 ## Install
 
 Requires Go 1.8 or above.
 
-Install with `go get github.com/denisenkom/go-mssqldb` .
+Install with `go get github.com/microsoft/go-mssqldb` .
 
 ## Connection Parameters and DSN
 
@@ -130,6 +130,7 @@ The credential type is determined by the new `fedauth` connection string paramet
 * `fedauth=ActiveDirectoryDefault` - authenticates using a chained set of credentials. The chain is built from EnvironmentCredential -> ManagedIdentityCredential->AzureCLICredential.  See [DefaultAzureCredential docs](https://github.com/Azure/azure-sdk-for-go/wiki/Set-up-Your-Environment-for-Authentication#configure-defaultazurecredential) for instructions on setting up your host environment to use it. Using this option allows you to have the same connection string in a service deployment as on your interactive development machine.
 * `fedauth=ActiveDirectoryManagedIdentity` or `fedauth=ActiveDirectoryMSI` - authenticates using a system-assigned or user-assigned Azure Managed Identity.
   * `user id=<identity id>` - optional id of user-assigned managed identity. If empty, system-assigned managed identity is used.
+  * `resource id=<resource id>` - optional resource id of user-assigned managed identity.  If empty, system-assigned managed identity or user id are used (if both user id and resource id are provided, resource id will be used)
 * `fedauth=ActiveDirectoryInteractive` - authenticates using credentials acquired from an external web browser. Only suitable for use with human interaction.
   * `applicationclientid=<application id>` - This guid identifies an Azure Active Directory enterprise application that the AAD admin has approved for accessing Azure SQL database resources in the tenant. This driver does not have an associated application id of its own.
 
@@ -140,7 +141,7 @@ import (
   "net/url"
 
   // Import the Azure AD driver module (also imports the regular driver package)
-  "github.com/denisenkom/go-mssqldb/azuread"
+  "github.com/microsoft/go-mssqldb/azuread"
 )
 
 func ConnectWithMSI() (*sql.DB, error) {
@@ -280,6 +281,16 @@ are supported:
 * "github.com/golang-sql/civil".Time -> time
 * mssql.TVP -> Table Value Parameter (TDS version dependent)
 
+```go
+// If this is passed directly as a parameter, 
+// the SQL parameter generated would be nvarchar
+name := "Bob"
+// If the user_name is defined as varchar,
+// it needs to be converted like this:
+db.QueryContext(ctx, `select * from t2 where user_name = @p1;`, mssql.VarChar(name))
+// Note: Mismatched data types on table and parameter may cause long running queries
+```
+
 ## Important Notes
 
 * [LastInsertId](https://golang.org/pkg/database/sql/#Result.LastInsertId) should
@@ -288,9 +299,9 @@ are supported:
  or add a `select ID = convert(bigint, SCOPE_IDENTITY());` to the end of your
  query (ref [SCOPE_IDENTITY](https://docs.microsoft.com/en-us/sql/t-sql/functions/scope-identity-transact-sql)).
  This will ensure you are getting the correct ID and will prevent a network round trip.
-* [NewConnector](https://godoc.org/github.com/denisenkom/go-mssqldb#NewConnector)
+* [NewConnector](https://godoc.org/github.com/microsoft/go-mssqldb#NewConnector)
     may be used with [OpenDB](https://golang.org/pkg/database/sql/#OpenDB).
-* [Connector.SessionInitSQL](https://godoc.org/github.com/denisenkom/go-mssqldb#Connector.SessionInitSQL)
+* [Connector.SessionInitSQL](https://godoc.org/github.com/microsoft/go-mssqldb#Connector.SessionInitSQL)
  may be set to set any driver specific session settings after the session
  has been reset. If empty the session will still be reset but use the database
  defaults in Go1.10+.
@@ -346,3 +357,20 @@ Use the native "@Name" parameters instead with the "sqlserver" driver name.
 To fix SQL Server 2008 R2 issue, install SQL Server 2008 R2 Service Pack 2.
 To fix SQL Server 2008 issue, install Microsoft SQL Server 2008 Service Pack 3 and Cumulative update package 3 for SQL Server 2008 SP3.
 More information: <http://support.microsoft.com/kb/2653857>
+
+
+# Contributing
+This project is a fork of [https://github.com/denisenkom/go-mssqldb](https://github.com/denisenkom/go-mssqldb) and welcomes new and previous contributors. For more informaton on contributing to this project, please see [Contributing](./CONTRIBUTING.md).
+
+For more information on the roadmap for go-mssqldb, [project plans](https://github.com/microsoft/go-mssqldb/projects) are available for viewing and discussion.
+
+
+# Microsoft Open Source Code of Conduct
+
+This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
+
+Resources:
+
+- [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/)
+- [Microsoft Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/)
+- Contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with questions or concerns

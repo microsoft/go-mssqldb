@@ -1126,12 +1126,12 @@ func TestMessageQueue(t *testing.T) {
 	active := true
 
 	msgs := []interface{}{
-		sqlexp.MsgNotice{Message: "msg1"},
+		sqlexp.MsgNotice{Message: Error{Message: "msg1"}},
 		sqlexp.MsgNextResultSet{},
 		sqlexp.MsgNext{},
 		sqlexp.MsgRowsAffected{Count: 1},
 		sqlexp.MsgNextResultSet{},
-		sqlexp.MsgNotice{Message: "msg2"},
+		sqlexp.MsgNotice{Message: Error{Message: "msg2"}},
 		sqlexp.MsgNextResultSet{},
 		sqlexp.MsgNextResultSet{},
 	}
@@ -1236,7 +1236,8 @@ select getdate()
 PRINT N'This is a message'
 select 199
 RAISERROR (N'Testing!' , 11, 1)
-select 300
+declare @d int = 300
+select @d
 `
 
 func testMixedQuery(conn *sql.DB, b testing.TB) (msgs, errs, results, rowcounts int) {
