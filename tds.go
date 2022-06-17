@@ -494,7 +494,7 @@ func ucs22str(s []byte) (string, error) {
 	// step through in 8 byte chunks.
 	for readIndex = 0; readIndex < nlen8; readIndex += 8 {
 
-		// defererence directly into the array as uint64s
+		// dereference directly into the array as uint64s
 		ui64 := *(*uint64)(unsafe.Pointer(uintptr(unsafe.Pointer(&s[0])) + uintptr(readIndex)))
 
 		// mask the entire 64 bit region and check for
