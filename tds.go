@@ -488,8 +488,10 @@ func ucs22str(s []byte) (string, error) {
 	// how many 8 byte chunks are in the input buffer
 	nlen8 := len(s) & 0xFFFFFFF8
 	// our read and write offsets into the buffers
-	var readIndex int = 0
-	var writeIndex int = 0
+	var (
+		readIndex  int
+		writeIndex int
+	)
 
 	// step through in 8 byte chunks.
 	for readIndex = 0; readIndex < nlen8; readIndex += 8 {
@@ -593,14 +595,25 @@ func ucs22str(s []byte) (string, error) {
 
 	// we can reuse the underlying array and create our own uint16 slice here
 	// because utf16.Decode allocates a new buffer and only reads its input.
-	uint16slice := reflect.SliceHeader{
-		Data: (*reflect.SliceHeader)(unsafe.Pointer(&s)).Data,
-		Len:  len(s) / 2,
-		Cap:  len(s) / 2,
-	}
-	ptr := *(*[]uint16)(unsafe.Pointer(&uint16slice))
 
-	return string(utf16.Decode(ptr)), nil
+	// declare a real uint16 slice so that the compiler can keep track of
+	// the underlying memory as we transfer & convert it.
+	// This is to ensure that the GC does not prematurely collect our data.
+	var uint16slice []uint16
+
+	uint16Header := (*reflect.SliceHeader)(unsafe.Pointer(&uint16slice))
+	sourceHeader := (*reflect.SliceHeader)(unsafe.Pointer(&s))
+
+	uint16Header.Data = sourceHeader.Data
+	// it is important to reference s after the assignment of the Data
+	// pointer to make sure that s is not garbage collected before
+	// we have another reference to the data.
+	uint16Header.Len = len(s) / 2       // the output is half the length in bytes
+	uint16Header.Cap = uint16Header.Len // the capacity is also half the number of bytes
+
+	// decode the uint16s as utf-16 and return a string.
+	// After this point both s and uint16slice can be garbage collected.
+	return string(utf16.Decode(uint16slice)), nil
 }
 
 func manglePassword(password string) []byte {

@@ -494,7 +494,7 @@ func TestReadBVarCharOrPanicWideChars(t *testing.T) {
 	}
 }
 
-var sideeffect_string string
+var sideeffectstring string
 
 func BenchmarkReadBVarCharOrPanicWideChars(b *testing.B) {
 	str := "百度一下，你就知道"
@@ -513,7 +513,7 @@ func BenchmarkReadBVarCharOrPanicWideChars(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 
 		s := readBVarCharOrPanic(memBuf)
-		sideeffect_string = s
+		sideeffectstring = s
 
 		memBuf.Reset(encodedBytes)
 	}
@@ -536,7 +536,7 @@ func BenchmarkReadBVarCharOrPanicOnly1WideChar(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 
 		s := readBVarCharOrPanic(memBuf)
-		sideeffect_string = s
+		sideeffectstring = s
 
 		memBuf.Reset(encodedBytes)
 	}
