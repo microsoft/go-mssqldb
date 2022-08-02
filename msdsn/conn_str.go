@@ -85,19 +85,9 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 		// while SQL Server seems to expect one TCP segment per encrypted TDS package.
 		// Setting DynamicRecordSizingDisabled to true disables that algorithm and uses 16384 bytes per TLS package
 		DynamicRecordSizingDisabled: true,
+		MinVersion:                  TLSVersionFromString(minTLSVersion),
 	}
-	switch minTLSVersion {
-	case "1.0":
-		config.MinVersion = tls.VersionTLS10
-	case "1.1":
-		config.MinVersion = tls.VersionTLS11
-	case "1.2":
-		config.MinVersion = tls.VersionTLS12
-	case "1.3":
-		config.MinVersion = tls.VersionTLS13
-	default:
-		// use the tls package default
-	}
+
 	if len(certificate) == 0 {
 		return &config, nil
 	}
