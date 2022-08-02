@@ -75,7 +75,7 @@ type Config struct {
 	PacketSize  uint16
 }
 
-func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate string, minTlsVersion string) (*tls.Config, error) {
+func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate string, minTLSVersion string) (*tls.Config, error) {
 	config := tls.Config{
 		ServerName:         hostInCertificate,
 		InsecureSkipVerify: insecureSkipVerify,
@@ -86,7 +86,7 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 		// Setting DynamicRecordSizingDisabled to true disables that algorithm and uses 16384 bytes per TLS package
 		DynamicRecordSizingDisabled: true,
 	}
-	switch minTlsVersion {
+	switch minTLSVersion {
 	case "1.0":
 		config.MinVersion = tls.VersionTLS10
 	case "1.1":
