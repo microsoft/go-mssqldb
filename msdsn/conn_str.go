@@ -75,7 +75,7 @@ type Config struct {
 	PacketSize  uint16
 }
 
-func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate string) (*tls.Config, error) {
+func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate string, minTlsVersion string) (*tls.Config, error) {
 	config := tls.Config{
 		ServerName:         hostInCertificate,
 		InsecureSkipVerify: insecureSkipVerify,
@@ -85,6 +85,18 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 		// while SQL Server seems to expect one TCP segment per encrypted TDS package.
 		// Setting DynamicRecordSizingDisabled to true disables that algorithm and uses 16384 bytes per TLS package
 		DynamicRecordSizingDisabled: true,
+	}
+	switch minTlsVersion {
+	case "1.0":
+		config.MinVersion = tls.VersionTLS10
+	case "1.1":
+		config.MinVersion = tls.VersionTLS11
+	case "1.2":
+		config.MinVersion = tls.VersionTLS12
+	case "1.3":
+		config.MinVersion = tls.VersionTLS13
+	default:
+		// use the tls package default
 	}
 	if len(certificate) == 0 {
 		return &config, nil
@@ -256,8 +268,9 @@ func Parse(dsn string) (Config, map[string]string, error) {
 	}
 
 	if p.Encryption != EncryptionDisabled {
+		tlsMin := params["tlsmin"]
 		var err error
-		p.TLSConfig, err = SetupTLS(certificate, trustServerCert, hostInCertificate)
+		p.TLSConfig, err = SetupTLS(certificate, trustServerCert, hostInCertificate, tlsMin)
 		if err != nil {
 			return p, params, fmt.Errorf("failed to setup TLS: %w", err)
 		}
