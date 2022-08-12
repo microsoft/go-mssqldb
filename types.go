@@ -118,9 +118,8 @@ type krb5ClientState int
 
 const (
 	// Initiator states
-	initiatorStart krb5ClientState = iota
-	initiatorRestart
-	initiatorWaitForMutal
+	initiatorStart        krb5ClientState = iota
+	initiatorWaitForMutal                 = iota + 2
 	initiatorReady
 )
 
