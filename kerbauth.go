@@ -1,3 +1,6 @@
+//go:build !windows && go1.13
+// +build !windows,go1.13
+
 package mssql
 
 import (
@@ -23,6 +26,13 @@ type krb5Auth struct {
 	krb5Client *client.Client
 	state      krb5ClientState
 }
+
+const (
+	// Initiator states
+	initiatorStart        krb5ClientState = iota
+	initiatorWaitForMutal                 = iota + 2
+	initiatorReady
+)
 
 func getKRB5Auth(user, serverSPN string, krb5Conf *config.Config, keytabContent *keytab.Keytab, cacheContent *credentials.CCache) (auth, bool) {
 	var port uint64
