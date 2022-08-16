@@ -121,13 +121,13 @@ type Auth struct {
 // getAuth returns an authentication handle Auth to provide authentication content
 // to mssql.connect
 func getAuth(config msdsn.Config) (integratedauth.IntegratedAuthenticator, error) {
-	if user == "" {
-		return &Auth{Service: service}, nil
+	if config.User == "" {
+		return &Auth{Service: config.ServerSPN}, nil
 	}
-	if !strings.ContainsRune(user, '\\') {
+	if !strings.ContainsRune(config.User, '\\') {
 		return nil, fmt.Errorf("winsspi : invalid username %v", config.User)
 	}
-	domainUser := strings.SplitN(user, "\\", 2)
+	domainUser := strings.SplitN(config.User, "\\", 2)
 	return &Auth{
 		Domain:   domainUser[0],
 		UserName: domainUser[1],
