@@ -1,11 +1,10 @@
-//go:build windows
-// +build windows
-
 package mssql
 
-import "github.com/microsoft/go-mssqldb/msdsn"
+func getAuthN(user, password, serverSPN, workstation string, _ map[string]interface{}) (auth auth, authOk bool) {
+	auth, authOk = getAuth(user, password, serverSPN, workstation)
+	return
+}
 
-func getAuthN(p msdsn.Config) (auth auth, authOk bool) {
-	auth, authOk = getAuth(p.User, p.Password, p.ServerSPN, p.Workstation)
+func getKrbParams(krb map[string]interface{}) (krbParams map[string]interface{}, err error) {
 	return
 }

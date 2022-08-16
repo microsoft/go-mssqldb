@@ -1171,7 +1171,12 @@ initiate_connection:
 		}
 	}
 
-	auth, authOk := getAuthN(p)
+	krbParams, err := getKrbParams(p.Kerberos)
+	if err != nil {
+		return nil, err
+	}
+	
+	auth, authOk := getAuthN(p.User, p.Password, p.ServerSPN, p.Workstation, krbParams)
 
 	if authOk {
 		defer auth.Free()

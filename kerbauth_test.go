@@ -11,75 +11,72 @@ import (
 	"github.com/jcmturner/gokrb5/v8/config"
 	"github.com/jcmturner/gokrb5/v8/credentials"
 	"github.com/jcmturner/gokrb5/v8/keytab"
-	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
 func TestGetAuth(t *testing.T) {
 	kerberos := getKerberos()
 
-	p := getConfig(kerberos, "MSSQLSvc/mssql.domain.com:1433")
-
-	got, _ := getAuthN(p)
-	keytab := &krb5Auth{username: "",
+	got, _ := getAuthN("", "", "MSSQLSvc/mssql.domain.com:1433", "", kerberos)
+	kt := &krb5Auth{username: "",
 		realm:      "domain.com",
 		serverSPN:  "MSSQLSvc/mssql.domain.com:1433",
 		port:       1433,
-		krb5Config: kerberos.Config,
-		krbKeytab:  kerberos.Keytab,
-		krbCache:   kerberos.Cache,
+		krb5Config: kerberos["Config"].(*config.Config),
+		krbKeytab:  kerberos["Keytab"].(*keytab.Keytab),
+		krbCache:   kerberos["Cache"].(*credentials.CCache),
 		state:      0}
 
-	res := reflect.DeepEqual(got, keytab)
+	res := reflect.DeepEqual(got, kt)
 	if !res {
-		t.Errorf("Failed to get correct krb5Auth object\nExpected:%v\nRecieved:%v", keytab, got)
+		t.Errorf("Failed to get correct krb5Auth object\nExpected:%v\nRecieved:%v", kt, got)
 	}
 
-	got, _ = getAuthN(p)
-	keytab = &krb5Auth{username: "",
+	got, _ = getAuthN("", "", "MSSQLSvc/mssql.domain.com:1433", "", kerberos)
+	kt = &krb5Auth{username: "",
 		realm:      "domain.com",
 		serverSPN:  "MSSQLSvc/mssql.domain.com:1433",
 		port:       1433,
-		krb5Config: kerberos.Config,
-		krbKeytab:  kerberos.Keytab,
-		krbCache:   kerberos.Cache,
+		krb5Config: kerberos["Config"].(*config.Config),
+		krbKeytab:  kerberos["Keytab"].(*keytab.Keytab),
+		krbCache:   kerberos["Cache"].(*credentials.CCache),
 		state:      0}
 
-	res = reflect.DeepEqual(got, keytab)
+	res = reflect.DeepEqual(got, kt)
 	if !res {
-		t.Errorf("Failed to get correct krb5Auth object\nExpected:%v\nRecieved:%v", keytab, got)
+		t.Errorf("Failed to get correct krb5Auth object\nExpected:%v\nRecieved:%v", kt, got)
 	}
 
-	_, val := getAuthN(getConfig(kerberos, "MSSQLSvc/mssql.domain.com"))
+	_, val := getAuthN("", "", "MSSQLSvc/mssql.domain.com", "", kerberos)
 	if val {
 		t.Errorf("Failed to get correct krb5Auth object: no port defined")
 	}
 
-	got, _ = getAuthN(getConfig(kerberos, "MSSQLSvc/mssql.domain.com:1433@DOMAIN.COM"))
-	keytab = &krb5Auth{username: "",
+	got, _ = getAuthN("", "", "MSSQLSvc/mssql.domain.com:1433@DOMAIN.COM", "", kerberos)
+	kt = &krb5Auth{username: "",
 		realm:      "DOMAIN.COM",
 		serverSPN:  "MSSQLSvc/mssql.domain.com:1433",
 		port:       1433,
-		krb5Config: kerberos.Config,
-		krbKeytab:  kerberos.Keytab,
-		krbCache:   kerberos.Cache,
+		krb5Config: kerberos["Config"].(*config.Config),
+		krbKeytab:  kerberos["Keytab"].(*keytab.Keytab),
+		krbCache:   kerberos["Cache"].(*credentials.CCache),
 		state:      0}
 
-	res = reflect.DeepEqual(got, keytab)
+	res = reflect.DeepEqual(got, kt)
 	if !res {
-		t.Errorf("Failed to get correct krb5Auth object\nExpected:%v\nRecieved:%v", keytab, got)
+		t.Errorf("Failed to get correct krb5Auth object\nExpected:%v\nRecieved:%v", kt, got)
 	}
 
-	_, val = getAuthN(getConfig(kerberos, "MSSQLSvc/mssql.domain.com:1433@domain.com@test"))
+	_, val = getAuthN("", "", "MSSQLSvc/mssql.domain.com:1433@domain.com@test", "", kerberos)
 	if val {
 		t.Errorf("Failed to get correct krb5Auth object due to incorrect serverSPN name")
 	}
 
-	_, val = getAuthN(getConfig(kerberos, "MSSQLSvc/mssql.domain.com:port@domain.com"))
+	_, val = getAuthN("", "", "MSSQLSvc/mssql.domain.com:port@domain.com", "", kerberos)
 	if val {
 		t.Errorf("Failed to get correct krb5Auth object due to incorrect port")
 	}
 
-	_, val = getAuthN(getConfig(kerberos, "MSSQLSvc/mssql.domain.com:port"))
+	_, val = getAuthN("", "", "MSSQLSvc/mssql.domain.com:port", "", kerberos)
 	if val {
 		t.Errorf("Failed to get correct krb5Auth object due to incorrect port")
 	}
@@ -91,9 +88,9 @@ func TestInitialBytes(t *testing.T) {
 		realm:      "domain.com",
 		serverSPN:  "MSSQLSvc/mssql.domain.com:1433",
 		port:       1433,
-		krb5Config: kerberos.Config,
-		krbKeytab:  kerberos.Keytab,
-		krbCache:   kerberos.Cache,
+		krb5Config: kerberos["Config"].(*config.Config),
+		krbKeytab:  kerberos["Keytab"].(*keytab.Keytab),
+		krbCache:   kerberos["Cache"].(*credentials.CCache),
 		state:      0,
 	}
 
@@ -118,9 +115,9 @@ func TestNextBytes(t *testing.T) {
 		realm:      "domain.com",
 		serverSPN:  "MSSQLSvc/mssql.domain.com:1433",
 		port:       1433,
-		krb5Config: kerberos.Config,
-		krbKeytab:  kerberos.Keytab,
-		krbCache:   kerberos.Cache,
+		krb5Config: kerberos["Config"].(*config.Config),
+		krbKeytab:  kerberos["Keytab"].(*keytab.Keytab),
+		krbCache:   kerberos["Cache"].(*credentials.CCache),
 		state:      0}
 
 	_, err := krbObj.NextBytes(ans)
@@ -140,30 +137,24 @@ func TestFree(t *testing.T) {
 		realm:      "domain.com",
 		serverSPN:  "MSSQLSvc/mssql.domain.com:1433",
 		port:       1433,
-		krb5Config: kerberos.Config,
-		krbKeytab:  kerberos.Keytab,
-		krbCache:   kerberos.Cache,
+		krb5Config: kerberos["Config"].(*config.Config),
+		krbKeytab:  kerberos["Keytab"].(*keytab.Keytab),
+		krbCache:   kerberos["Cache"].(*credentials.CCache),
 		state:      0,
 		krb5Client: cl,
 	}
 	krbObj.Free()
-	cacheEntries := len(kerberos.Cache.GetEntries())
+	cacheEntries := len(kerberos["Cache"].(*credentials.CCache).GetEntries())
 	if cacheEntries != 0 {
 		t.Errorf("Client not destroyed")
 	}
 }
 
-func getKerberos() *msdsn.Kerberos {
-	return &msdsn.Kerberos{
-		Config: &config.Config{},
-		Keytab: &keytab.Keytab{},
-		Cache:  &credentials.CCache{},
+func getKerberos() (krbParams map[string]interface{}) {
+	krbParams = map[string]interface{}{
+		"Config": &config.Config{},
+		"Keytab": &keytab.Keytab{},
+		"Cache":  &credentials.CCache{},
 	}
-}
-
-func getConfig(kerberos *msdsn.Kerberos, ServerSPN string) msdsn.Config {
-	return msdsn.Config{User: "",
-		ServerSPN: ServerSPN,
-		Kerberos:  kerberos,
-	}
+	return
 }

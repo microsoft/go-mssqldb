@@ -15,6 +15,9 @@ import (
 	"github.com/jcmturner/gokrb5/v8/spnego"
 )
 
+// Kerberos Client State
+type krb5ClientState int
+
 type krb5Auth struct {
 	username   string
 	realm      string
