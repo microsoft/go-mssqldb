@@ -469,16 +469,11 @@ func str2ucs2(s string) []byte {
 	return ucs2
 }
 
-func ucs22str(s []byte) (string, error) {
-	if len(s)%2 != 0 {
-		return "", fmt.Errorf("illegal UCS2 string length: %d", len(s))
-	}
-	buf := make([]uint16, len(s)/2)
-	for i := 0; i < len(s); i += 2 {
-		buf[i/2] = binary.LittleEndian.Uint16(s[i:])
-	}
-	return string(utf16.Decode(buf)), nil
-}
+const (
+	mask64 uint64 = 0xFF80FF80FF80FF80
+	mask32 uint32 = 0xFF80FF80
+	mask16 uint16 = 0xFF80
+)
 
 func manglePassword(password string) []byte {
 	var ucs2password []byte = str2ucs2(password)
@@ -686,7 +681,7 @@ func writeUsVarChar(w io.Writer, s string) (err error) {
 	return
 }
 
-func readBVarChar(r io.Reader) (res string, err error) {
+func readBVarChar(r io.Reader) (string, error) {
 	numchars, err := readByte(r)
 	if err != nil {
 		return "", err
@@ -1045,14 +1040,16 @@ func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Co
 		dialCtx, cancel = context.WithTimeout(ctx, dt)
 		defer cancel()
 	}
+
 	// if instance is specified use instance resolution service
 	if len(p.Instance) > 0 && p.Port != 0 && uint64(p.LogFlags)&logDebug != 0 {
 		// both instance name and port specified
 		// when port is specified instance name is not used
 		// you should not provide instance name when you provide port
 		logger.Log(ctx, msdsn.LogDebug, "WARN: You specified both instance name and port in the connection string, port will be used and instance name will be ignored")
-	}
-	if len(p.Instance) > 0 {
+	} else if len(p.Instance) > 0 && p.Port == 0 {
+		// If instance is specified, but no port, check SQL Server Browser
+		// for the instance and discover its port.
 		p.Instance = strings.ToUpper(p.Instance)
 		d := c.getDialer(&p)
 		instances, err := getInstances(dialCtx, d, p.Host)
@@ -1072,6 +1069,7 @@ func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Co
 		}
 		p.Port = port
 	}
+
 	if p.Port == 0 {
 		p.Port = defaultServerPort
 	}
@@ -1145,7 +1143,7 @@ initiate_connection:
 			}
 		}
 		if config == nil {
-			config, err = msdsn.SetupTLS("", false, p.Host)
+			config, err = msdsn.SetupTLS("", false, p.Host, "")
 			if err != nil {
 				return nil, err
 			}

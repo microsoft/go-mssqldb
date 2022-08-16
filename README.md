@@ -32,7 +32,7 @@ Other supported formats are listed below.
 ### Connection parameters for ODBC and ADO style connection strings
 
 * `server` - host or host\instance (default localhost)
-* `port` - used only when there is no instance in server (default 1433)
+* `port` - specifies the host\instance port (default 1433). If instance name is provided but no port, the driver will use SQL Server Browser to discover the port.
 
 ### Less common parameters
 
@@ -50,10 +50,11 @@ Other supported formats are listed below.
   * 16 log statement parameters
   * 32 log transaction begin/end
 * `TrustServerCertificate`
-  * false - Server certificate is checked. Default is false if encypt is specified.
+  * false - Server certificate is checked. Default is false if encrypt is specified.
   * true - Server certificate is not checked. Default is true if encrypt is not specified. If trust server certificate is true, driver accepts any certificate presented by the server and any host name in that certificate. In this mode, TLS is susceptible to man-in-the-middle attacks. This should be used only for testing.
 * `certificate` - The file that contains the public key certificate of the CA that signed the SQL Server certificate. The specified certificate overrides the go platform specific CA certificates.
 * `hostNameInCertificate` - Specifies the Common Name (CN) in the server certificate. Default value is the server host.
+* `tlsmin` - Specifies the minimum TLS version for negotiating encryption with the server. Recognized values are `1.0`, `1.1`, `1.2`, `1.3`. If not set to a recognized value the default value for the `tls` package will be used. The default is currently `1.2`. 
 * `ServerSPN` - The kerberos SPN (Service Principal Name) for the server. Default is MSSQLSvc/host:port.
 * `Workstation ID` - The workstation name (default is the host name)
 * `ApplicationIntent` - Can be given the value `ReadOnly` to initiate a read-only connection to an Availability Group listener. The `database` must be specified when connecting with `Application Intent` set to `ReadOnly`.
@@ -130,6 +131,7 @@ The credential type is determined by the new `fedauth` connection string paramet
 * `fedauth=ActiveDirectoryDefault` - authenticates using a chained set of credentials. The chain is built from EnvironmentCredential -> ManagedIdentityCredential->AzureCLICredential.  See [DefaultAzureCredential docs](https://github.com/Azure/azure-sdk-for-go/wiki/Set-up-Your-Environment-for-Authentication#configure-defaultazurecredential) for instructions on setting up your host environment to use it. Using this option allows you to have the same connection string in a service deployment as on your interactive development machine.
 * `fedauth=ActiveDirectoryManagedIdentity` or `fedauth=ActiveDirectoryMSI` - authenticates using a system-assigned or user-assigned Azure Managed Identity.
   * `user id=<identity id>` - optional id of user-assigned managed identity. If empty, system-assigned managed identity is used.
+  * `resource id=<resource id>` - optional resource id of user-assigned managed identity.  If empty, system-assigned managed identity or user id are used (if both user id and resource id are provided, resource id will be used)
 * `fedauth=ActiveDirectoryInteractive` - authenticates using credentials acquired from an external web browser. Only suitable for use with human interaction.
   * `applicationclientid=<application id>` - This guid identifies an Azure Active Directory enterprise application that the AAD admin has approved for accessing Azure SQL database resources in the tenant. This driver does not have an associated application id of its own.
 
@@ -279,6 +281,19 @@ are supported:
 * "github.com/golang-sql/civil".DateTime -> datetime2
 * "github.com/golang-sql/civil".Time -> time
 * mssql.TVP -> Table Value Parameter (TDS version dependent)
+
+Using an `int` parameter will send a 4 byte value (int) from a 32bit app and an 8 byte value (bigint) from a 64bit app. 
+To make sure your integer parameter matches the size of the SQL parameter, use the appropriate sized type like `int32` or `int8`.
+
+```go
+// If this is passed directly as a parameter, 
+// the SQL parameter generated would be nvarchar
+name := "Bob"
+// If the user_name is defined as varchar,
+// it needs to be converted like this:
+db.QueryContext(ctx, `select * from t2 where user_name = @p1;`, mssql.VarChar(name))
+// Note: Mismatched data types on table and parameter may cause long running queries
+```
 
 ## Important Notes
 
