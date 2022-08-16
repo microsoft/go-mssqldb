@@ -47,7 +47,7 @@ type azureFedAuthConfig struct {
 
 // parse returns a config based on an msdsn-style connection string
 func parse(dsn string) (*azureFedAuthConfig, error) {
-	mssqlConfig, params, err := msdsn.Parse(dsn)
+	mssqlConfig, err := msdsn.Parse(dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func parse(dsn string) (*azureFedAuthConfig, error) {
 		mssqlConfig:    mssqlConfig,
 	}
 
-	err = config.validateParameters(params)
+	err = config.validateParameters(mssqlConfig.Parameters)
 	if err != nil {
 		return nil, err
 	}

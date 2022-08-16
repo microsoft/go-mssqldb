@@ -1168,11 +1168,17 @@ initiate_connection:
 		}
 	}
 
-	auth, authOk := getIntegratedAuthenticator(p.User, p.Password, p.ServerSPN, p.Workstation)
-	if authOk {
+	auth, err := integratedauth.GetIntegratedAuthenticator(p)
+	if err != nil {
+		if uint64(p.LogFlags)&logDebug != 0 {
+			logger.Log(ctx, msdsn.LogDebug, fmt.Sprintf("Error while creating integrated authenticator: %v", err))
+		}
+
+		return nil, err
+	}
+
+	if auth != nil {
 		defer auth.Free()
-	} else {
-		auth = nil
 	}
 
 	login, err := prepareLogin(ctx, c, p, logger, auth, fedAuth, uint32(outbuf.PackageSize()))

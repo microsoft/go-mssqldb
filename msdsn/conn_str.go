@@ -73,6 +73,8 @@ type Config struct {
 	ConnTimeout time.Duration // Use context for timeouts.
 	KeepAlive   time.Duration // Leave at default.
 	PacketSize  uint16
+
+	Parameters map[string]string
 }
 
 func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate string) (*tls.Config, error) {
@@ -107,31 +109,32 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 
 var skipSetup = errors.New("skip setting up TLS")
 
-func Parse(dsn string) (Config, map[string]string, error) {
+func Parse(dsn string) (Config, error) {
 	p := Config{}
 
 	var params map[string]string
+	var err error
 	if strings.HasPrefix(dsn, "odbc:") {
-		parameters, err := splitConnectionStringOdbc(dsn[len("odbc:"):])
+		params, err = splitConnectionStringOdbc(dsn[len("odbc:"):])
 		if err != nil {
-			return p, params, err
+			return p, err
 		}
-		params = parameters
 	} else if strings.HasPrefix(dsn, "sqlserver://") {
-		parameters, err := splitConnectionStringURL(dsn)
+		params, err = splitConnectionStringURL(dsn)
 		if err != nil {
-			return p, params, err
+			return p, err
 		}
-		params = parameters
 	} else {
 		params = splitConnectionString(dsn)
 	}
+
+	p.Parameters = params
 
 	strlog, ok := params["log"]
 	if ok {
 		flags, err := strconv.ParseUint(strlog, 10, 64)
 		if err != nil {
-			return p, params, fmt.Errorf("invalid log parameter '%s': %s", strlog, err.Error())
+			return p, fmt.Errorf("invalid log parameter '%s': %s", strlog, err.Error())
 		}
 		p.LogFlags = Log(flags)
 	}
@@ -155,7 +158,7 @@ func Parse(dsn string) (Config, map[string]string, error) {
 		p.Port, err = strconv.ParseUint(strport, 10, 16)
 		if err != nil {
 			f := "invalid tcp port '%v': %v"
-			return p, params, fmt.Errorf(f, strport, err.Error())
+			return p, fmt.Errorf(f, strport, err.Error())
 		}
 	}
 
@@ -166,7 +169,7 @@ func Parse(dsn string) (Config, map[string]string, error) {
 		psize, err := strconv.ParseUint(strpsize, 0, 16)
 		if err != nil {
 			f := "invalid packet size '%v': %v"
-			return p, params, fmt.Errorf(f, strpsize, err.Error())
+			return p, fmt.Errorf(f, strpsize, err.Error())
 		}
 
 		// Ensure packet size falls within the TDS protocol range of 512 to 32767 bytes
@@ -189,7 +192,7 @@ func Parse(dsn string) (Config, map[string]string, error) {
 		timeout, err := strconv.ParseUint(strconntimeout, 10, 64)
 		if err != nil {
 			f := "invalid connection timeout '%v': %v"
-			return p, params, fmt.Errorf(f, strconntimeout, err.Error())
+			return p, fmt.Errorf(f, strconntimeout, err.Error())
 		}
 		p.ConnTimeout = time.Duration(timeout) * time.Second
 	}
@@ -198,7 +201,7 @@ func Parse(dsn string) (Config, map[string]string, error) {
 		timeout, err := strconv.ParseUint(strdialtimeout, 10, 64)
 		if err != nil {
 			f := "invalid dial timeout '%v': %v"
-			return p, params, fmt.Errorf(f, strdialtimeout, err.Error())
+			return p, fmt.Errorf(f, strdialtimeout, err.Error())
 		}
 		p.DialTimeout = time.Duration(timeout) * time.Second
 	}
@@ -210,7 +213,7 @@ func Parse(dsn string) (Config, map[string]string, error) {
 		timeout, err := strconv.ParseUint(keepAlive, 10, 64)
 		if err != nil {
 			f := "invalid keepAlive value '%s': %s"
-			return p, params, fmt.Errorf(f, keepAlive, err.Error())
+			return p, fmt.Errorf(f, keepAlive, err.Error())
 		}
 		p.KeepAlive = time.Duration(timeout) * time.Second
 	}
@@ -228,7 +231,7 @@ func Parse(dsn string) (Config, map[string]string, error) {
 			e, err := strconv.ParseBool(encrypt)
 			if err != nil {
 				f := "invalid encrypt '%s': %s"
-				return p, params, fmt.Errorf(f, encrypt, err.Error())
+				return p, fmt.Errorf(f, encrypt, err.Error())
 			}
 			if e {
 				p.Encryption = EncryptionRequired
@@ -243,7 +246,7 @@ func Parse(dsn string) (Config, map[string]string, error) {
 		trustServerCert, err = strconv.ParseBool(trust)
 		if err != nil {
 			f := "invalid trust server certificate '%s': %s"
-			return p, params, fmt.Errorf(f, trust, err.Error())
+			return p, fmt.Errorf(f, trust, err.Error())
 		}
 	}
 	certificate = params["certificate"]
@@ -259,7 +262,7 @@ func Parse(dsn string) (Config, map[string]string, error) {
 		var err error
 		p.TLSConfig, err = SetupTLS(certificate, trustServerCert, hostInCertificate)
 		if err != nil {
-			return p, params, fmt.Errorf("failed to setup TLS: %w", err)
+			return p, fmt.Errorf("failed to setup TLS: %w", err)
 		}
 	}
 
@@ -291,7 +294,7 @@ func Parse(dsn string) (Config, map[string]string, error) {
 	if ok {
 		if appintent == "ReadOnly" {
 			if p.Database == "" {
-				return p, params, fmt.Errorf("database must be specified when ApplicationIntent is ReadOnly")
+				return p, fmt.Errorf("database must be specified when ApplicationIntent is ReadOnly")
 			}
 			p.ReadOnlyIntent = true
 		}
@@ -308,7 +311,7 @@ func Parse(dsn string) (Config, map[string]string, error) {
 		p.FailOverPort, err = strconv.ParseUint(failOverPort, 0, 16)
 		if err != nil {
 			f := "invalid failover port '%v': %v"
-			return p, params, fmt.Errorf(f, failOverPort, err.Error())
+			return p, fmt.Errorf(f, failOverPort, err.Error())
 		}
 	}
 
@@ -318,13 +321,13 @@ func Parse(dsn string) (Config, map[string]string, error) {
 		p.DisableRetry, err = strconv.ParseBool(disableRetry)
 		if err != nil {
 			f := "invalid disableRetry '%s': %s"
-			return p, params, fmt.Errorf(f, disableRetry, err.Error())
+			return p, fmt.Errorf(f, disableRetry, err.Error())
 		}
 	} else {
 		p.DisableRetry = disableRetryDefault
 	}
 
-	return p, params, nil
+	return p, nil
 }
 
 // convert connectionParams to url style connection string

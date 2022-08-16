@@ -9,6 +9,7 @@ import (
 	"unsafe"
 
 	"github.com/microsoft/go-mssqldb/integratedauth"
+	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
 var (
@@ -119,20 +120,20 @@ type Auth struct {
 
 // getAuth returns an authentication handle Auth to provide authentication content
 // to mssql.connect
-func getAuth(user, password, service, workstation string) (integratedauth.IntegratedAuthenticator, bool) {
+func getAuth(config msdsn.Config) (integratedauth.IntegratedAuthenticator, error) {
 	if user == "" {
-		return &Auth{Service: service}, true
+		return &Auth{Service: service}, nil
 	}
 	if !strings.ContainsRune(user, '\\') {
-		return nil, false
+		return nil, fmt.Errorf("winsspi : invalid username %v", config.User)
 	}
-	domain_user := strings.SplitN(user, "\\", 2)
+	domainUser := strings.SplitN(user, "\\", 2)
 	return &Auth{
-		Domain:   domain_user[0],
-		UserName: domain_user[1],
-		Password: password,
-		Service:  service,
-	}, true
+		Domain:   domainUser[0],
+		UserName: domainUser[1],
+		Password: config.Password,
+		Service:  config.ServerSPN,
+	}, nil
 }
 
 func (auth *Auth) InitialBytes() ([]byte, error) {

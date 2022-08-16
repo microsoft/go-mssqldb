@@ -60,7 +60,7 @@ type Driver struct {
 
 // OpenConnector opens a new connector. Useful to dial with a context.
 func (d *Driver) OpenConnector(dsn string) (*Connector, error) {
-	params, _, err := msdsn.Parse(dsn)
+	params, err := msdsn.Parse(dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func (d *Driver) SetContextLogger(ctxLogger ContextLogger) {
 // NewConnector creates a new connector from a DSN.
 // The returned connector may be used with sql.OpenDB.
 func NewConnector(dsn string) (*Connector, error) {
-	params, _, err := msdsn.Parse(dsn)
+	params, err := msdsn.Parse(dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -372,7 +372,7 @@ func (c *Conn) processBeginResponse(ctx context.Context) (driver.Tx, error) {
 }
 
 func (d *Driver) open(ctx context.Context, dsn string) (*Conn, error) {
-	params, _, err := msdsn.Parse(dsn)
+	params, err := msdsn.Parse(dsn)
 	if err != nil {
 		return nil, err
 	}
