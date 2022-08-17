@@ -21,9 +21,9 @@ func TestGetAuth(t *testing.T) {
 		realm:      "domain.com",
 		serverSPN:  "MSSQLSvc/mssql.domain.com:1433",
 		port:       1433,
-		krb5Config: kerberos["Config"].(*config.Config),
-		krbKeytab:  kerberos["Keytab"].(*keytab.Keytab),
-		krbCache:   kerberos["Cache"].(*credentials.CCache),
+		krb5Config: kerberos.Config,
+		krbKeytab:  kerberos.Keytab,
+		krbCache:   kerberos.Cache,
 		state:      0}
 
 	res := reflect.DeepEqual(got, kt)
@@ -36,9 +36,9 @@ func TestGetAuth(t *testing.T) {
 		realm:      "domain.com",
 		serverSPN:  "MSSQLSvc/mssql.domain.com:1433",
 		port:       1433,
-		krb5Config: kerberos["Config"].(*config.Config),
-		krbKeytab:  kerberos["Keytab"].(*keytab.Keytab),
-		krbCache:   kerberos["Cache"].(*credentials.CCache),
+		krb5Config: kerberos.Config,
+		krbKeytab:  kerberos.Keytab,
+		krbCache:   kerberos.Cache,
 		state:      0}
 
 	res = reflect.DeepEqual(got, kt)
@@ -56,9 +56,9 @@ func TestGetAuth(t *testing.T) {
 		realm:      "DOMAIN.COM",
 		serverSPN:  "MSSQLSvc/mssql.domain.com:1433",
 		port:       1433,
-		krb5Config: kerberos["Config"].(*config.Config),
-		krbKeytab:  kerberos["Keytab"].(*keytab.Keytab),
-		krbCache:   kerberos["Cache"].(*credentials.CCache),
+		krb5Config: kerberos.Config,
+		krbKeytab:  kerberos.Keytab,
+		krbCache:   kerberos.Cache,
 		state:      0}
 
 	res = reflect.DeepEqual(got, kt)
@@ -88,9 +88,9 @@ func TestInitialBytes(t *testing.T) {
 		realm:      "domain.com",
 		serverSPN:  "MSSQLSvc/mssql.domain.com:1433",
 		port:       1433,
-		krb5Config: kerberos["Config"].(*config.Config),
-		krbKeytab:  kerberos["Keytab"].(*keytab.Keytab),
-		krbCache:   kerberos["Cache"].(*credentials.CCache),
+		krb5Config: kerberos.Config,
+		krbKeytab:  kerberos.Keytab,
+		krbCache:   kerberos.Cache,
 		state:      0,
 	}
 
@@ -115,9 +115,9 @@ func TestNextBytes(t *testing.T) {
 		realm:      "domain.com",
 		serverSPN:  "MSSQLSvc/mssql.domain.com:1433",
 		port:       1433,
-		krb5Config: kerberos["Config"].(*config.Config),
-		krbKeytab:  kerberos["Keytab"].(*keytab.Keytab),
-		krbCache:   kerberos["Cache"].(*credentials.CCache),
+		krb5Config: kerberos.Config,
+		krbKeytab:  kerberos.Keytab,
+		krbCache:   kerberos.Cache,
 		state:      0}
 
 	_, err := krbObj.NextBytes(ans)
@@ -137,24 +137,24 @@ func TestFree(t *testing.T) {
 		realm:      "domain.com",
 		serverSPN:  "MSSQLSvc/mssql.domain.com:1433",
 		port:       1433,
-		krb5Config: kerberos["Config"].(*config.Config),
-		krbKeytab:  kerberos["Keytab"].(*keytab.Keytab),
-		krbCache:   kerberos["Cache"].(*credentials.CCache),
+		krb5Config: kerberos.Config,
+		krbKeytab:  kerberos.Keytab,
+		krbCache:   kerberos.Cache,
 		state:      0,
 		krb5Client: cl,
 	}
 	krbObj.Free()
-	cacheEntries := len(kerberos["Cache"].(*credentials.CCache).GetEntries())
+	cacheEntries := len(kerberos.Cache.GetEntries())
 	if cacheEntries != 0 {
 		t.Errorf("Client not destroyed")
 	}
 }
 
-func getKerberos() (krbParams map[string]interface{}) {
-	krbParams = map[string]interface{}{
-		"Config": &config.Config{},
-		"Keytab": &keytab.Keytab{},
-		"Cache":  &credentials.CCache{},
+func getKerberos() (krbParams *Kerberos) {
+	krbParams = &Kerberos{
+		Config: &config.Config{},
+		Keytab: &keytab.Keytab{},
+		Cache:  &credentials.CCache{},
 	}
 	return
 }

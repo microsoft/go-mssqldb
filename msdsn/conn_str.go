@@ -76,7 +76,14 @@ type Config struct {
 	KeepAlive   time.Duration // Leave at default.
 	PacketSize  uint16
 
-	Kerberos map[string]interface{}
+	Kerberos KerberosConfig
+}
+
+type KerberosConfig struct {
+	Krb5ConfFile string
+	Realm        string
+	KrbCache     string
+	KeytabFile   string
 }
 
 func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate string, minTLSVersion string) (*tls.Config, error) {
@@ -115,7 +122,7 @@ var skipSetup = errors.New("skip setting up TLS")
 
 func Parse(dsn string) (Config, map[string]string, error) {
 	p := Config{}
-	p.Kerberos = map[string]interface{}{"Realm": ""}
+	p.Kerberos = KerberosConfig{}
 
 	var params map[string]string
 	if strings.HasPrefix(dsn, "odbc:") {
@@ -190,7 +197,7 @@ func Parse(dsn string) (Config, map[string]string, error) {
 
 	krb5ConfFile, ok := params["krb5conffile"]
 	if ok {
-		p.Kerberos["Krb5ConfFile"] = krb5ConfFile
+		p.Kerberos.Krb5ConfFile = krb5ConfFile
 
 		missingParam := checkMissingKRBConfig(params)
 		if missingParam != "" {
@@ -199,17 +206,17 @@ func Parse(dsn string) (Config, map[string]string, error) {
 
 		realm, ok := params["realm"]
 		if ok {
-			p.Kerberos["Realm"] = realm
+			p.Kerberos.Realm = realm
 		}
 
 		krbCache, ok := params["krbcache"]
 		if ok {
-			p.Kerberos["KrbCache"] = krbCache
+			p.Kerberos.KrbCache = krbCache
 		}
 
 		keytabfile, ok := params["keytabfile"]
 		if ok {
-			p.Kerberos["KeytabFile"] = keytabfile
+			p.Kerberos.KeytabFile = keytabfile
 		}
 	}
 
@@ -300,7 +307,7 @@ func Parse(dsn string) (Config, map[string]string, error) {
 	if ok {
 		p.ServerSPN = serverSPN
 	} else {
-		p.ServerSPN = generateSpn(p.Host, resolveServerPort(p.Port), p.Kerberos["Realm"].(string))
+		p.ServerSPN = generateSpn(p.Host, resolveServerPort(p.Port), p.Kerberos.Realm)
 	}
 
 	workstation, ok := params["workstation id"]

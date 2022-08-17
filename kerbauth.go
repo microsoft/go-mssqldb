@@ -30,6 +30,21 @@ type krb5Auth struct {
 	state      krb5ClientState
 }
 
+type Kerberos struct {
+	// Kerberos configuration details
+	Config *config.Config
+
+	// Credential cache
+	Cache *credentials.CCache
+
+	// A Kerberos realm is the domain over which a Kerberos authentication server has the authority
+	// to authenticate a user, host or service.
+	Realm string
+
+	// Kerberos keytab that stores long-term keys for one or more principals
+	Keytab *keytab.Keytab
+}
+
 const (
 	// Initiator states
 	initiatorStart        krb5ClientState = iota

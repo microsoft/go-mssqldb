@@ -7,16 +7,19 @@ import (
 	"io/ioutil"
 	"os"
 	"testing"
+
+	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
 func TestGetKrbParams(t *testing.T) {
 	tempFile := createTempFile(t)
 	defer os.Remove(tempFile)
 
-	krbParams := map[string]interface{}{
-		"Krb5ConfFile": tempFile,
-		"KeytabFile":   tempFile,
-		"KrbCache":     "path/to/cache",
+	krbParams := msdsn.KerberosConfig{
+		Realm:        "",
+		Krb5ConfFile: tempFile,
+		KeytabFile:   tempFile,
+		KrbCache:     "path/to/cache",
 	}
 
 	_, err := getKrbParams(krbParams)
