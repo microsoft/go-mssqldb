@@ -204,18 +204,15 @@ func Parse(dsn string) (Config, map[string]string, error) {
 			return p, params, fmt.Errorf("missing parameter:%s", missingParam)
 		}
 
-		realm, ok := params["realm"]
-		if ok {
+		if realm, ok := params["realm"]; ok {
 			p.Kerberos.Realm = realm
 		}
 
-		krbCache, ok := params["krbcache"]
-		if ok {
+		if krbCache, ok := params["krbcache"]; ok {
 			p.Kerberos.KrbCache = krbCache
 		}
 
-		keytabfile, ok := params["keytabfile"]
-		if ok {
+		if keytabfile, ok := params["keytabfile"]; ok {
 			p.Kerberos.KeytabFile = keytabfile
 		}
 	}

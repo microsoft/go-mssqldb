@@ -4,6 +4,7 @@
 package mssql
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 
@@ -27,18 +28,23 @@ func getKrbParams(krb msdsn.KerberosConfig) (krbParams *Kerberos, err error) {
 		krbParams = &Kerberos{}
 		krbParams.Config, err = setupKerbConfig(krb.Krb5ConfFile)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("cannot read kerberos config file: %w", err)
 		}
 
-		krbParams.Keytab, err = setupKerbKeytab(krb.KeytabFile)
-		if err != nil {
-			return nil, err
+		if krb.KrbCache != "" {
+			krbParams.Cache, err = setupKerbCache(krb.KrbCache)
+			if err != nil {
+				return nil, fmt.Errorf("cannot read kerberos cache file: %w", err)
+			}
 		}
 
-		krbParams.Cache, err = setupKerbCache(krb.KrbCache)
-		if err != nil {
-			return nil, err
+		if krb.KeytabFile != "" {
+			krbParams.Keytab, err = setupKerbKeytab(krb.KeytabFile)
+			if err != nil {
+				return nil, fmt.Errorf("cannot read kerberos keytab file: %w", err)
+			}
 		}
+
 	}
 	return krbParams, nil
 }
