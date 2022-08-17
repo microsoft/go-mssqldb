@@ -121,7 +121,6 @@ func TestValidateParameters(t *testing.T) {
 		}
 		// mssqlConfig is not idempotent due to pointers in it, plus we aren't testing its correctness here
 		config.mssqlConfig = msdsn.Config{}
-
 		if !reflect.DeepEqual(config, tst.expected) {
 			t.Errorf("Captured parameters do not match in test case '%s'. Expected:%+v, Actual:%+v", tst.name, tst.expected, config)
 		}
