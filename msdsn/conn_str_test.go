@@ -218,12 +218,12 @@ func TestConnParseRoundTripFixed(t *testing.T) {
 }
 
 func TestAllKeysAreAvailableInParametersMap(t *testing.T) {
-	keys := map[string]string {
-		"user id" : "1",
-		"testparam":"testvalue",
-		"password":"test",
-		"thisisanunknownkey":"thisisthevalue",
-		"server":"name",
+	keys := map[string]string{
+		"user id":            "1",
+		"testparam":          "testvalue",
+		"password":           "test",
+		"thisisanunknownkey": "thisisthevalue",
+		"server":             "name",
 	}
 
 	connString := ""
