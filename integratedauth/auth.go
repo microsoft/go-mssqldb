@@ -21,7 +21,7 @@ func init() {
 
 // GetIntegratedAuthenticator calls the authProvider specified in the 'authenticator' connection string parameter, if supplied.
 // Otherwise fails back to the DefaultProviderName implementation for the platform.
-func GetIntegratedAuthenticator(config msdsn.Config) (IntegratedAuthenticator, error) {
+func GetIntegratedAuthenticator(config *msdsn.Config) (IntegratedAuthenticator, error) {
 	authenticatorName, ok := config.Parameters["authenticator"]
 	if !ok {
 		provider, err := getProvider(DefaultProviderName)

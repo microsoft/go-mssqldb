@@ -66,7 +66,7 @@ type Auth struct {
 
 // getAuth returns an authentication handle Auth to provide authentication content
 // to mssql.connect
-func getAuth(config msdsn.Config) (integratedauth.IntegratedAuthenticator, error) {
+func getAuth(config *msdsn.Config) (integratedauth.IntegratedAuthenticator, error) {
 	if !strings.ContainsRune(config.User, '\\') {
 		return nil, fmt.Errorf("ntlm : invalid username %v", config.User)
 	}

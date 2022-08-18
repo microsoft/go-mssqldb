@@ -120,7 +120,7 @@ type Auth struct {
 
 // getAuth returns an authentication handle Auth to provide authentication content
 // to mssql.connect
-func getAuth(config msdsn.Config) (integratedauth.IntegratedAuthenticator, error) {
+func getAuth(config *msdsn.Config) (integratedauth.IntegratedAuthenticator, error) {
 	if config.User == "" {
 		return &Auth{Service: config.ServerSPN}, nil
 	}

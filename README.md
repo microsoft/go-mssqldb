@@ -58,6 +58,7 @@ Other supported formats are listed below.
 * `ServerSPN` - The kerberos SPN (Service Principal Name) for the server. Default is MSSQLSvc/host:port.
 * `Workstation ID` - The workstation name (default is the host name)
 * `ApplicationIntent` - Can be given the value `ReadOnly` to initiate a read-only connection to an Availability Group listener. The `database` must be specified when connecting with `Application Intent` set to `ReadOnly`.
+* `authenticator` - Can be used to specify use of a registered authentication provider. (e.g. ntlm, winsspi (on windows) or krb5 (on linux)) 
 
 ### The connection string can be specified in one of three formats
 
@@ -150,6 +151,44 @@ func ConnectWithMSI() (*sql.DB, error) {
 }
 
 ```
+### Kerberos Active Directory authentication outside Windows 
+The driver can be extended to support kerberos on Linux
+
+In order to use the package, import it alongside the main driver :
+
+``` golang	
+	_ "github.com/microsoft/go-mssqldb"
+	_ "github.com/microsoft/go-mssqldb/integratedauth/krb5"
+```
+
+It will register itself and become available for use when the connection string parameter "authenticator=krb5" is used.
+
+e.g.
+
+    authenticator=krb5;server=DatabaseServerName;database=DBName;krb5-params.....
+
+The package supports authentication via 3 methods.
+
+* Keytabs - Specify the username, keytab file, the krb5.conf file, and realm.
+
+      authenticator=krb5;server=DatabaseServerName;database=DBName;user id=MyUserName;krb5-realm=domain.com;krb5-configfile=/etc/krb5.conf;krb5-keytabfile=~/MyUserName.keytab
+
+* Credential Cache - Specify the krb5.conf file path and credential cache file path.
+
+      authenticator=krb5;server=DatabaseServerName;database=DBName;krb5-configfile=/etc/krb5.conf;krb5-keytabcachefile=~/MyUserNameCachedCreds
+
+* Raw credentials - Specity krb5.confg, Username, Password and Realm.
+
+      authenticator=krb5;server=DatabaseServerName;database=DBName;user id=MyUserName;password=MyPassword;krb5-realm=comani.com;krb5-configfile=/etc/krb5.conf;
+
+The parameter names themselves are as follows :
+
+* `krb5-configfile` - path to krb5 configuration file. e.g. /etc/krb5.conf
+* `krb5-keytabfile` - path to keytab file.
+* `krb5-keytabcachefile` - path to credential cache file.
+* `krb5-realm` - domain name for account.
+* `krb5-dnslookupkdc` - Optional parameter in all contexts, overrides the `dns_lookup_kdc` value in `krb5-configfile`. Set to lookup KDCs in DNS. Boolean. Default is true.
+* `krb5-udppreferencelimit` - Optional parameter in all contexts overrides the `udp_preference_limit` value in `krb5-configfile`. 1 means to always use tcp. MIT krb5 has a default value of 1465, and it prevents user setting more than 32700. Integer. Default is 1.
 
 ## Executing Stored Procedures
 

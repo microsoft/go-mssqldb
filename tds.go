@@ -1166,7 +1166,7 @@ initiate_connection:
 		}
 	}
 
-	auth, err := integratedauth.GetIntegratedAuthenticator(p)
+	auth, err := integratedauth.GetIntegratedAuthenticator(&p)
 	if err != nil {
 		if uint64(p.LogFlags)&logDebug != 0 {
 			logger.Log(ctx, msdsn.LogDebug, fmt.Sprintf("Error while creating integrated authenticator: %v", err))
