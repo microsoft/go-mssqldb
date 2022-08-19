@@ -18,7 +18,7 @@ func (s *stubAuth) InitialBytes() ([]byte, error)    { return nil, nil }
 func (s *stubAuth) NextBytes([]byte) ([]byte, error) { return nil, nil }
 func (s *stubAuth) Free()                            {}
 
-func getAuth(config *msdsn.Config) (IntegratedAuthenticator, error) {
+func getAuth(config msdsn.Config) (IntegratedAuthenticator, error) {
 	return &stubAuth{config.User}, nil
 }
 
@@ -63,7 +63,7 @@ func TestSetIntegratedAuthenticationProviderInstanceIsPassedConnString(t *testin
 		return
 	}
 
-	authenticator, err := GetIntegratedAuthenticator(&config)
+	authenticator, err := GetIntegratedAuthenticator(config)
 
 	if err != nil {
 		t.Errorf("expected GetIntegratedAuthenticator() to return ok, found %v", err)
@@ -91,14 +91,14 @@ func TestSetIntegratedAuthenticationProviderInstanceIsDefaultWhenAuthenticatorPa
 	DefaultProviderName = "DEFAULT_PROVIDER"
 	defer func() { DefaultProviderName = "" }()
 
-	err = SetIntegratedAuthenticationProvider(DefaultProviderName, ProviderFunc(func(config *msdsn.Config) (IntegratedAuthenticator, error) {
+	err = SetIntegratedAuthenticationProvider(DefaultProviderName, ProviderFunc(func(config msdsn.Config) (IntegratedAuthenticator, error) {
 		return &stubAuth{"DEFAULT INSTANCE"}, nil
 	}))
 	if err != nil {
 		t.Errorf("SetIntegratedAuthenticationProvider() returned unexpected err %v", err)
 	}
 
-	result, err := GetIntegratedAuthenticator(&config)
+	result, err := GetIntegratedAuthenticator(config)
 
 	if err != nil {
 		t.Errorf("expected GetIntegratedAuthenticator() to return ok, found %v", err)
@@ -126,14 +126,14 @@ func TestGetIntegratedAuthenticatorFallBackToSqlAuthOnErrorOfDefaultProvider(t *
 	DefaultProviderName = "DEFAULT_PROVIDER"
 	defer func() { DefaultProviderName = "" }()
 
-	err = SetIntegratedAuthenticationProvider(DefaultProviderName, ProviderFunc(func(config *msdsn.Config) (IntegratedAuthenticator, error) {
+	err = SetIntegratedAuthenticationProvider(DefaultProviderName, ProviderFunc(func(config msdsn.Config) (IntegratedAuthenticator, error) {
 		return nil, errors.New("default authenticator cant continue")
 	}))
 	if err != nil {
 		t.Errorf("SetIntegratedAuthenticationProvider() returned unexpected err %v", err)
 	}
 
-	result, err := GetIntegratedAuthenticator(&config)
+	result, err := GetIntegratedAuthenticator(config)
 
 	if err != nil {
 		t.Errorf("expected GetIntegratedAuthenticator() to return ok, found %v", err)
@@ -157,7 +157,7 @@ func TestGetIntegratedAuthenticatorToErrorWhenNoDefaultProviderFound(t *testing.
 	DefaultProviderName = "NONEXISTANT_DEFAULT_PROVIDER"
 	defer func() { DefaultProviderName = "" }()
 
-	result, err := GetIntegratedAuthenticator(&config)
+	result, err := GetIntegratedAuthenticator(config)
 
 	if err == nil {
 		t.Error("expected GetIntegratedAuthenticator() to return error, found nil")
@@ -183,7 +183,7 @@ func TestGetIntegratedAuthenticatorToErrorWhenNoSpecifiedProviderFound(t *testin
 	}
 
 	// dont set an authenticator
-	result, err := GetIntegratedAuthenticator(&config)
+	result, err := GetIntegratedAuthenticator(config)
 
 	if err == nil {
 		t.Error("expected GetIntegratedAuthenticator() to return error, found nil")
