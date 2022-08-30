@@ -122,8 +122,8 @@ The package supports authentication via 3 methods.
 
     * `server=localhost\\SQLExpress;user id=sa;database=master;app name=MyAppName`
     * `server=localhost;user id=sa;database=master;app name=MyAppName`
-    * `server=localhost;user id=sa;database=master;app name=MyAppName;krb5conffile=path/to/file;krbcache=path/to/cache`
-    * `server=localhost;user id=sa;database=master;app name=MyAppName;krb5conffile=path/to/file;realm=domain.com;keytabfile=path/to/keytabfile`
+    * `server=localhost;user id=sa;database=master;app name=MyAppName;krb5conffile=path/to/file;krbcache=path/to/cache;authenticator=krb5`
+    * `server=localhost;user id=sa;database=master;app name=MyAppName;krb5conffile=path/to/file;realm=domain.com;keytabfile=path/to/keytabfile;authenticator=krb5`
 
 
     ADO strings support synonyms for database, app name, user id, and server
@@ -144,8 +144,8 @@ The package supports authentication via 3 methods.
     * `odbc:server=localhost;user id=sa;password=foo}bar`   // Literal `}`, password is "foo}bar"
     * `odbc:server=localhost;user id=sa;password={foo{bar}` // Literal `{`, password is "foo{bar"
     * `odbc:server=localhost;user id=sa;password={foo}}bar}` // Escaped `} with`}}`, password is "foo}bar"
-    * `odbc:server=localhost;user id=sa;database=master;app name=MyAppName;krb5conffile=path/to/file;krbcache=path/to/cache`
-    * `odbc:server=localhost;user id=sa;database=master;app name=MyAppName;krb5conffile=path/to/file;realm=domain.com;keytabfile=path/to/keytabfile`
+    * `odbc:server=localhost;user id=sa;database=master;app name=MyAppName;krb5conffile=path/to/file;krbcache=path/to/cache;authenticator=krb5`
+    * `odbc:server=localhost;user id=sa;database=master;app name=MyAppName;krb5conffile=path/to/file;realm=domain.com;keytabfile=path/to/keytabfile;authenticator=krb5`
 
 ### Azure Active Directory authentication
 
