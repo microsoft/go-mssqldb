@@ -28,6 +28,7 @@ Other supported formats are listed below.
   * `false` - Data sent between client and server is not encrypted beyond the login packet. (Default)
   * `true` - Data sent between client and server is encrypted.
 * `app name` - The application name (default is go-mssqldb)
+* `authenticator` - Can be used to specify use of a registered authentication provider. (e.g. ntlm, winsspi (on windows) or krb5 (on linux))
 
 ### Connection parameters for ODBC and ADO style connection strings
 
@@ -59,12 +60,27 @@ Other supported formats are listed below.
 * `Workstation ID` - The workstation name (default is the host name)
 * `ApplicationIntent` - Can be given the value `ReadOnly` to initiate a read-only connection to an Availability Group listener. The `database` must be specified when connecting with `Application Intent` set to `ReadOnly`.
 
+### Kerberos Active Directory authentication outside Windows
+The package supports authentication via 3 methods.
+
+* Keytabs - Specify the username, keytab file, the krb5.conf file, and realm.
+
+      authenticator=krb5;server=DatabaseServerName;database=DBName;user id=MyUserName;realm=domain.com;krb5conffile=/etc/krb5.conf;keytabfile=~/MyUserName.keytab
+
+* Credential Cache - Specify the krb5.conf file path and credential cache file path.
+
+      authenticator=krb5;server=DatabaseServerName;database=DBName;krb5conffile=/etc/krb5.conf;krbcache=~/MyUserNameCachedCreds
+
+* Raw credentials - Specity krb5.confg, Username, Password and Realm.
+
+      authenticator=krb5;server=DatabaseServerName;database=DBName;user id=MyUserName;password=MyPassword;realm=comani.com;krb5conffile=/etc/krb5.conf;
+
 ### Kerberos Parameters
 
-* `krb5conffile` - File path for kerberos configuration file.
+* `krb5conffile` - path to kerberos configuration file.
 * `realm` - Domain name for kerberos authentication.
-* `keytabfile` - Keytab file path.
-* `krbcache` - Credential cache path.
+* `keytabfile` - path to Keytab file.
+* `krbcache` - path to Credential cache.
 * For further information on usage: 
   * <https://web.mit.edu/kerberos/krb5-1.12/doc/admin/conf_files/krb5_conf.html>
   * <https://web.mit.edu/kerberos/krb5-1.12/doc/basic/index.html>
