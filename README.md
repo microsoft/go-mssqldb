@@ -77,8 +77,9 @@ The package supports authentication via 3 methods.
 
 ### Kerberos Parameters
 
-* `krb5conffile` - path to kerberos configuration file.
-* `realm` - Domain name for kerberos authentication.
+* `authenticator` - set this to `krb5` to enable kerberos authentication. If this is not present, the default provider would be `ntlm` for unix and `winsspi` for windows.
+* `krb5conffile` (mandatory) - path to kerberos configuration file. 
+* `realm` (required with keytab and raw credentials) - Domain name for kerberos authentication. 
 * `keytabfile` - path to Keytab file.
 * `krbcache` - path to Credential cache.
 * For further information on usage: 
