@@ -73,7 +73,7 @@ The package supports authentication via 3 methods.
 
 * Raw credentials - Specity krb5.confg, Username, Password and Realm.
 
-      authenticator=krb5;server=DatabaseServerName;database=DBName;user id=MyUserName;password=MyPassword;realm=comani.com;krb5conffile=/etc/krb5.conf;
+      authenticator=krb5;server=DatabaseServerName;database=DBName;user id=MyUserName;password=foo;realm=comani.com;krb5conffile=/etc/krb5.conf;
 
 ### Kerberos Parameters
 
