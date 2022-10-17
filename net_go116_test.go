@@ -1,3 +1,4 @@
+//go:build go1.16
 // +build go1.16
 
 package mssql
@@ -68,7 +69,7 @@ func TestTLSHandshakeConn(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 
-	toconn, err := dialConnection(ctx, connector, connector.params)
+	toconn, err := dialConnection(ctx, connector, connector.params, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -127,7 +128,7 @@ func TestPassthroughConn(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 
-	toconn, err := dialConnection(ctx, connector, connector.params)
+	toconn, err := dialConnection(ctx, connector, connector.params, nil)
 	if err != nil {
 		t.Error(err)
 	}

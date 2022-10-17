@@ -75,6 +75,10 @@ type Config struct {
 	PacketSize  uint16
 
 	Parameters map[string]string
+	// Protocols is an ordered list of protocols to dial
+	Protocols []string
+	// ProtocolParameters are written by non-tcp ProtocolParser implementations
+	ProtocolParameters map[string]interface{}
 }
 
 func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate string, minTLSVersion string) (*tls.Config, error) {
@@ -112,7 +116,10 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 var skipSetup = errors.New("skip setting up TLS")
 
 func Parse(dsn string) (Config, error) {
-	p := Config{}
+	p := Config{
+		ProtocolParameters: map[string]interface{}{},
+		Protocols:          []string{},
+	}
 
 	var params map[string]string
 	var err error
@@ -141,14 +148,20 @@ func Parse(dsn string) (Config, error) {
 		p.LogFlags = Log(flags)
 	}
 	server := params["server"]
-	parts := strings.SplitN(server, `\`, 2)
-	p.Host = parts[0]
-	if p.Host == "." || strings.ToUpper(p.Host) == "(LOCAL)" || p.Host == "" {
-		p.Host = "localhost"
+	protocol, ok := params["protocol"]
+
+	for _, parser := range ProtocolParsers {
+		if !ok || parser.Protocol() == protocol {
+			p.Protocols = append(p.Protocols, parser.Protocol())
+			if err = parser.ParseServer(server, &p); err != nil {
+				return p, err
+			}
+		}
 	}
-	if len(parts) > 1 {
-		p.Instance = parts[1]
+	if ok && len(p.Protocols) == 0 {
+		return p, fmt.Errorf("No protocol handler is available for protocol: '%s'", protocol)
 	}
+
 	p.Database = params["database"]
 	p.User = params["user id"]
 	p.Password = params["password"]
@@ -394,9 +407,14 @@ func splitConnectionString(dsn string) (res map[string]string) {
 			name = synonym
 		}
 		// "server" in ADO can include a protocol and a port.
-		// We only support tcp protocol
 		if name == "server" {
-			value = strings.TrimPrefix(value, "tcp:")
+			for _, parser := range ProtocolParsers {
+				prot := parser.Protocol() + ":"
+				if strings.HasPrefix(value, prot) {
+					res["protocol"] = parser.Protocol()
+				}
+				value = strings.TrimPrefix(value, prot)
+			}
 			serverParts := strings.Split(value, ",")
 			if len(serverParts) == 2 && len(serverParts[1]) > 0 {
 				value = serverParts[0]
@@ -634,4 +652,34 @@ func resolveServerPort(port uint64) uint64 {
 
 func generateSpn(host string, port string) string {
 	return fmt.Sprintf("MSSQLSvc/%s:%s", host, port)
+}
+
+// ProtocolParser can populate Config with parameters to dial using its protocol
+type ProtocolParser interface {
+	ParseServer(server string, p *Config) error
+	Protocol() string
+}
+
+// ProtocolParsers is an ordered list of protocols that can be dialed. Each parser must have a corresponding Dialer in mssql.ProtocolDialers
+var ProtocolParsers []ProtocolParser = []ProtocolParser{
+	tcpParser{},
+}
+
+type tcpParser struct{}
+
+func (t tcpParser) ParseServer(server string, p *Config) error {
+	// a server name can have different forms
+	parts := strings.SplitN(server, `\`, 2)
+	p.Host = parts[0]
+	if p.Host == "." || strings.ToUpper(p.Host) == "(LOCAL)" || p.Host == "" {
+		p.Host = "localhost"
+	}
+	if len(parts) > 1 {
+		p.Instance = parts[1]
+	}
+	return nil
+}
+
+func (t tcpParser) Protocol() string {
+	return "tcp"
 }
