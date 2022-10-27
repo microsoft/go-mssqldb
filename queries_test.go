@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/microsoft/go-mssqldb/msdsn"
+	_ "github.com/microsoft/go-mssqldb/namedpipe"
 )
 
 func driverWithProcess(t *testing.T, tl Logger) *Driver {

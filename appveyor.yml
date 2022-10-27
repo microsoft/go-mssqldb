@@ -50,6 +50,7 @@ environment:
       SQLINSTANCE: SQL2017
       GOARCH: 386
       RACE:
+      PROTOCOL: np
 install:
   - set GOROOT=c:\go%GOVERSION%
   - set PATH=%GOPATH%\bin;%GOROOT%\bin;%PATH%
@@ -64,7 +65,17 @@ build_script:
 before_test:
   # setup SQL Server
   - ps: |
+      [reflection.assembly]::LoadWithPartialName("Microsoft.SqlServer.Smo") | Out-Null
+      [reflection.assembly]::LoadWithPartialName("Microsoft.SqlServer.SqlWmiManagement") | Out-Null
+      $smo = 'Microsoft.SqlServer.Management.Smo.'
+      $wmi = new-object ($smo + 'Wmi.ManagedComputer')
+      $serverName = $env:COMPUTERNAME
       $instanceName = $env:SQLINSTANCE
+      # Enable named pipes
+      $uri = "ManagedComputer[@Name='$serverName']/ ServerInstance[@Name='$instanceName']/ServerProtocol[@Name='Np']"
+      $Np = $wmi.GetSmoObject($uri)
+      $Np.IsEnabled = $true
+      $Np.Alter()
       Start-Service "MSSQL`$$instanceName"
       Start-Service "SQLBrowser"
   - sqlcmd -S "(local)\%SQLINSTANCE%" -Q "Use [master]; CREATE DATABASE test;"

@@ -152,10 +152,17 @@ func Parse(dsn string) (Config, error) {
 
 	for _, parser := range ProtocolParsers {
 		if !ok || parser.Protocol() == protocol {
-			p.Protocols = append(p.Protocols, parser.Protocol())
-			if err = parser.ParseServer(server, &p); err != nil {
-				return p, err
+			err = parser.ParseServer(server, &p)
+			if err != nil {
+				// if the caller only wants this protocol , fail right away
+				if ok {
+					return p, err
+				}
+			} else {
+				// Only enable a protocol if it can handle the server name
+				p.Protocols = append(p.Protocols, parser.Protocol())
 			}
+
 		}
 	}
 	if ok && len(p.Protocols) == 0 {
@@ -361,6 +368,10 @@ func (p Config) URL() *url.URL {
 		host = fmt.Sprintf("%s:%d", p.Host, p.Port)
 	}
 	q.Add("disableRetry", fmt.Sprintf("%t", p.DisableRetry))
+	protocol, ok := p.Parameters["protocol"]
+	if ok {
+		q.Add("protocol", protocol)
+	}
 	res := url.URL{
 		Scheme: "sqlserver",
 		Host:   host,

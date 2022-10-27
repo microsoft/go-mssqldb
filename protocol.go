@@ -10,24 +10,14 @@ import (
 	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
-// ProtocolDialer makes the network connection for a protocol
-type ProtocolDialer interface {
-	// Translates data from SQL Browser to parameters in the config
-	ParseBrowserData(data BrowserData, p *msdsn.Config) error
-	// Returns a Dialer to make the connection
-	DialConnection(ctx context.Context, c *Connector, p msdsn.Config) (conn net.Conn, err error)
-	// Returns true if information is needed from the SQL Browser service to make a connection
-	CallBrowser(p *msdsn.Config) bool
-}
-
-// ProtocolResolvers should be updated by any package that provides a ProtocolResolver and an associated ProtocolDialer
-var ProtocolDialers map[string]ProtocolDialer = map[string]ProtocolDialer{
-	"tcp": tcpDialer{},
+type MssqlProtocolDialer interface {
+	// DialSqlConnection creates a net.Conn from a Connector based on the Config
+	DialSqlConnection(ctx context.Context, c *Connector, p msdsn.Config) (conn net.Conn, err error)
 }
 
 type tcpDialer struct{}
 
-func (t tcpDialer) ParseBrowserData(data BrowserData, p *msdsn.Config) error {
+func (t tcpDialer) ParseBrowserData(data msdsn.BrowserData, p *msdsn.Config) error {
 	// If instance is specified, but no port, check SQL Server Browser
 	// for the instance and discover its port.
 	p.Instance = strings.ToUpper(p.Instance)
@@ -45,10 +35,14 @@ func (t tcpDialer) ParseBrowserData(data BrowserData, p *msdsn.Config) error {
 	return nil
 }
 
+func (t tcpDialer) DialConnection(ctx context.Context, p msdsn.Config) (conn net.Conn, err error) {
+	return nil, fmt.Errorf("tcp dialer requires a Connector instance")
+}
+
 // SQL Server AlwaysOn Availability Group Listeners are bound by DNS to a
 // list of IP addresses.  So if there is more than one, try them all and
 // use the first one that allows a connection.
-func (t tcpDialer) DialConnection(ctx context.Context, c *Connector, p msdsn.Config) (conn net.Conn, err error) {
+func (t tcpDialer) DialSqlConnection(ctx context.Context, c *Connector, p msdsn.Config) (conn net.Conn, err error) {
 	var ips []net.IP
 	ip := net.ParseIP(p.Host)
 	if ip == nil {

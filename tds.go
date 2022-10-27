@@ -19,10 +19,8 @@ import (
 	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
-type BrowserData map[string]map[string]string
-
-func parseInstances(msg []byte) BrowserData {
-	results := BrowserData{}
+func parseInstances(msg []byte) msdsn.BrowserData {
+	results := msdsn.BrowserData{}
 	if len(msg) > 3 && msg[0] == 5 {
 		out_s := string(msg[3:])
 		tokens := strings.Split(out_s, ";")
@@ -50,7 +48,7 @@ func parseInstances(msg []byte) BrowserData {
 	return results
 }
 
-func getInstances(ctx context.Context, d Dialer, address string) (BrowserData, error) {
+func getInstances(ctx context.Context, d Dialer, address string) (msdsn.BrowserData, error) {
 	conn, err := d.DialContext(ctx, "udp", address+":1434")
 	if err != nil {
 		return nil, err
@@ -841,12 +839,19 @@ func sendAttention(buf *tdsBuffer) error {
 // Makes an attempt to connect with each available protocol, in order, until one succeeds or the timeout elapses
 func dialConnection(ctx context.Context, c *Connector, p msdsn.Config, logger ContextLogger) (conn net.Conn, err error) {
 	for _, protocol := range p.Protocols {
-		dialer := ProtocolDialers[protocol]
-		conn, err = dialer.DialConnection(ctx, c, p)
+		dialer := msdsn.ProtocolDialers[protocol]
+		sqlDialer, ok := dialer.(MssqlProtocolDialer)
+		logger.Log(ctx, msdsn.LogDebug, "Dialing with protocol "+protocol)
+		if !ok {
+			conn, err = dialer.DialConnection(ctx, p)
+		} else {
+			conn, err = sqlDialer.DialSqlConnection(ctx, c, p)
+		}
 		if err != nil && logger != nil {
 			logger.Log(ctx, msdsn.LogErrors, "Unable to connect with protocol "+protocol+":"+err.Error())
 		}
 		if conn != nil {
+			logger.Log(ctx, msdsn.LogDebug, "Returning connection from protocol "+protocol)
 			return
 		}
 	}
@@ -998,22 +1003,22 @@ func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Co
 		// you should not provide instance name when you provide port
 		logger.Log(ctx, msdsn.LogDebug, "WARN: You specified both instance name and port in the connection string, port will be used and instance name will be ignored")
 	}
-	var instances BrowserData
+	var instances msdsn.BrowserData
 	pErrors := make(map[string]error)
 	for _, protocol := range p.Protocols {
-		pd, ok := ProtocolDialers[protocol]
+		pd, ok := msdsn.ProtocolDialers[protocol]
 		if !ok {
 			return nil, fmt.Errorf("No dialer is configured for protocol '%s'", protocol)
 		}
-		if instances == nil && pd.CallBrowser(&p) {
-			d := c.getDialer(&p)
-			instances, err = getInstances(dialCtx, d, p.Host)
-			if err != nil {
-				f := "unable to get instances from Sql Server Browser on host %v: %v"
-				return nil, fmt.Errorf(f, p.Host, err.Error())
+		if pd.CallBrowser(&p) {
+			if instances == nil {
+				d := c.getDialer(&p)
+				instances, err = getInstances(dialCtx, d, p.Host)
+				if err != nil {
+					f := "unable to get instances from Sql Server Browser on host %v: %v"
+					return nil, fmt.Errorf(f, p.Host, err.Error())
+				}
 			}
-		}
-		if instances != nil {
 			pErr := pd.ParseBrowserData(instances, &p)
 			if pErr != nil {
 				pErrors[protocol] = pErr
