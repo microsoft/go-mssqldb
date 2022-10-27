@@ -2,6 +2,14 @@
 
 package namedpipe
 
+import (
+	"context"
+	"fmt"
+	"net"
+
+	"github.com/microsoft/go-mssqldb/msdsn"
+)
+
 func (n namedPipeDialer) ParseServer(server string, p *msdsn.Config) error {
 	return fmt.Errorf("Named pipe connections are not supported on this operating system")
 }
