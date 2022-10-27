@@ -12,6 +12,10 @@ import (
 	"gopkg.in/natefinch/npipe.v2"
 )
 
+type namedPipeData struct {
+	PipeName string
+}
+
 func (n namedPipeDialer) ParseServer(server string, p *msdsn.Config) error {
 	// assume a server name starting with \\ is the full named pipe path
 	if strings.HasPrefix(server, `\\`) {
