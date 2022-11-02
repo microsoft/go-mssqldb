@@ -59,6 +59,8 @@ install:
   - go get -u github.com/golang-sql/civil
   - go get -u github.com/golang-sql/sqlexp
   - go get -u golang.org/x/crypto/md4
+  - go get -u gopkg.in/natefinch/npipe.v2
+  
 build_script:
   - go build
 
