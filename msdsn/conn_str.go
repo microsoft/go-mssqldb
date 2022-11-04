@@ -147,27 +147,6 @@ func Parse(dsn string) (Config, error) {
 		}
 		p.LogFlags = Log(flags)
 	}
-	server := params["server"]
-	protocol, ok := params["protocol"]
-
-	for _, parser := range ProtocolParsers {
-		if !ok || parser.Protocol() == protocol {
-			err = parser.ParseServer(server, &p)
-			if err != nil {
-				// if the caller only wants this protocol , fail right away
-				if ok {
-					return p, err
-				}
-			} else {
-				// Only enable a protocol if it can handle the server name
-				p.Protocols = append(p.Protocols, parser.Protocol())
-			}
-
-		}
-	}
-	if ok && len(p.Protocols) == 0 {
-		return p, fmt.Errorf("No protocol handler is available for protocol: '%s'", protocol)
-	}
 
 	p.Database = params["database"]
 	p.User = params["user id"]
@@ -225,7 +204,7 @@ func Parse(dsn string) (Config, error) {
 			f := "invalid dial timeout '%v': %v"
 			return p, fmt.Errorf(f, strdialtimeout, err.Error())
 		}
-		p.DialTimeout = time.Duration(timeout) * time.Second
+		p.DialTimeout = time.Duration(timeout*uint64(len(p.Protocols))) * time.Second
 	}
 
 	// default keep alive should be 30 seconds according to spec:
@@ -350,6 +329,28 @@ func Parse(dsn string) (Config, error) {
 		p.DisableRetry = disableRetryDefault
 	}
 
+	server := params["server"]
+	protocol, ok := params["protocol"]
+
+	for _, parser := range ProtocolParsers {
+		if !ok || parser.Protocol() == protocol {
+			err = parser.ParseServer(server, &p)
+			if err != nil {
+				// if the caller only wants this protocol , fail right away
+				if ok {
+					return p, err
+				}
+			} else {
+				// Only enable a protocol if it can handle the server name
+				p.Protocols = append(p.Protocols, parser.Protocol())
+			}
+
+		}
+	}
+	if ok && len(p.Protocols) == 0 {
+		return p, fmt.Errorf("No protocol handler is available for protocol: '%s'", protocol)
+	}
+
 	return p, nil
 }
 
@@ -380,9 +381,11 @@ func (p Config) URL() *url.URL {
 	if p.Instance != "" {
 		res.Path = p.Instance
 	}
+	q.Add("dial timeout", strconv.FormatFloat(float64(p.DialTimeout.Seconds()), 'f', 0, 64))
 	if len(q) > 0 {
 		res.RawQuery = q.Encode()
 	}
+
 	return &res
 }
 

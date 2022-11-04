@@ -20,6 +20,8 @@ func (n namedPipeDialer) ParseServer(server string, p *msdsn.Config) error {
 	// assume a server name starting with \\ is the full named pipe path
 	if strings.HasPrefix(server, `\\`) {
 		p.ProtocolParameters[n.Protocol()] = &namedPipeData{PipeName: server}
+	} else if p.Port > 0 {
+		return fmt.Errorf("Named pipes disallowed due to port being specified")
 	} else if p.Host == "" { // if the string specifies np:host\instance, tcpParser won't have filled in p.Host
 		parts := strings.SplitN(server, `\`, 2)
 		p.Host = parts[0]

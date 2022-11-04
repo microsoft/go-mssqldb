@@ -598,6 +598,8 @@ func TestSqlBrowserNotUsedIfPortSpecified(t *testing.T) {
 	params := testConnParams(t)
 	params.Host = "badhost"
 	params.Instance = "foobar"
+	protocols := params.Protocols
+	params.Protocols = []string{"tcp"}
 
 	// Specify no port, so error must indicate SQL Browser lookup failed
 	params.Port = 0 // No port spcified, sql browser should be used
@@ -610,6 +612,7 @@ func TestSqlBrowserNotUsedIfPortSpecified(t *testing.T) {
 
 	// Specify port, ensure error does not indicate SQL Browser lookup failed
 	params.Port = 1500 // Specify a port, sql browser should not be tried
+	params.Protocols = protocols
 	err = testConnectionBad(t, params.URL().String())
 
 	if strings.Contains(err.Error(), errorSubstrStringToCheckFor) {

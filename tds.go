@@ -841,7 +841,9 @@ func dialConnection(ctx context.Context, c *Connector, p msdsn.Config, logger Co
 	for _, protocol := range p.Protocols {
 		dialer := msdsn.ProtocolDialers[protocol]
 		sqlDialer, ok := dialer.(MssqlProtocolDialer)
-		logger.Log(ctx, msdsn.LogDebug, "Dialing with protocol "+protocol)
+		if logger != nil {
+			logger.Log(ctx, msdsn.LogDebug, "Dialing with protocol "+protocol)
+		}
 		if !ok {
 			conn, err = dialer.DialConnection(ctx, p)
 		} else {
@@ -851,7 +853,9 @@ func dialConnection(ctx context.Context, c *Connector, p msdsn.Config, logger Co
 			logger.Log(ctx, msdsn.LogErrors, "Unable to connect with protocol "+protocol+":"+err.Error())
 		}
 		if conn != nil {
-			logger.Log(ctx, msdsn.LogDebug, "Returning connection from protocol "+protocol)
+			if logger != nil {
+				logger.Log(ctx, msdsn.LogDebug, "Returning connection from protocol "+protocol)
+			}
 			return
 		}
 	}
@@ -989,7 +993,7 @@ func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Co
 	if p.DialTimeout >= 0 {
 		dt := p.DialTimeout
 		if dt == 0 {
-			dt = 15 * time.Second
+			dt = time.Duration(15*len(p.Protocols)) * time.Second
 		}
 		var cancel func()
 		dialCtx, cancel = context.WithTimeout(ctx, dt)
