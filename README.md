@@ -88,7 +88,7 @@ The package supports authentication via 3 methods.
 
 * Credential Cache - Specify the krb5.conf file path and credential cache file path.
 
-      authenticator=krb5;server=DatabaseServerName;database=DBName;krb5-configfile=/etc/krb5.conf;krb5-keytabcachefile=~/MyUserNameCachedCreds 
+      authenticator=krb5;server=DatabaseServerName;database=DBName;krb5-configfile=/etc/krb5.conf;krb5-credcachefile=~/MyUserNameCachedCreds 
 
 * Raw credentials - Specity krb5.confg, Username, Password and Realm.
 
@@ -100,7 +100,7 @@ The package supports authentication via 3 methods.
 * `krb5-configfile` (mandatory) - path to kerberos configuration file. 
 * `krb5-realm` (required with keytab and raw credentials) - Domain name for kerberos authentication. 
 * `krb5-keytabfile` - path to Keytab file.
-* `krb5-keytabcachefile` - path to Credential cache.
+* `krb5-credcachefile` - path to Credential cache.
 * `krb5-dnslookupkdc` - Optional parameter in all contexts. Set to lookup KDCs in DNS. Boolean. Default is true. 
 * `krb5-udppreferencelimit` - Optional parameter in all contexts. 1 means to always use tcp. MIT krb5 has a default value of 1465, and it prevents user setting more than 32700. Integer. Default is 1.
   
@@ -137,7 +137,7 @@ For further information on usage:
 
     ```
 
-* `sqlserver://username@host/instance?krb5-configfile=path/to/file&krb5-keytabcachefile=/path/to/cache`
+* `sqlserver://username@host/instance?krb5-configfile=path/to/file&krb5-credcachefile=/path/to/cache`
     * `sqlserver://username@host/instance?krb5-configfile=path/to/file&krb5-realm=domain.com&krb5-keytabfile=/path/to/keytabfile`
 
 2. ADO: `key=value` pairs separated by `;`. Values may not contain `;`, leading and trailing whitespace is ignored.
@@ -145,7 +145,7 @@ For further information on usage:
 
     * `server=localhost\\SQLExpress;user id=sa;database=master;app name=MyAppName`
     * `server=localhost;user id=sa;database=master;app name=MyAppName`
-    * `server=localhost;user id=sa;database=master;app name=MyAppName;krb5-configfile=path/to/file;krb5-keytabcachefile=path/to/cache;authenticator=krb5`
+    * `server=localhost;user id=sa;database=master;app name=MyAppName;krb5-configfile=path/to/file;krb5-credcachefile=path/to/cache;authenticator=krb5`
     * `server=localhost;user id=sa;database=master;app name=MyAppName;krb5-configfile=path/to/file;krb5-realm=domain.com;krb5-keytabfile=path/to/keytabfile;authenticator=krb5`
 
 
@@ -167,7 +167,7 @@ For further information on usage:
     * `odbc:server=localhost;user id=sa;password=foo}bar`   // Literal `}`, password is "foo}bar"
     * `odbc:server=localhost;user id=sa;password={foo{bar}` // Literal `{`, password is "foo{bar"
     * `odbc:server=localhost;user id=sa;password={foo}}bar}` // Escaped `} with`}}`, password is "foo}bar"
-    * `odbc:server=localhost;user id=sa;database=master;app name=MyAppName;krb5-configfile=path/to/file;krb5-keytabcachefile=path/to/cache;authenticator=krb5`
+    * `odbc:server=localhost;user id=sa;database=master;app name=MyAppName;krb5-configfile=path/to/file;krb5-credcachefile=path/to/cache;authenticator=krb5`
     * `odbc:server=localhost;user id=sa;database=master;app name=MyAppName;krb5-configfile=path/to/file;krb5-realm=domain.com;krb5-keytabfile=path/to/keytabfile;authenticator=krb5`
 
 ### Azure Active Directory authentication

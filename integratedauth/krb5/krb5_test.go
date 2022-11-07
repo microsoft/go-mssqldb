@@ -15,7 +15,7 @@ func TestReadKrb5ConfigHappyPath(t *testing.T) {
 		Parameters: map[string]string{
 			"krb5-configfile":         "krb5-configfile",
 			"krb5-keytabfile":         "krb5-keytabfile",
-			"krb5-keytabcachefile":    "krb5-keytabcachefile",
+			"krb5-credcachefile":      "krb5-credcachefile",
 			"krb5-realm":              "krb5-realm",
 			"krb5-dnslookupkdc":       "false",
 			"krb5-udppreferencelimit": "1234",
@@ -36,8 +36,8 @@ func TestReadKrb5ConfigHappyPath(t *testing.T) {
 		t.Errorf("Expected KeytabFile %v, found %v", config.Parameters[keytabFile], actual.KeytabFile)
 	}
 
-	if actual.KeytabCacheFile != config.Parameters[keytabCache] {
-		t.Errorf("Expected KeytabCacheFile %v, found %v", config.Parameters[keytabCache], actual.KeytabCacheFile)
+	if actual.CredCacheFile != config.Parameters[credCacheFile] {
+		t.Errorf("Expected CredCacheFile %v, found %v", config.Parameters[credCacheFile], actual.CredCacheFile)
 	}
 
 	if actual.Realm != config.Parameters[realm] {
@@ -236,8 +236,8 @@ func TestValidateKrb5LoginParams(t *testing.T) {
 		{
 			name: "happy credential cache",
 			input: &krb5Login{
-				KeytabCacheFile: "exists",
-				Krb5ConfigFile:  "exists",
+				CredCacheFile:  "exists",
+				Krb5ConfigFile: "exists",
 			},
 			expectedLoginMethod: cachedCredentialsFile,
 			expectedError:       nil,
@@ -245,29 +245,29 @@ func TestValidateKrb5LoginParams(t *testing.T) {
 		{
 			name: "credential cache, missing Krb5ConfigFile",
 			input: &krb5Login{
-				KeytabCacheFile: "exists",
-				Krb5ConfigFile:  "",
+				CredCacheFile:  "exists",
+				Krb5ConfigFile: "",
 			},
 			expectedLoginMethod: none,
-			expectedError:       ErrKrb5ConfigFileRequiredWithKeytabCache,
+			expectedError:       ErrKrb5ConfigFileRequiredWithCredCache,
 		},
 		{
 			name: "credential cache, Krb5ConfigFile file not found",
 			input: &krb5Login{
-				KeytabCacheFile: "exists",
-				Krb5ConfigFile:  "missing",
+				CredCacheFile:  "exists",
+				Krb5ConfigFile: "missing",
 			},
 			expectedLoginMethod: none,
 			expectedError:       ErrKrb5ConfigFileDoesNotExist,
 		},
 		{
-			name: "credential cache, KeytabCacheFile file not found",
+			name: "credential cache, CredCacheFile file not found",
 			input: &krb5Login{
-				KeytabCacheFile: "missing",
-				Krb5ConfigFile:  "exists",
+				CredCacheFile:  "missing",
+				Krb5ConfigFile: "exists",
 			},
 			expectedLoginMethod: none,
-			expectedError:       ErrKeytabCacheFileDoesNotExist,
+			expectedError:       ErrCredCacheFileDoesNotExist,
 		},
 		{
 			name:                "no login method math",
@@ -347,8 +347,8 @@ func TestGetAuth(t *testing.T) {
 		t.Errorf("Expected KeytabFile %v, found %v", config.Parameters[keytabFile], actual.krb5Config.KeytabFile)
 	}
 
-	if actual.krb5Config.KeytabCacheFile != config.Parameters[keytabCache] {
-		t.Errorf("Expected KeytabCacheFile %v, found %v", config.Parameters[keytabCache], actual.krb5Config.KeytabCacheFile)
+	if actual.krb5Config.CredCacheFile != config.Parameters[credCacheFile] {
+		t.Errorf("Expected CredCacheFile %v, found %v", config.Parameters[credCacheFile], actual.krb5Config.CredCacheFile)
 	}
 
 	if actual.krb5Config.Realm != config.Parameters[realm] {

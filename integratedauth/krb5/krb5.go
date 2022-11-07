@@ -24,7 +24,7 @@ import (
 const (
 	keytabConfigFile   = "krb5-configfile"
 	keytabFile         = "krb5-keytabfile"
-	keytabCache        = "krb5-keytabcachefile"
+	credCacheFile      = "krb5-credcachefile"
 	realm              = "krb5-realm"
 	dnsLookupKDC       = "krb5-dnslookupkdc"
 	udpPreferenceLimit = "krb5-udppreferencelimit"
@@ -39,8 +39,8 @@ var (
 	ErrKrb5ConfigFileRequiredWithKeytab              = errors.New("krb5-configfile is required to login with krb5 when using krb5-keytabfile")
 	ErrKrb5ConfigFileDoesNotExist                    = errors.New("krb5-configfile does not exist")
 	ErrKeytabFileDoesNotExist                        = errors.New("krb5-keytabfile does not exist")
-	ErrKrb5ConfigFileRequiredWithKeytabCache         = errors.New("krb5-configfile is required to login with krb5 when using krb5-keytabcachefile")
-	ErrKeytabCacheFileDoesNotExist                   = errors.New("krb5-keytabcachefile does not exist")
+	ErrKrb5ConfigFileRequiredWithCredCache           = errors.New("krb5-configfile is required to login with krb5 when using krb5-credcachefile")
+	ErrCredCacheFileDoesNotExist                     = errors.New("krb5-credcachefile does not exist")
 )
 
 var (
@@ -84,7 +84,7 @@ const (
 type krb5Login struct {
 	Krb5ConfigFile     string
 	KeytabFile         string
-	KeytabCacheFile    string
+	CredCacheFile      string
 	Realm              string
 	UserName           string
 	Password           string
@@ -99,7 +99,7 @@ func readKrb5Config(config msdsn.Config) (*krb5Login, error) {
 	login := &krb5Login{
 		Krb5ConfigFile:     config.Parameters[keytabConfigFile],
 		KeytabFile:         config.Parameters[keytabFile],
-		KeytabCacheFile:    config.Parameters[keytabCache],
+		CredCacheFile:      config.Parameters[credCacheFile],
 		Realm:              config.Parameters[realm],
 		UserName:           config.User,
 		Password:           config.Password,
@@ -168,14 +168,14 @@ func validateKrb5LoginParams(krbLoginParams *krb5Login) error {
 		return nil
 
 	// using a credential cache file
-	case krbLoginParams.KeytabCacheFile != "":
+	case krbLoginParams.CredCacheFile != "":
 		if krbLoginParams.Krb5ConfigFile == "" {
-			return ErrKrb5ConfigFileRequiredWithKeytabCache
+			return ErrKrb5ConfigFileRequiredWithCredCache
 		}
 		if ok, err := fileExists(krbLoginParams.Krb5ConfigFile, ErrKrb5ConfigFileDoesNotExist); !ok {
 			return err
 		}
-		if ok, err := fileExists(krbLoginParams.KeytabCacheFile, ErrKeytabCacheFileDoesNotExist); !ok {
+		if ok, err := fileExists(krbLoginParams.CredCacheFile, ErrCredCacheFileDoesNotExist); !ok {
 			return err
 		}
 		krbLoginParams.loginMethod = cachedCredentialsFile
@@ -305,9 +305,9 @@ func clientFromKeytab(krb5Login *krb5Login, cfg *config.Config) (*client.Client,
 	return client.NewWithKeytab(krb5Login.UserName, krb5Login.Realm, kt, cfg, client.DisablePAFXFAST(true)), nil
 }
 
-// loads credential cache file specified in keytabCache parameter and creates a client
+// loads credential cache file specified in credCacheFile parameter and creates a client
 func clientFromCredentialCache(krb5Login *krb5Login, cfg *config.Config) (*client.Client, error) {
-	cache, err := credentials.LoadCCache(krb5Login.KeytabCacheFile)
+	cache, err := credentials.LoadCCache(krb5Login.CredCacheFile)
 	if err != nil {
 		return nil, err
 	}
