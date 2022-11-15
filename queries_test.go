@@ -1419,7 +1419,7 @@ func TestProcessQueryCancelConfirmationError(t *testing.T) {
 		t.Error("processQueryResponse expected to fail but it succeeded")
 	}
 	// should not fail with ErrBadConn because query was successfully sent to server
-	if !errors.As(err, &ServerError{}) {
+	if _, ok := err.(ServerError); !ok {
 		t.Error("processQueryResponse expected to fail with ServerError error but failed with other error: ", err)
 	}
 
