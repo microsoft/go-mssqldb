@@ -3,7 +3,6 @@ package mssql
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -98,8 +97,6 @@ const (
 	colFlagNullable = 1
 	// TODO implement more flags
 )
-
-var ErrorCancelConfirmation = errors.New("did not get cancellation confirmation from the server")
 
 // interface for all tokens
 type tokenStruct interface{}
@@ -961,7 +958,7 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		}
 		// we did not get cancellation confirmation, something is not
 		// right, this connection is not usable anymore
-		return nil, ErrorCancelConfirmation
+		return nil, ServerError{Error{Message: "did not get cancellation confirmation from the server"}}
 	}
 }
 
