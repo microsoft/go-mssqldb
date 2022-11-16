@@ -2716,3 +2716,10 @@ func TestTypeSizesFromQuery(t *testing.T) {
 		t.Errorf("VARBINARY(30) reported as (variable, length): (%v, %d)", ok, l)
 	}
 }
+
+func skipIfNamedPipesEnabled(t *testing.T) {
+	t.Helper()
+	if len(msdsn.ProtocolParsers) > 1 {
+		t.Skip("Skipping test due to named pipes dialer")
+	}
+}

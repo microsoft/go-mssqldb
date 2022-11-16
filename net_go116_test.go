@@ -8,8 +8,6 @@ import (
 	"net"
 	"testing"
 	"time"
-
-	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
 func assertPanic(t *testing.T, paniced bool) {
@@ -178,11 +176,4 @@ func TestPassthroughConn(t *testing.T) {
 			t.Fatalf(`RemoteAddr should return nil`)
 		}
 	})
-}
-
-func skipIfNamedPipesEnabled(t *testing.T) {
-	t.Helper()
-	if len(msdsn.ProtocolParsers) > 1 {
-		t.Skip("Skipping test due to named pipes dialer")
-	}
 }
