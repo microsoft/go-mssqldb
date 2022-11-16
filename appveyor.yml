@@ -13,6 +13,7 @@ environment:
   DATABASE: test
   GOVERSION: 113
   RACE: -race -cpu 4
+  TAGS:
   matrix:
     - GOVERSION: 110
       SQLINSTANCE: SQL2017
@@ -51,6 +52,7 @@ environment:
       GOARCH: 386
       RACE:
       PROTOCOL: np
+      TAGS: -tags np
 install:
   - set GOROOT=c:\go%GOVERSION%
   - set PATH=%GOPATH%\bin;%GOROOT%\bin;%PATH%
@@ -84,5 +86,5 @@ before_test:
   - pip install codecov
 
 test_script:
-  - go test %RACE% -coverprofile=coverage.txt -covermode=atomic
+  - go test ./... %RACE% -coverprofile=coverage.txt -covermode=atomic %TAGS%
   - codecov -f coverage.txt
