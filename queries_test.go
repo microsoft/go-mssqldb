@@ -2064,7 +2064,7 @@ func getLatency(t *testing.T) time.Duration {
 		}
 
 	}
-	return time.Now().Sub(now)
+	return time.Since(now)
 }
 
 func TestQueryTimeout(t *testing.T) {
