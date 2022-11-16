@@ -62,7 +62,8 @@ func (n namedPipeDialer) DialConnection(ctx context.Context, p msdsn.Config) (co
 	case namedPipeData:
 		dl, ok := ctx.Deadline()
 		if ok {
-			return npipe.DialTimeout(d.PipeName, dl.Sub(time.Now()))
+			duration := dl.Sub(time.Now())
+			return npipe.DialTimeout(d.PipeName, duration)
 		}
 		return npipe.Dial(d.PipeName)
 	}

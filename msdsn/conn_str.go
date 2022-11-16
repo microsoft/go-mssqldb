@@ -69,7 +69,7 @@ type Config struct {
 
 	// Do not use the following.
 
-	DialTimeout time.Duration // DialTimeout defaults to 15s. Set negative to disable.
+	DialTimeout time.Duration // DialTimeout defaults to 15s per protocol. Set negative to disable.
 	ConnTimeout time.Duration // Use context for timeouts.
 	KeepAlive   time.Duration // Leave at default.
 	PacketSize  uint16
@@ -197,14 +197,19 @@ func Parse(dsn string) (Config, error) {
 		}
 		p.ConnTimeout = time.Duration(timeout) * time.Second
 	}
-	p.DialTimeout = 15 * time.Second
+	f := len(p.Protocols)
+	if f == 0 {
+		f = 1
+	}
+	p.DialTimeout = time.Duration(15*f) * time.Second
 	if strdialtimeout, ok := params["dial timeout"]; ok {
 		timeout, err := strconv.ParseUint(strdialtimeout, 10, 64)
 		if err != nil {
 			f := "invalid dial timeout '%v': %v"
 			return p, fmt.Errorf(f, strdialtimeout, err.Error())
 		}
-		p.DialTimeout = time.Duration(timeout*uint64(len(p.Protocols))) * time.Second
+
+		p.DialTimeout = time.Duration(timeout) * time.Second
 	}
 
 	// default keep alive should be 30 seconds according to spec:

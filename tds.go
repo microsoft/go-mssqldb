@@ -988,6 +988,52 @@ func prepareLogin(ctx context.Context, c *Connector, p msdsn.Config, logger Cont
 	return l, nil
 }
 
+func queryBrowser(ctx context.Context, dialCtx context.Context, c *Connector, logger ContextLogger, p *msdsn.Config) error {
+	var instances msdsn.BrowserData
+	var err error
+	pErrors := make(map[string]error)
+	for _, protocol := range p.Protocols {
+		pd, ok := msdsn.ProtocolDialers[protocol]
+		if !ok {
+			return fmt.Errorf("No dialer is configured for protocol '%s'", protocol)
+		}
+		if pd.CallBrowser(p) {
+			if instances == nil {
+				d := c.getDialer(p)
+				instances, err = getInstances(dialCtx, d, p.Host)
+				if err != nil {
+					f := "unable to get instances from Sql Server Browser on host %v: %v"
+					return fmt.Errorf(f, p.Host, err.Error())
+				}
+			}
+			pErr := pd.ParseBrowserData(instances, p)
+			if pErr != nil {
+				pErrors[protocol] = pErr
+				if logger != nil {
+					logger.Log(ctx, msdsn.Log(logErrors), "Removing protocol "+protocol+" from dialers. Error:"+pErr.Error())
+				}
+			}
+		}
+	}
+	// If any dialer got an error parsing instances, remove it from the dialer list
+	// If no dialers are left, return an error
+	if len(pErrors) == len(p.Protocols) {
+		return fmt.Errorf("Unable to find a matching instance for any supported protocol on host %v", p.Host)
+	}
+	if len(pErrors) > 0 {
+		validProtocols := make([]string, len(p.Protocols)-len(pErrors))
+		i := 0
+		for _, protocol := range p.Protocols {
+			_, hasError := pErrors[protocol]
+			if !hasError {
+				validProtocols[i] = protocol
+				i++
+			}
+		}
+	}
+	return nil
+}
+
 func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Config) (res *tdsSession, err error) {
 	dialCtx := ctx
 	if p.DialTimeout >= 0 {
@@ -1007,46 +1053,11 @@ func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Co
 		// you should not provide instance name when you provide port
 		logger.Log(ctx, msdsn.LogDebug, "WARN: You specified both instance name and port in the connection string, port will be used and instance name will be ignored")
 	}
-	var instances msdsn.BrowserData
-	pErrors := make(map[string]error)
-	for _, protocol := range p.Protocols {
-		pd, ok := msdsn.ProtocolDialers[protocol]
-		if !ok {
-			return nil, fmt.Errorf("No dialer is configured for protocol '%s'", protocol)
-		}
-		if pd.CallBrowser(&p) {
-			if instances == nil {
-				d := c.getDialer(&p)
-				instances, err = getInstances(dialCtx, d, p.Host)
-				if err != nil {
-					f := "unable to get instances from Sql Server Browser on host %v: %v"
-					return nil, fmt.Errorf(f, p.Host, err.Error())
-				}
-			}
-			pErr := pd.ParseBrowserData(instances, &p)
-			if pErr != nil {
-				pErrors[protocol] = pErr
-				logger.Log(ctx, msdsn.Log(logErrors), "Removing protocol "+protocol+" from dialers. Error:"+pErr.Error())
-			}
-		}
-	}
-	// If any dialer got an error parsing instances, remove it from the dialer list
-	// If no dialers are left, return an error
-	if len(pErrors) == len(p.Protocols) {
-		return nil, fmt.Errorf("Unable to find a matching instance for any supported protocol on host %v", p.Host)
-	}
-	if len(pErrors) > 0 {
-		validProtocols := make([]string, len(p.Protocols)-len(pErrors))
-		i := 0
-		for _, protocol := range p.Protocols {
-			_, hasError := pErrors[protocol]
-			if !hasError {
-				validProtocols[i] = protocol
-				i++
-			}
-		}
-	}
 
+	err = queryBrowser(ctx, dialCtx, c, logger, &p)
+	if err != nil {
+		return nil, err
+	}
 	if p.Port == 0 {
 		p.Port = defaultServerPort
 	}

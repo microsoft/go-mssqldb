@@ -8,6 +8,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
 func assertPanic(t *testing.T, paniced bool) {
@@ -57,6 +59,7 @@ func TestTimeoutConn(t *testing.T) {
 }
 
 func TestTLSHandshakeConn(t *testing.T) {
+	skipIfNamedPipesEnabled(t)
 	tl := testLogger{t: t}
 	defer tl.StopLogging()
 	SetLogger(&tl)
@@ -116,6 +119,7 @@ func TestTLSHandshakeConn(t *testing.T) {
 }
 
 func TestPassthroughConn(t *testing.T) {
+	skipIfNamedPipesEnabled(t)
 	tl := testLogger{t: t}
 	defer tl.StopLogging()
 	SetLogger(&tl)
@@ -174,4 +178,11 @@ func TestPassthroughConn(t *testing.T) {
 			t.Fatalf(`RemoteAddr should return nil`)
 		}
 	})
+}
+
+func skipIfNamedPipesEnabled(t *testing.T) {
+	t.Helper()
+	if len(msdsn.ProtocolParsers) > 1 {
+		t.Skip("Skipping test due to named pipes dialer")
+	}
 }

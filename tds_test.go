@@ -20,7 +20,6 @@ import (
 	"unicode/utf16"
 
 	"github.com/microsoft/go-mssqldb/msdsn"
-	_ "github.com/microsoft/go-mssqldb/namedpipe"
 )
 
 type MockTransport struct {
@@ -581,14 +580,14 @@ func TestBadCredentials(t *testing.T) {
 	params := testConnParams(t)
 	params.Password = "padpwd"
 	params.User = "baduser"
-	testConnectionBad(t, params.URL().String())
+	_ = testConnectionBad(t, params.URL().String())
 }
 
 func TestBadHost(t *testing.T) {
 	params := testConnParams(t)
 	params.Host = "badhost"
 	params.Instance = ""
-	testConnectionBad(t, params.URL().String())
+	_ = testConnectionBad(t, params.URL().String())
 }
 
 func TestSqlBrowserNotUsedIfPortSpecified(t *testing.T) {
