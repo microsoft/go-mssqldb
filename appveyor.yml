@@ -86,5 +86,5 @@ before_test:
   - pip install codecov
 
 test_script:
-  - go test ./... %RACE% -coverprofile=coverage.txt -covermode=atomic %TAGS%
+  - go test %RACE% -coverprofile=coverage.txt -covermode=atomic %TAGS%
   - codecov -f coverage.txt
