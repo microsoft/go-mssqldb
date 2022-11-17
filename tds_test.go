@@ -234,12 +234,13 @@ func GetConnParams() (*msdsn.Config, error) {
 	}
 	if len(os.Getenv("HOST")) > 0 && len(os.Getenv("DATABASE")) > 0 {
 		c := &msdsn.Config{
-			Host:     os.Getenv("HOST"),
-			Instance: os.Getenv("INSTANCE"),
-			Database: os.Getenv("DATABASE"),
-			User:     os.Getenv("SQLUSER"),
-			Password: os.Getenv("SQLPASSWORD"),
-			LogFlags: logFlags,
+			Host:       os.Getenv("HOST"),
+			Instance:   os.Getenv("INSTANCE"),
+			Database:   os.Getenv("DATABASE"),
+			User:       os.Getenv("SQLUSER"),
+			Password:   os.Getenv("SQLPASSWORD"),
+			LogFlags:   logFlags,
+			Parameters: make(map[string]string),
 		}
 		if os.Getenv("PROTOCOL") != "" {
 			c.Parameters["protocol"] = os.Getenv("PROTOCOL")
