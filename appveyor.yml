@@ -68,6 +68,7 @@ build_script:
 before_test:
   # setup SQL Server
   - ps: |
+      Stop-Service "MSSQL`$$instanceName"
       [reflection.assembly]::LoadWithPartialName("Microsoft.SqlServer.Smo") | Out-Null
       [reflection.assembly]::LoadWithPartialName("Microsoft.SqlServer.SqlWmiManagement") | Out-Null
       $smo = 'Microsoft.SqlServer.Management.Smo.'
@@ -75,14 +76,15 @@ before_test:
       $serverName = $env:COMPUTERNAME
       $instanceName = $env:SQLINSTANCE
       # Enable named pipes
-      $uri = "ManagedComputer[@Name='$serverName']/ ServerInstance[@Name='$instanceName']/ServerProtocol[@Name='Np']"
+      $uri = "ManagedComputer[@Name='$serverName']/ServerInstance[@Name='$instanceName']/ServerProtocol[@Name='Np']"
       $Np = $wmi.GetSmoObject($uri)
       $Np.IsEnabled = $true
       $Np.Alter()
-      Start-Service "MSSQL`$$instanceName"
       Start-Service "SQLBrowser"
+      Start-Service "MSSQL`$$instanceName"
+      Start-Sleep -Seconds 10
   - sqlcmd -S "(local)\%SQLINSTANCE%" -Q "Use [master]; CREATE DATABASE test;"
-  - sqlcmd -S "(local)\%SQLINSTANCE%" -h -1 -Q "set nocount on; Select @@version"
+  - sqlcmd -S "np:.\%SQLINSTANCE%" -h -1 -Q "set nocount on; Select @@version"
   - pip install codecov
 
 test_script:
