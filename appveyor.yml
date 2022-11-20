@@ -68,7 +68,6 @@ build_script:
 before_test:
   # setup SQL Server
   - ps: |
-      Stop-Service "MSSQL`$$instanceName"
       [reflection.assembly]::LoadWithPartialName("Microsoft.SqlServer.Smo") | Out-Null
       [reflection.assembly]::LoadWithPartialName("Microsoft.SqlServer.SqlWmiManagement") | Out-Null
       $smo = 'Microsoft.SqlServer.Management.Smo.'

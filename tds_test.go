@@ -366,6 +366,7 @@ func TestConnectViaIp(t *testing.T) {
 	if params.Encryption == msdsn.EncryptionRequired {
 		t.Skip("Unable to test connection to IP for servers that expect encryption")
 	}
+	skipIfNamedPipesEnabled()
 
 	if params.Host == "." {
 		params.Host = "127.0.0.1"
