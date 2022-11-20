@@ -242,6 +242,9 @@ func GetConnParams() (*msdsn.Config, error) {
 			LogFlags:   logFlags,
 			Parameters: make(map[string]string),
 		}
+		if c.Instance == "" {
+			c.Instance = os.Getenv("SQLINSTANCE")
+		}
 		if os.Getenv("PROTOCOL") != "" {
 			c.Parameters["protocol"] = os.Getenv("PROTOCOL")
 		}
