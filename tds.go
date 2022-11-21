@@ -49,7 +49,7 @@ func parseInstances(msg []byte) msdsn.BrowserData {
 }
 
 func getInstances(ctx context.Context, d Dialer, address string) (msdsn.BrowserData, error) {
-	conn, err := d.DialContext(ctx, "udp", address+":1434")
+	conn, err := d.DialContext(ctx, "udp", net.JoinHostPort(address, "1434"))
 	if err != nil {
 		return nil, err
 	}
