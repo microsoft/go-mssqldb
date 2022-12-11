@@ -53,6 +53,11 @@ environment:
       RACE:
       PROTOCOL: np
       TAGS: -tags np
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
+      GOVERSION: 118
+      SQLINSTANCE: SQL2019
+      PROTOCOL: lpc
+      TAGS: -tags sm
 install:
   - set GOROOT=c:\go%GOVERSION%
   - set PATH=%GOPATH%\bin;%GOROOT%\bin;%PATH%

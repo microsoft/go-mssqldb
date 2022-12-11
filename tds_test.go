@@ -600,6 +600,7 @@ func TestSqlBrowserNotUsedIfPortSpecified(t *testing.T) {
 
 	// Connect to an instance on a host that doesn't exist (so connection will always expectedly fail)
 	params := testConnParams(t)
+	delete(params.Parameters, "protocol")
 	params.Host = "badhost"
 	params.Instance = "foobar"
 	protocols := params.Protocols
@@ -611,7 +612,7 @@ func TestSqlBrowserNotUsedIfPortSpecified(t *testing.T) {
 	err := testConnectionBad(t, params.URL().String())
 
 	if !strings.Contains(err.Error(), errorSubstrStringToCheckFor) {
-		t.Fatal("Connection should have tried to use SQL Browser")
+		t.Fatalf("Connection should have tried to use SQL Browser. Error:%s", err.Error())
 	}
 
 	// Specify port, ensure error does not indicate SQL Browser lookup failed
