@@ -841,7 +841,7 @@ func dialConnection(ctx context.Context, c *Connector, p msdsn.Config, logger Co
 	for _, protocol := range p.Protocols {
 		dialer := msdsn.ProtocolDialers[protocol]
 		sqlDialer, ok := dialer.(MssqlProtocolDialer)
-		if logger != nil {
+		if logger != nil && uint64(p.LogFlags)&logDebug != 0 {
 			logger.Log(ctx, msdsn.LogDebug, "Dialing with protocol "+protocol)
 		}
 		if !ok {
@@ -849,11 +849,11 @@ func dialConnection(ctx context.Context, c *Connector, p msdsn.Config, logger Co
 		} else {
 			conn, err = sqlDialer.DialSqlConnection(ctx, c, p)
 		}
-		if err != nil && logger != nil {
+		if err != nil && logger != nil && uint64(p.LogFlags)&logErrors != 0 {
 			logger.Log(ctx, msdsn.LogErrors, "Unable to connect with protocol "+protocol+":"+err.Error())
 		}
 		if conn != nil {
-			if logger != nil {
+			if logger != nil && uint64(p.LogFlags)&logDebug != 0 {
 				logger.Log(ctx, msdsn.LogDebug, "Returning connection from protocol "+protocol)
 			}
 			return
@@ -1009,7 +1009,7 @@ func queryBrowser(ctx context.Context, dialCtx context.Context, c *Connector, lo
 			pErr := pd.ParseBrowserData(instances, p)
 			if pErr != nil {
 				pErrors[protocol] = pErr
-				if logger != nil {
+				if logger != nil && uint64(p.LogFlags)&logErrors != 0 {
 					logger.Log(ctx, msdsn.Log(logErrors), "Removing protocol "+protocol+" from dialers. Error:"+pErr.Error())
 				}
 			}
