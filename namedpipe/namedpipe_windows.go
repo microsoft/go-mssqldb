@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"reflect"
 	"strings"
 	"time"
@@ -56,16 +57,30 @@ func (n namedPipeDialer) ParseBrowserData(data msdsn.BrowserData, p *msdsn.Confi
 	return nil
 }
 
-func (n namedPipeDialer) DialConnection(ctx context.Context, p msdsn.Config) (conn net.Conn, err error) {
+func (n namedPipeDialer) DialConnection(ctx context.Context, p *msdsn.Config) (conn net.Conn, err error) {
 	data := p.ProtocolParameters[n.Protocol()]
 	switch d := data.(type) {
 	case namedPipeData:
 		dl, ok := ctx.Deadline()
 		if ok {
-			duration := dl.Sub(time.Now())
-			return npipe.DialTimeout(d.PipeName, duration)
+			duration := time.Until(dl)
+			conn, err = npipe.DialTimeout(d.PipeName, duration)
+		} else {
+			conn, err = npipe.Dial(d.PipeName)
 		}
-		return npipe.Dial(d.PipeName)
+		if err == nil && p.ServerSPN == "" {
+			host := p.Host
+			instance := ""
+			if p.Instance != "" {
+				instance = fmt.Sprintf(":%s", p.Instance)
+			}
+			ip := net.ParseIP(host)
+			if ip != nil && ip.IsLoopback() {
+				host, _ = os.Hostname()
+			}
+			p.ServerSPN = fmt.Sprintf("MSSQLSvc/%s%s", host, instance)
+		}
+		return
 	}
 	return nil, fmt.Errorf("Unexpected protocol data specified for connection: %v", reflect.TypeOf(data))
 }

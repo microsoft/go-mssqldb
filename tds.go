@@ -837,7 +837,7 @@ func sendAttention(buf *tdsBuffer) error {
 }
 
 // Makes an attempt to connect with each available protocol, in order, until one succeeds or the timeout elapses
-func dialConnection(ctx context.Context, c *Connector, p msdsn.Config, logger ContextLogger) (conn net.Conn, err error) {
+func dialConnection(ctx context.Context, c *Connector, p *msdsn.Config, logger ContextLogger) (conn net.Conn, err error) {
 	for _, protocol := range p.Protocols {
 		dialer := msdsn.ProtocolDialers[protocol]
 		sqlDialer, ok := dialer.(MssqlProtocolDialer)
@@ -1077,7 +1077,7 @@ func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Co
 	}
 
 initiate_connection:
-	conn, err := dialConnection(dialCtx, c, p, logger)
+	conn, err := dialConnection(dialCtx, c, &p, logger)
 	if err != nil {
 		return nil, err
 	}
