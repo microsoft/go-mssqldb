@@ -4,13 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"reflect"
 	"strings"
-	"time"
 
+	"github.com/microsoft/go-mssqldb/internal/np"
 	"github.com/microsoft/go-mssqldb/msdsn"
-	"gopkg.in/natefinch/npipe.v2"
 )
 
 type namedPipeData struct {
@@ -61,24 +59,10 @@ func (n namedPipeDialer) DialConnection(ctx context.Context, p *msdsn.Config) (c
 	data := p.ProtocolParameters[n.Protocol()]
 	switch d := data.(type) {
 	case namedPipeData:
-		dl, ok := ctx.Deadline()
-		if ok {
-			duration := time.Until(dl)
-			conn, err = npipe.DialTimeout(d.PipeName, duration)
-		} else {
-			conn, err = npipe.Dial(d.PipeName)
-		}
+		serverSPN := p.ServerSPN
+		conn, serverSPN, err = np.DialConnection(ctx, d.PipeName, p.Host, p.Instance, serverSPN)
 		if err == nil && p.ServerSPN == "" {
-			host := p.Host
-			instance := ""
-			if p.Instance != "" {
-				instance = fmt.Sprintf(":%s", p.Instance)
-			}
-			ip := net.ParseIP(host)
-			if ip != nil && ip.IsLoopback() {
-				host, _ = os.Hostname()
-			}
-			p.ServerSPN = fmt.Sprintf("MSSQLSvc/%s%s", host, instance)
+			p.ServerSPN = serverSPN
 		}
 		return
 	}

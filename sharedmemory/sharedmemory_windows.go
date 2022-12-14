@@ -6,10 +6,9 @@ import (
 	"net"
 	"os"
 	"strings"
-	"time"
 
+	"github.com/microsoft/go-mssqldb/internal/np"
 	"github.com/microsoft/go-mssqldb/msdsn"
-	"gopkg.in/natefinch/npipe.v2"
 )
 
 func (n sharedMemoryDialer) ParseServer(server string, p *msdsn.Config) error {
@@ -53,24 +52,10 @@ func (n sharedMemoryDialer) DialConnection(ctx context.Context, p *msdsn.Config)
 	} else {
 		pipename = pipename + "MSSQLSERVER"
 	}
-	dl, ok := ctx.Deadline()
-	if ok {
-		duration := time.Until(dl)
-		conn, err = npipe.DialTimeout(pipename, duration)
-	} else {
-		conn, err = npipe.Dial(pipename)
-	}
+	serverSPN := p.ServerSPN
+	conn, serverSPN, err = np.DialConnection(ctx, pipename, p.Host, p.Instance, p.ServerSPN)
 	if err == nil && p.ServerSPN == "" {
-		host := p.Host
-		instance := ""
-		if p.Instance != "" {
-			instance = fmt.Sprintf(":%s", p.Instance)
-		}
-		ip := net.ParseIP(host)
-		if ip != nil && ip.IsLoopback() {
-			host, _ = os.Hostname()
-		}
-		p.ServerSPN = fmt.Sprintf("MSSQLSvc/%s%s", host, instance)
+		p.ServerSPN = serverSPN
 	}
 	return
 }
