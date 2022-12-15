@@ -23,7 +23,7 @@ func (n sharedMemoryDialer) ParseBrowserData(data msdsn.BrowserData, p *msdsn.Co
 	return fmt.Errorf("Shared memory connections are not supported on this operating system")
 }
 
-func (n sharedMemoryDialer) DialConnection(ctx context.Context, p msdsn.Config) (conn net.Conn, err error) {
+func (n sharedMemoryDialer) DialConnection(ctx context.Context, p *msdsn.Config) (conn net.Conn, err error) {
 
 	return nil, fmt.Errorf("Shared memory connections are not supported on this operating system")
 }
