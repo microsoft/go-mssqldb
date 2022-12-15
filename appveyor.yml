@@ -88,11 +88,6 @@ before_test:
       $Np = $wmi.GetSmoObject($uri)
       $Np.IsEnabled = $true
       $Np.Alter()
-      # Enable shared memory
-      $uri = "ManagedComputer[@Name='$serverName']/ServerInstance[@Name='$instanceName']/ServerProtocol[@Name='lpc']"
-      $lpc = $wmi.GetSmoObject($uri)
-      $lpc.IsEnabled = $true
-      $lpc.Alter()
       Start-Service "SQLBrowser"
       Start-Service "MSSQL`$$instanceName"
       Start-Sleep -Seconds 10
