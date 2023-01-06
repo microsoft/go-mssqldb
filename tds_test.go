@@ -952,3 +952,11 @@ func runBatch(t testing.TB, p msdsn.Config) {
 		}
 	}
 }
+
+func TestGetDriverVersion(t *testing.T) {
+	v := getDriverVersion("v1.20.3")
+	t.Logf("driverVersion 0x%x", v)
+	if v != (1<<24)|(20<<16)|(3) {
+		t.Fatalf("Incorrect getDriverVersion. In: v1.20.3 Out: 0x%x", v)
+	}
+}
