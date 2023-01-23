@@ -408,18 +408,30 @@ func parseOrder(r *tdsBuffer) (res orderStruct) {
 }
 
 // https://msdn.microsoft.com/en-us/library/dd340421.aspx
-func parseDone(r *tdsBuffer) (res doneStruct) {
+func parseDone72(r *tdsBuffer) (res doneStruct) {
 	res.Status = r.uint16()
 	res.CurCmd = r.uint16()
 	res.RowCount = r.uint64()
 	return res
 }
+func parseDone71(r *tdsBuffer) (res doneStruct) {
+	res.Status = r.uint16()
+	res.CurCmd = r.uint16()
+	res.RowCount = uint64(r.uint32())
+	return res
+}
 
 // https://msdn.microsoft.com/en-us/library/dd340553.aspx
-func parseDoneInProc(r *tdsBuffer) (res doneInProcStruct) {
+func parseDoneInProc72(r *tdsBuffer) (res doneInProcStruct) {
 	res.Status = r.uint16()
 	res.CurCmd = r.uint16()
 	res.RowCount = r.uint64()
+	return res
+}
+func parseDoneInProc71(r *tdsBuffer) (res doneInProcStruct) {
+	res.Status = r.uint16()
+	res.CurCmd = r.uint16()
+	res.RowCount = uint64(r.uint32())
 	return res
 }
 
@@ -586,6 +598,24 @@ func parseColMetadata72(r *tdsBuffer) (columns []columnStruct) {
 	}
 	return columns
 }
+func parseColMetadata71(r *tdsBuffer) (columns []columnStruct) {
+	count := r.uint16()
+	if count == 0xffff {
+		// no metadata is sent
+		return nil
+	}
+	columns = make([]columnStruct, count)
+	for i := range columns {
+		column := &columns[i]
+		column.UserType = uint32(r.uint16())
+		column.Flags = r.uint16()
+
+		// parsing TYPE_INFO structure
+		column.ti = readTypeInfo(r)
+		column.ColName = r.BVarChar()
+	}
+	return columns
+}
 
 // http://msdn.microsoft.com/en-us/library/dd357254.aspx
 func parseRow(r *tdsBuffer, columns []columnStruct, row []interface{}) {
@@ -621,9 +651,21 @@ func parseError72(r *tdsBuffer) (res Error) {
 	res.LineNo = r.int32()
 	return
 }
+func parseError71(r *tdsBuffer) (res Error) {
+	length := r.uint16()
+	_ = length // ignore length
+	res.Number = r.int32()
+	res.State = r.byte()
+	res.Class = r.byte()
+	res.Message = r.UsVarChar()
+	res.ServerName = r.BVarChar()
+	res.ProcName = r.BVarChar()
+	res.LineNo = int32(r.uint16())
+	return
+}
 
 // http://msdn.microsoft.com/en-us/library/dd304156.aspx
-func parseInfo(r *tdsBuffer) (res Error) {
+func parseInfo72(r *tdsBuffer) (res Error) {
 	length := r.uint16()
 	_ = length // ignore length
 	res.Number = r.int32()
@@ -633,6 +675,18 @@ func parseInfo(r *tdsBuffer) (res Error) {
 	res.ServerName = r.BVarChar()
 	res.ProcName = r.BVarChar()
 	res.LineNo = r.int32()
+	return
+}
+func parseInfo71(r *tdsBuffer) (res Error) {
+	length := r.uint16()
+	_ = length // ignore length
+	res.Number = r.int32()
+	res.State = r.byte()
+	res.Class = r.byte()
+	res.Message = r.UsVarChar()
+	res.ServerName = r.BVarChar()
+	res.ProcName = r.BVarChar()
+	res.LineNo = int32(r.uint16())
 	return
 }
 
@@ -714,7 +768,12 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 			order := parseOrder(sess.buf)
 			ch <- order
 		case tokenDoneInProc:
-			done := parseDoneInProc(sess.buf)
+			var done doneInProcStruct
+			if sess.loginAck.TDSVersion <= verTDS71rev1 {
+				done = parseDoneInProc71(sess.buf)
+			} else {
+				done = parseDoneInProc72(sess.buf)
+			}
 
 			ch <- done
 			if done.Status&doneCount != 0 {
@@ -742,7 +801,12 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				return
 			}
 		case tokenDone, tokenDoneProc:
-			done := parseDone(sess.buf)
+			var done doneStruct
+			if sess.loginAck.TDSVersion <= verTDS71rev1 {
+				done = parseDone71(sess.buf)
+			} else {
+				done = parseDone72(sess.buf)
+			}
 			done.errors = errs
 			if outs.msgq != nil {
 				errs = make([]Error, 0, 5)
@@ -781,7 +845,11 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				return
 			}
 		case tokenColMetadata:
-			columns = parseColMetadata72(sess.buf)
+			if sess.loginAck.TDSVersion <= verTDS71rev1 {
+				columns = parseColMetadata71(sess.buf)
+			} else {
+				columns = parseColMetadata72(sess.buf)
+			}
 			ch <- columns
 			colsReceived = true
 			if outs.msgq != nil {
@@ -799,7 +867,12 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 		case tokenEnvChange:
 			processEnvChg(ctx, sess)
 		case tokenError:
-			err := parseError72(sess.buf)
+			var err Error
+			if sess.loginAck.TDSVersion <= verTDS71rev1 {
+				err = parseError71(sess.buf)
+			} else {
+				err = parseError72(sess.buf)
+			}
 			if sess.logFlags&logDebug != 0 {
 				sess.logger.Log(ctx, msdsn.LogDebug, fmt.Sprintf("got ERROR %d %s", err.Number, err.Message))
 			}
@@ -811,7 +884,12 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgError{Error: err})
 			}
 		case tokenInfo:
-			info := parseInfo(sess.buf)
+			var info Error
+			if sess.loginAck.TDSVersion <= verTDS71rev1 {
+				info = parseInfo71(sess.buf)
+			} else {
+				info = parseInfo72(sess.buf)
+			}
 			if sess.logFlags&logDebug != 0 {
 				sess.logger.Log(ctx, msdsn.LogDebug, fmt.Sprintf("got INFO %d %s", info.Number, info.Message))
 			}
