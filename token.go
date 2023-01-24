@@ -580,7 +580,7 @@ func parseFeatureExtAck(r *tdsBuffer) map[byte]interface{} {
 }
 
 // http://msdn.microsoft.com/en-us/library/dd357363.aspx
-func parseColMetadata72(r *tdsBuffer) (columns []columnStruct) {
+func parseColMetadata72(sess *tdsSession, r *tdsBuffer) (columns []columnStruct) {
 	count := r.uint16()
 	if count == 0xffff {
 		// no metadata is sent
@@ -593,12 +593,12 @@ func parseColMetadata72(r *tdsBuffer) (columns []columnStruct) {
 		column.Flags = r.uint16()
 
 		// parsing TYPE_INFO structure
-		column.ti = readTypeInfo(r)
+		column.ti = readTypeInfo(sess, r)
 		column.ColName = r.BVarChar()
 	}
 	return columns
 }
-func parseColMetadata71(r *tdsBuffer) (columns []columnStruct) {
+func parseColMetadata71(sess *tdsSession, r *tdsBuffer) (columns []columnStruct) {
 	count := r.uint16()
 	if count == 0xffff {
 		// no metadata is sent
@@ -611,7 +611,7 @@ func parseColMetadata71(r *tdsBuffer) (columns []columnStruct) {
 		column.Flags = r.uint16()
 
 		// parsing TYPE_INFO structure
-		column.ti = readTypeInfo(r)
+		column.ti = readTypeInfo(sess, r)
 		column.ColName = r.BVarChar()
 	}
 	return columns
@@ -691,7 +691,7 @@ func parseInfo71(r *tdsBuffer) (res Error) {
 }
 
 // https://msdn.microsoft.com/en-us/library/dd303881.aspx
-func parseReturnValue(r *tdsBuffer) (nv namedValue) {
+func parseReturnValue(sess *tdsSession, r *tdsBuffer) (nv namedValue) {
 	/*
 		ParamOrdinal
 		ParamName
@@ -707,7 +707,7 @@ func parseReturnValue(r *tdsBuffer) (nv namedValue) {
 	r.byte()
 	r.uint32() // UserType (uint16 prior to 7.2)
 	r.uint16()
-	ti := readTypeInfo(r)
+	ti := readTypeInfo(sess, r)
 	nv.Value = ti.Reader(&ti, r)
 	return
 }
@@ -846,9 +846,9 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 			}
 		case tokenColMetadata:
 			if sess.loginAck.TDSVersion <= verTDS71rev1 {
-				columns = parseColMetadata71(sess.buf)
+				columns = parseColMetadata71(sess, sess.buf)
 			} else {
-				columns = parseColMetadata72(sess.buf)
+				columns = parseColMetadata72(sess, sess.buf)
 			}
 			ch <- columns
 			colsReceived = true
@@ -900,7 +900,7 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNotice{Message: info})
 			}
 		case tokenReturnValue:
-			nv := parseReturnValue(sess.buf)
+			nv := parseReturnValue(sess, sess.buf)
 			if len(nv.Name) > 0 {
 				name := nv.Name[1:] // Remove the leading "@".
 				if ov, has := outs.params[name]; has {

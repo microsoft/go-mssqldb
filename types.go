@@ -119,7 +119,7 @@ type xmlInfo struct {
 	XmlSchemaCollection string
 }
 
-func readTypeInfo(r *tdsBuffer) (res typeInfo) {
+func readTypeInfo(sess *tdsSession, r *tdsBuffer) (res typeInfo) {
 	res.TypeId = r.byte()
 	switch res.TypeId {
 	case typeNull, typeInt1, typeBit, typeInt2, typeInt4, typeDateTim4,
@@ -140,7 +140,7 @@ func readTypeInfo(r *tdsBuffer) (res typeInfo) {
 		res.Reader = readFixedType
 		res.Buffer = make([]byte, res.Size)
 	default: // all others are VARLENTYPE
-		readVarLen(&res, r)
+		readVarLen(sess, &res, r)
 	}
 	return
 }
@@ -719,7 +719,7 @@ func writePLPType(w io.Writer, ti typeInfo, buf []byte) (err error) {
 	}
 }
 
-func readVarLen(ti *typeInfo, r *tdsBuffer) {
+func readVarLen(sess *tdsSession, ti *typeInfo, r *tdsBuffer) {
 	switch ti.TypeId {
 	case typeDateN:
 		ti.Size = 3
@@ -798,17 +798,25 @@ func readVarLen(ti *typeInfo, r *tdsBuffer) {
 		switch ti.TypeId {
 		case typeText, typeNText:
 			ti.Collation = readCollation(r)
-			// ignore tablenames
-			numparts := int(r.byte())
-			for i := 0; i < numparts; i++ {
+			// only present in TDS > 7.2
+			if sess.loginAck.TDSVersion >= verTDS72 {
+				// ignore tablenames
+				numparts := int(r.byte())
+				for i := 0; i < numparts; i++ {
+					r.UsVarChar()
+				}
+			} else {
 				r.UsVarChar()
 			}
 			ti.Reader = readLongLenType
 		case typeImage:
-			// ignore tablenames
-			numparts := int(r.byte())
-			for i := 0; i < numparts; i++ {
-				r.UsVarChar()
+			// only present in TDS >= 7.2
+			if sess.loginAck.TDSVersion >= verTDS72 {
+				// ignore tablenames
+				numparts := int(r.byte())
+				for i := 0; i < numparts; i++ {
+					r.UsVarChar()
+				}
 			}
 			ti.Reader = readLongLenType
 		case typeVariant:
