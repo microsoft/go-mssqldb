@@ -976,7 +976,6 @@ func interpretPreloginResponse(p msdsn.Config, fe *featureExtFedAuth, fields map
 	// If the server returns the preloginFEDAUTHREQUIRED field, then federated authentication
 	// is supported. The actual value may be 0 or 1, where 0 means either SSPI or federated
 	// authentication is allowed, while 1 means only federated authentication is allowed.
-	if len(fields) > preloginFEDAUTHREQUIRED {
 		if fedAuthSupport, ok := fields[preloginFEDAUTHREQUIRED]; ok {
 			if len(fedAuthSupport) != 1 {
 				return 0, fmt.Errorf("federated authentication flag length should be 1: is %d", len(fedAuthSupport))
@@ -984,10 +983,9 @@ func interpretPreloginResponse(p msdsn.Config, fe *featureExtFedAuth, fields map
 
 			// We need to be able to echo the value back to the server
 			fe.FedAuthEcho = fedAuthSupport[0] != 0
-		} else if fe.FedAuthLibrary != FedAuthLibraryReserved {
+		} /*else if fe.FedAuthLibrary != FedAuthLibraryReserved {
 			return 0, fmt.Errorf("federated authentication is not supported by the server")
-		}
-	}
+		}*/
 
 	encryptBytes, ok := fields[preloginENCRYPTION]
 	if !ok {
