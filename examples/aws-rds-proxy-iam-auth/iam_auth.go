@@ -40,15 +40,6 @@ import (
 	"strconv"
 )
 
-/*var (
-	server   = "mssql.proxy-cffntbampvu0.ap-southeast-2.rds.amazonaws.com"
-	port     = 1433
-	user     = "admin"
-	password string
-	region   = "ap-southeast-2"
-)
-*/
-
 var (
 	debug  = flag.Bool("debug", false, "enable debugging")
 	server = flag.String("server", "", "the database server")
