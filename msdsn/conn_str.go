@@ -116,7 +116,7 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 
 // Parse and handle encryption parameters. If encryption is desired, it returns the corresponding tls.Config object.
 func parseTLS(params map[string]string, host string) (Encryption, *tls.Config, error) {
-	var trustServerCert = false
+	trustServerCert := false
 
 	var encryption Encryption = EncryptionOff
 	encrypt, ok := params["encrypt"]
