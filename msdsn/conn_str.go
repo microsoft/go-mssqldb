@@ -113,6 +113,50 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 	return &config, nil
 }
 
+func parseTLS(params map[string]string, host string) (Encryption, *tls.Config, error) {
+	var (
+		trustServerCert = false
+		certificate     = ""
+	)
+	var encryption Encryption = EncryptionOff
+	encrypt, ok := params["encrypt"]
+	if ok {
+		if strings.EqualFold(encrypt, "DISABLE") {
+			encryption = EncryptionDisabled
+		} else {
+			e, err := strconv.ParseBool(encrypt)
+			if err != nil {
+				f := "invalid encrypt '%s': %s"
+				return encryption, nil, fmt.Errorf(f, encrypt, err.Error())
+			}
+			if e {
+				encryption = EncryptionRequired
+			}
+		}
+	} else {
+		trustServerCert = true
+	}
+	trust, ok := params["trustservercertificate"]
+	if ok {
+		var err error
+		trustServerCert, err = strconv.ParseBool(trust)
+		if err != nil {
+			f := "invalid trust server certificate '%s': %s"
+			return encryption, nil, fmt.Errorf(f, trust, err.Error())
+		}
+	}
+	certificate = params["certificate"]
+	if encryption != EncryptionDisabled {
+		tlsMin := params["tlsmin"]
+		tlsConfig, err := SetupTLS(certificate, trustServerCert, host, tlsMin)
+		if err != nil {
+			return encryption, nil, fmt.Errorf("failed to setup TLS: %w", err)
+		}
+		return encryption, tlsConfig, nil
+	}
+	return encryption, nil, nil
+}
+
 var skipSetup = errors.New("skip setting up TLS")
 
 func Parse(dsn string) (Config, error) {
@@ -210,55 +254,6 @@ func Parse(dsn string) (Config, error) {
 		p.KeepAlive = time.Duration(timeout) * time.Second
 	}
 
-	var (
-		trustServerCert   = false
-		certificate       = ""
-		hostInCertificate = ""
-	)
-	encrypt, ok := params["encrypt"]
-	if ok {
-		if strings.EqualFold(encrypt, "DISABLE") {
-			p.Encryption = EncryptionDisabled
-		} else {
-			e, err := strconv.ParseBool(encrypt)
-			if err != nil {
-				f := "invalid encrypt '%s': %s"
-				return p, fmt.Errorf(f, encrypt, err.Error())
-			}
-			if e {
-				p.Encryption = EncryptionRequired
-			}
-		}
-	} else {
-		trustServerCert = true
-	}
-	trust, ok := params["trustservercertificate"]
-	if ok {
-		var err error
-		trustServerCert, err = strconv.ParseBool(trust)
-		if err != nil {
-			f := "invalid trust server certificate '%s': %s"
-			return p, fmt.Errorf(f, trust, err.Error())
-		}
-	}
-	certificate = params["certificate"]
-	hostInCertificate, ok = params["hostnameincertificate"]
-	if ok {
-		p.HostInCertificateProvided = true
-	} else {
-		hostInCertificate = p.Host
-		p.HostInCertificateProvided = false
-	}
-
-	if p.Encryption != EncryptionDisabled {
-		tlsMin := params["tlsmin"]
-		var err error
-		p.TLSConfig, err = SetupTLS(certificate, trustServerCert, hostInCertificate, tlsMin)
-		if err != nil {
-			return p, fmt.Errorf("failed to setup TLS: %w", err)
-		}
-	}
-
 	serverSPN, ok := params["serverspn"]
 	if ok {
 		p.ServerSPN = serverSPN
@@ -352,6 +347,20 @@ func Parse(dsn string) (Config, error) {
 		}
 
 		p.DialTimeout = time.Duration(timeout) * time.Second
+	}
+
+	var hostInCertificate = ""
+	hostInCertificate, ok = params["hostnameincertificate"]
+	if ok {
+		p.HostInCertificateProvided = true
+	} else {
+		hostInCertificate = p.Host
+		p.HostInCertificateProvided = false
+	}
+
+	p.Encryption, p.TLSConfig, err = parseTLS(params, hostInCertificate)
+	if err != nil {
+		return p, err
 	}
 
 	return p, nil

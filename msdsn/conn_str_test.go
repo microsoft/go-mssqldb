@@ -217,6 +217,17 @@ func TestConnParseRoundTripFixed(t *testing.T) {
 	}
 }
 
+func TestServerNameInTLSConfig(t *testing.T) {
+	connStr := "sqlserver://someuser:somepass@somehost?TrustServerCertificate=false&encrypt=true"
+	cfg, err := Parse(connStr)
+	if err != nil {
+		t.Errorf("Could not parse valid connection string %s: %v", connStr, err)
+	}
+	if cfg.TLSConfig.ServerName != "somehost" {
+		t.Errorf("Expected somehost as TLS server, but got %s (cfg.Host was %s)", cfg.TLSConfig.ServerName, cfg.Host)
+	}
+}
+
 func TestAllKeysAreAvailableInParametersMap(t *testing.T) {
 	keys := map[string]string{
 		"user id":            "1",
