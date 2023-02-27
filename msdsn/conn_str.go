@@ -81,6 +81,7 @@ type Config struct {
 	ProtocolParameters map[string]interface{}
 }
 
+// Build a tls.Config object from the supplied certificate.
 func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate string, minTLSVersion string) (*tls.Config, error) {
 	config := tls.Config{
 		ServerName:         hostInCertificate,
@@ -113,11 +114,10 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 	return &config, nil
 }
 
+// Parse and handle encryption parameters. If encryption is desired, it returns the corresponding tls.Config object.
 func parseTLS(params map[string]string, host string) (Encryption, *tls.Config, error) {
-	var (
-		trustServerCert = false
-		certificate     = ""
-	)
+	var trustServerCert = false
+
 	var encryption Encryption = EncryptionOff
 	encrypt, ok := params["encrypt"]
 	if ok {
@@ -145,7 +145,7 @@ func parseTLS(params map[string]string, host string) (Encryption, *tls.Config, e
 			return encryption, nil, fmt.Errorf(f, trust, err.Error())
 		}
 	}
-	certificate = params["certificate"]
+	certificate := params["certificate"]
 	if encryption != EncryptionDisabled {
 		tlsMin := params["tlsmin"]
 		tlsConfig, err := SetupTLS(certificate, trustServerCert, host, tlsMin)
@@ -349,8 +349,7 @@ func Parse(dsn string) (Config, error) {
 		p.DialTimeout = time.Duration(timeout) * time.Second
 	}
 
-	var hostInCertificate = ""
-	hostInCertificate, ok = params["hostnameincertificate"]
+	hostInCertificate, ok := params["hostnameincertificate"]
 	if ok {
 		p.HostInCertificateProvided = true
 	} else {
@@ -658,16 +657,6 @@ func splitConnectionStringOdbc(dsn string) (map[string]string, error) {
 // Normalizes the given string as an ODBC-format key
 func normalizeOdbcKey(s string) string {
 	return strings.ToLower(strings.TrimRightFunc(s, unicode.IsSpace))
-}
-
-const defaultServerPort = 1433
-
-func resolveServerPort(port uint64) uint64 {
-	if port == 0 {
-		return defaultServerPort
-	}
-
-	return port
 }
 
 // ProtocolParser can populate Config with parameters to dial using its protocol
