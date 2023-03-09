@@ -10,7 +10,6 @@ import (
 	"io/ioutil"
 	"net"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -20,8 +19,8 @@ import (
 	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
-func parseInstances(msg []byte) map[string]map[string]string {
-	results := map[string]map[string]string{}
+func parseInstances(msg []byte) msdsn.BrowserData {
+	results := msdsn.BrowserData{}
 	if len(msg) > 3 && msg[0] == 5 {
 		out_s := string(msg[3:])
 		tokens := strings.Split(out_s, ";")
@@ -49,22 +48,23 @@ func parseInstances(msg []byte) map[string]map[string]string {
 	return results
 }
 
-func getInstances(ctx context.Context, d Dialer, address string) (map[string]map[string]string, error) {
-	conn, err := d.DialContext(ctx, "udp", address+":1434")
+func getInstances(ctx context.Context, d Dialer, address string) (msdsn.BrowserData, error) {
+	conn, err := d.DialContext(ctx, "udp", net.JoinHostPort(address, "1434"))
+	emptyInstances := msdsn.BrowserData{}
 	if err != nil {
-		return nil, err
+		return emptyInstances, err
 	}
 	defer conn.Close()
 	deadline, _ := ctx.Deadline()
 	conn.SetDeadline(deadline)
 	_, err = conn.Write([]byte{3})
 	if err != nil {
-		return nil, err
+		return emptyInstances, err
 	}
 	var resp = make([]byte, 16*1024-1)
 	read, err := conn.Read(resp)
 	if err != nil {
-		return nil, err
+		return emptyInstances, err
 	}
 	return parseInstances(resp[:read]), nil
 }
@@ -167,6 +167,14 @@ func (p keySlice) Len() int           { return len(p) }
 func (p keySlice) Less(i, j int) bool { return p[i] < p[j] }
 func (p keySlice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
+type preloginOption struct {
+	token  byte
+	offset uint16
+	length uint16
+}
+
+var preloginOptionSize = binary.Size(preloginOption{})
+
 // http://msdn.microsoft.com/en-us/library/dd357559.aspx
 func writePrelogin(packetType packetType, w *tdsBuffer, fields map[uint8][]byte) error {
 	var err error
@@ -232,18 +240,69 @@ func readPrelogin(r *tdsBuffer) (map[uint8][]byte, error) {
 	offset := 0
 	results := map[uint8][]byte{}
 	for {
-		rec_type := struct_buf[offset]
-		if rec_type == preloginTERMINATOR {
+		// read prelogin option
+		plOption, err := readPreloginOption(struct_buf, offset)
+		if err != nil {
+			return nil, err
+		}
+
+		if plOption.token == preloginTERMINATOR {
 			break
 		}
 
-		rec_offset := binary.BigEndian.Uint16(struct_buf[offset+1:])
-		rec_len := binary.BigEndian.Uint16(struct_buf[offset+3:])
-		value := struct_buf[rec_offset : rec_offset+rec_len]
-		results[rec_type] = value
-		offset += 5
+		// read prelogin option data
+		value, err := readPreloginOptionData(plOption, struct_buf)
+		if err != nil {
+			return nil, err
+		}
+		results[plOption.token] = value
+
+		offset += preloginOptionSize
 	}
 	return results, nil
+}
+
+func readPreloginOption(buffer []byte, offset int) (*preloginOption, error) {
+	buffer_length := len(buffer)
+
+	// check if prelogin option record exists in buffer
+	if offset >= buffer_length {
+		return nil, fmt.Errorf("invalid buffer, invalid prelogin option")
+	}
+
+	rec_type := buffer[offset]
+	if rec_type == preloginTERMINATOR {
+		return &preloginOption{token: rec_type}, nil
+	}
+
+	// check if prelogin option exists in buffer
+	if offset+preloginOptionSize >= buffer_length {
+		return nil, fmt.Errorf("invalid buffer, invalid prelogin option")
+	}
+
+	plOption := &preloginOption{
+		token:  rec_type,
+		offset: binary.BigEndian.Uint16(buffer[offset+1:]),
+		length: binary.BigEndian.Uint16(buffer[offset+3:]),
+	}
+
+	return plOption, nil
+}
+
+func readPreloginOptionData(plOption *preloginOption, buffer []byte) ([]byte, error) {
+	buffer_length := len(buffer)
+	// check if prelogin option data exists in buffer
+	if plOption == nil || int(plOption.length+plOption.offset) > buffer_length ||
+		int(plOption.offset) >= buffer_length {
+		return nil, fmt.Errorf("invalid buffer, invalid prelogin option")
+	}
+
+	if plOption.token == preloginTERMINATOR {
+		return nil, fmt.Errorf("cannot read data for prelogin terminator record")
+	}
+
+	value := buffer[plOption.offset : plOption.length+plOption.offset]
+	return value, nil
 }
 
 // OptionFlags1
@@ -837,70 +896,48 @@ func sendAttention(buf *tdsBuffer) error {
 	return buf.FinishPacket()
 }
 
-// SQL Server AlwaysOn Availability Group Listeners are bound by DNS to a
-// list of IP addresses.  So if there is more than one, try them all and
-// use the first one that allows a connection.
-func dialConnection(ctx context.Context, c *Connector, p msdsn.Config) (conn net.Conn, err error) {
-	var ips []net.IP
-	ip := net.ParseIP(p.Host)
-	if ip == nil {
-		ips, err = net.LookupIP(p.Host)
-		if err != nil {
-			return
-		}
-	} else {
-		ips = []net.IP{ip}
-	}
-	if len(ips) == 1 {
-		d := c.getDialer(&p)
-		addr := net.JoinHostPort(ips[0].String(), strconv.Itoa(int(resolveServerPort(p.Port))))
-		conn, err = d.DialContext(ctx, "tcp", addr)
-
-	} else {
-		//Try Dials in parallel to avoid waiting for timeouts.
-		connChan := make(chan net.Conn, len(ips))
-		errChan := make(chan error, len(ips))
-		portStr := strconv.Itoa(int(resolveServerPort(p.Port)))
-		for _, ip := range ips {
-			go func(ip net.IP) {
-				d := c.getDialer(&p)
-				addr := net.JoinHostPort(ip.String(), portStr)
-				conn, err := d.DialContext(ctx, "tcp", addr)
-				if err == nil {
-					connChan <- conn
-				} else {
-					errChan <- err
+// Makes an attempt to connect with each available protocol, in order, until one succeeds or the timeout elapses
+func dialConnection(ctx context.Context, c *Connector, p *msdsn.Config, logger ContextLogger) (conn net.Conn, err error) {
+	var instances msdsn.BrowserData
+	for _, protocol := range p.Protocols {
+		dialer := msdsn.ProtocolDialers[protocol]
+		if dialer.CallBrowser(p) {
+			if instances == nil {
+				d := c.getDialer(p)
+				instances, err = getInstances(ctx, d, p.Host)
+				if err != nil && logger != nil && uint64(p.LogFlags)&logErrors != 0 {
+					e := fmt.Sprintf("unable to get instances from Sql Server Browser on host %v: %v", p.Host, err.Error())
+					logger.Log(ctx, msdsn.Log(logErrors), e)
 				}
-			}(ip)
-		}
-		// Wait for either the *first* successful connection, or all the errors
-	wait_loop:
-		for i := range ips {
-			select {
-			case conn = <-connChan:
-				// Got a connection to use, close any others
-				go func(n int) {
-					for i := 0; i < n; i++ {
-						select {
-						case conn := <-connChan:
-							conn.Close()
-						case <-errChan:
-						}
-					}
-				}(len(ips) - i - 1)
-				// Remove any earlier errors we may have collected
-				err = nil
-				break wait_loop
-			case err = <-errChan:
+			}
+			err = dialer.ParseBrowserData(instances, p)
+			if err != nil {
+				if logger != nil && uint64(p.LogFlags)&logErrors != 0 {
+					logger.Log(ctx, msdsn.Log(logErrors), "Skipping protocol "+protocol+". Error:"+err.Error())
+				}
+				continue
 			}
 		}
+		sqlDialer, ok := dialer.(MssqlProtocolDialer)
+		if logger != nil && uint64(p.LogFlags)&logDebug != 0 {
+			logger.Log(ctx, msdsn.LogDebug, "Dialing with protocol "+protocol)
+		}
+		if !ok {
+			conn, err = dialer.DialConnection(ctx, p)
+		} else {
+			conn, err = sqlDialer.DialSqlConnection(ctx, c, p)
+		}
+		if err != nil && logger != nil && uint64(p.LogFlags)&logErrors != 0 {
+			logger.Log(ctx, msdsn.LogErrors, "Unable to connect with protocol "+protocol+":"+err.Error())
+		}
+		if conn != nil {
+			if logger != nil && uint64(p.LogFlags)&logDebug != 0 {
+				logger.Log(ctx, msdsn.LogDebug, "Returning connection from protocol "+protocol)
+			}
+			return
+		}
 	}
-	// Can't do the usual err != nil check, as it is possible to have gotten an error before a successful connection
-	if conn == nil {
-		f := "unable to open tcp connection with host '%v:%v': %v"
-		return nil, fmt.Errorf(f, p.Host, resolveServerPort(p.Port), err.Error())
-	}
-	return conn, err
+	return
 }
 
 func preparePreloginFields(p msdsn.Config, fe *featureExtFedAuth) map[uint8][]byte {
@@ -918,9 +955,10 @@ func preparePreloginFields(p msdsn.Config, fe *featureExtFedAuth) map[uint8][]by
 	case msdsn.EncryptionOff:
 		encrypt = encryptOff
 	}
-
+	v := getDriverVersion(driverVersion)
 	fields := map[uint8][]byte{
-		preloginVERSION:    {0, 0, 0, 0, 0, 0},
+		// 4 bytes for version and 2 bytes for minor version
+		preloginVERSION:    {byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24), 0, 0},
 		preloginENCRYPTION: {encrypt},
 		preloginINSTOPT:    instance_buf,
 		preloginTHREADID:   {0, 0, 0, 0},
@@ -945,7 +983,7 @@ func interpretPreloginResponse(p msdsn.Config, fe *featureExtFedAuth, fields map
 
 		// We need to be able to echo the value back to the server
 		fe.FedAuthEcho = fedAuthSupport[0] != 0
-	} else if fe.FedAuthLibrary != FedAuthLibraryReserved {
+	} else if fe.FedAuthLibrary != FedAuthLibraryReserved && fe.ADALWorkflow > 0 {
 		return 0, fmt.Errorf("federated authentication is not supported by the server")
 	}
 
@@ -974,15 +1012,17 @@ func prepareLogin(ctx context.Context, c *Connector, p msdsn.Config, logger Cont
 		serverName = p.Host
 	}
 	l = &login{
-		TDSVersion:   verTDS74,
-		PacketSize:   packetSize,
-		Database:     p.Database,
-		OptionFlags2: fODBC, // to get unlimited TEXTSIZE
-		OptionFlags1: fUseDB | fSetLang,
-		HostName:     p.Workstation,
-		ServerName:   serverName,
-		AppName:      p.AppName,
-		TypeFlags:    typeFlags,
+		TDSVersion:    verTDS74,
+		PacketSize:    packetSize,
+		Database:      p.Database,
+		OptionFlags2:  fODBC, // to get unlimited TEXTSIZE
+		OptionFlags1:  fUseDB | fSetLang,
+		HostName:      p.Workstation,
+		ServerName:    serverName,
+		AppName:       p.AppName,
+		TypeFlags:     typeFlags,
+		CtlIntName:    "go-mssqldb",
+		ClientProgVer: getDriverVersion(driverVersion),
 	}
 	switch {
 	case fe.FedAuthLibrary == FedAuthLibrarySecurityToken:
@@ -1030,16 +1070,6 @@ func prepareLogin(ctx context.Context, c *Connector, p msdsn.Config, logger Cont
 }
 
 func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Config) (res *tdsSession, err error) {
-	dialCtx := ctx
-	if p.DialTimeout >= 0 {
-		dt := p.DialTimeout
-		if dt == 0 {
-			dt = 15 * time.Second
-		}
-		var cancel func()
-		dialCtx, cancel = context.WithTimeout(ctx, dt)
-		defer cancel()
-	}
 
 	// if instance is specified use instance resolution service
 	if len(p.Instance) > 0 && p.Port != 0 && uint64(p.LogFlags)&logDebug != 0 {
@@ -1047,31 +1077,6 @@ func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Co
 		// when port is specified instance name is not used
 		// you should not provide instance name when you provide port
 		logger.Log(ctx, msdsn.LogDebug, "WARN: You specified both instance name and port in the connection string, port will be used and instance name will be ignored")
-	} else if len(p.Instance) > 0 && p.Port == 0 {
-		// If instance is specified, but no port, check SQL Server Browser
-		// for the instance and discover its port.
-		p.Instance = strings.ToUpper(p.Instance)
-		d := c.getDialer(&p)
-		instances, err := getInstances(dialCtx, d, p.Host)
-		if err != nil {
-			f := "unable to get instances from Sql Server Browser on host %v: %v"
-			return nil, fmt.Errorf(f, p.Host, err.Error())
-		}
-		strport, ok := instances[p.Instance]["tcp"]
-		if !ok {
-			f := "no instance matching '%v' returned from host '%v'"
-			return nil, fmt.Errorf(f, p.Instance, p.Host)
-		}
-		port, err := strconv.ParseUint(strport, 0, 16)
-		if err != nil {
-			f := "invalid tcp port returned from Sql Server Browser '%v': %v"
-			return nil, fmt.Errorf(f, strport, err.Error())
-		}
-		p.Port = port
-	}
-
-	if p.Port == 0 {
-		p.Port = defaultServerPort
 	}
 
 	packetSize := p.PacketSize
@@ -1089,7 +1094,17 @@ func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Co
 	}
 
 initiate_connection:
-	conn, err := dialConnection(dialCtx, c, p)
+	dialCtx := ctx
+	if p.DialTimeout >= 0 {
+		dt := p.DialTimeout
+		if dt == 0 {
+			dt = time.Duration(15*len(p.Protocols)) * time.Second
+		}
+		var cancel func()
+		dialCtx, cancel = context.WithTimeout(ctx, dt)
+		defer cancel()
+	}
+	conn, err := dialConnection(dialCtx, c, &p, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -1278,12 +1293,4 @@ initiate_connection:
 		goto initiate_connection
 	}
 	return &sess, nil
-}
-
-func resolveServerPort(port uint64) uint64 {
-	if port == 0 {
-		return defaultServerPort
-	}
-
-	return port
 }

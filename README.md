@@ -4,11 +4,13 @@
 [![Build status](https://ci.appveyor.com/api/projects/status/jrln8cs62wj9i0a2?svg=true)](https://ci.appveyor.com/project/microsoft/go-mssqldb)
 [![codecov](https://codecov.io/gh/microsoft/go-mssqldb/branch/master/graph/badge.svg)](https://codecov.io/gh/microsoft/go-mssqldb)
 
+For more recent updates, see the [Microsoft fork](https://github.com/microsoft/go-mssqldb).
+
 ## Install
 
 Requires Go 1.8 or above.
 
-Install with `go get github.com/microsoft/go-mssqldb` .
+Install with `go install github.com/microsoft/go-mssqldb@latest`.
 
 ## Connection Parameters and DSN
 
@@ -22,7 +24,7 @@ Other supported formats are listed below.
 * `password`
 * `database`
 * `connection timeout` - in seconds (default is 0 for no timeout), set to 0 for no timeout. Recommended to set to 0 and use context to manage query and connection timeouts.
-* `dial timeout` - in seconds (default is 15), set to 0 for no timeout
+* `dial timeout` - in seconds (default is 15 times the number of registered protocols), set to 0 for no timeout.
 * `encrypt`
   * `disable` - Data send between client and server is not encrypted.
   * `false` - Data sent between client and server is not encrypted beyond the login packet. (Default)
@@ -43,13 +45,15 @@ Other supported formats are listed below.
 * `packet size` - in bytes; 512 to 32767 (default is 4096)
   * Encrypted connections have a maximum packet size of 16383 bytes
   * Further information on usage: <https://docs.microsoft.com/en-us/sql/database-engine/configure-windows/configure-the-network-packet-size-server-configuration-option>
-* `log` - logging flags (default 0/no logging, 63 for full logging)
-  * 1 log errors
-  * 2 log messages
-  * 4 log rows affected
-  * 8 trace sql statements
-  * 16 log statement parameters
-  * 32 log transaction begin/end
+* `log` - logging flags (default `0`/no logging, `255` for full logging)
+  * `1` log errors
+  * `2` log messages
+  * `4` log rows affected
+  * `8` trace sql statements
+  * `16` log statement parameters
+  * `32` log transaction begin/end
+  * `64` additional debug logs
+  * `128` log retries
 * `TrustServerCertificate`
   * false - Server certificate is checked. Default is false if encrypt is specified.
   * true - Server certificate is not checked. Default is true if encrypt is not specified. If trust server certificate is true, driver accepts any certificate presented by the server and any host name in that certificate. In this mode, TLS is susceptible to man-in-the-middle attacks. This should be used only for testing.
@@ -59,6 +63,22 @@ Other supported formats are listed below.
 * `ServerSPN` - The kerberos SPN (Service Principal Name) for the server. Default is MSSQLSvc/host:port.
 * `Workstation ID` - The workstation name (default is the host name)
 * `ApplicationIntent` - Can be given the value `ReadOnly` to initiate a read-only connection to an Availability Group listener. The `database` must be specified when connecting with `Application Intent` set to `ReadOnly`.
+* `protocol` - forces use of a protocol. Make sure the corresponding package is imported.
+
+### Connection parameters for namedpipe package
+* `pipe`  - If set, no Browser query is made and named pipe used will be `\\<host>\pipe\<pipe>`
+* `protocol` can be set to `np`
+* For a non-URL DSN, the `server` parameter can be set to the full pipe name like `\\host\pipe\sql\query`
+
+If no pipe name can be derived from the DSN, connection attempts will first query the SQL Browser service to find the pipe name for the instance.
+
+### Protocol configuration
+
+To force a specific protocol for the connection there two several options:
+1. Prepend the server name in a DSN with the protocol and a colon, like `np:host` or `lpc:host` or `tcp:host`
+2. Set the `protocol` parameter to the protocol name
+
+`msdsn.ProtocolParsers` can be reordered to prioritize other protocols ahead of `tcp`
 
 ### Kerberos Active Directory authentication outside Windows
 
@@ -380,6 +400,9 @@ db.QueryContext(ctx, `select * from t2 where user_name = @p1;`, mssql.VarChar(na
 * Supports connections to AlwaysOn Availability Group listeners, including re-direction to read-only replicas.
 * Supports query notifications
 * Supports Kerberos Authentication
+* Pluggable Dialer implementations through `msdsn.ProtocolParsers` and `msdsn.ProtocolDialers`
+* A `namedpipe` package to support connections using named pipes (np:) on Windows
+* A `sharedmemory` package to support connections using shared memory (lpc:) on Windows
 
 ## Tests
 

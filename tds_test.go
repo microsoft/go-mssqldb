@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -218,9 +219,9 @@ func testConnParams(t testing.TB) msdsn.Config {
 // TestConnParams returns a connection configuration based on environment variables or the contents of a text file
 // Set environment variable SQLSERVER_DSN to provide an entire connection string
 // Set environment variables HOST and DATABASE from which a minimal config will be created.
-//  If HOST and DATABASE are set, you can optionally set INSTANCE, SQLUSER, and SQLPASSWORD as well
+// If HOST and DATABASE are set, you can optionally set INSTANCE, SQLUSER, and SQLPASSWORD as well
 // If environment variables are not set, it will look in the working directory for a file named .connstr
-//   If the file exists it will use the first line of the file as the file as the DSN
+// If the file exists it will use the first line of the file as the file as the DSN
 func GetConnParams() (*msdsn.Config, error) {
 	dsn := os.Getenv("SQLSERVER_DSN")
 	const logFlags = 127
@@ -233,14 +234,25 @@ func GetConnParams() (*msdsn.Config, error) {
 		return &params, nil
 	}
 	if len(os.Getenv("HOST")) > 0 && len(os.Getenv("DATABASE")) > 0 {
-		return &msdsn.Config{
-			Host:     os.Getenv("HOST"),
-			Instance: os.Getenv("INSTANCE"),
-			Database: os.Getenv("DATABASE"),
-			User:     os.Getenv("SQLUSER"),
-			Password: os.Getenv("SQLPASSWORD"),
-			LogFlags: logFlags,
-		}, nil
+		c := &msdsn.Config{
+			Host:       os.Getenv("HOST"),
+			Instance:   os.Getenv("INSTANCE"),
+			Database:   os.Getenv("DATABASE"),
+			User:       os.Getenv("SQLUSER"),
+			Password:   os.Getenv("SQLPASSWORD"),
+			LogFlags:   logFlags,
+			Parameters: make(map[string]string),
+		}
+		if c.Instance == "" {
+			c.Instance = os.Getenv("SQLINSTANCE")
+		}
+		if os.Getenv("PROTOCOL") != "" {
+			c.Parameters["protocol"] = os.Getenv("PROTOCOL")
+		}
+		if os.Getenv("PIPE") != "" {
+			c.Parameters["pipe"] = os.Getenv("PIPE")
+		}
+		return c, nil
 	}
 	// try loading connection string from file
 	f, err := os.Open(".connstr")
@@ -250,7 +262,8 @@ func GetConnParams() (*msdsn.Config, error) {
 		if err != io.EOF && err != nil {
 			return nil, err
 		}
-		params, err := msdsn.Parse(dsn)
+		// If file follows POSIX and file ends with LF, it's necessary to strip it out.
+		params, err := msdsn.Parse(strings.TrimSuffix(dsn, "\n"))
 		if err != nil {
 			return nil, err
 		}
@@ -355,7 +368,7 @@ func TestConnect(t *testing.T) {
 
 func TestConnectViaIp(t *testing.T) {
 	params := testConnParams(t)
-	if params.Encryption == msdsn.EncryptionRequired {
+	if params.Encryption == msdsn.EncryptionRequired || strings.Contains(params.Host, "database.windows.net") {
 		t.Skip("Unable to test connection to IP for servers that expect encryption")
 	}
 
@@ -576,35 +589,39 @@ func TestBadCredentials(t *testing.T) {
 	params := testConnParams(t)
 	params.Password = "padpwd"
 	params.User = "baduser"
-	testConnectionBad(t, params.URL().String())
+	_ = testConnectionBad(t, params.URL().String())
 }
 
 func TestBadHost(t *testing.T) {
 	params := testConnParams(t)
 	params.Host = "badhost"
 	params.Instance = ""
-	testConnectionBad(t, params.URL().String())
+	_ = testConnectionBad(t, params.URL().String())
 }
 
 func TestSqlBrowserNotUsedIfPortSpecified(t *testing.T) {
-	const errorSubstrStringToCheckFor = "unable to get instances from Sql Server Browser"
+	const errorSubstrStringToCheckFor = "instance matching 'foobar' returned from host 'badhost'"
 
 	// Connect to an instance on a host that doesn't exist (so connection will always expectedly fail)
 	params := testConnParams(t)
+	delete(params.Parameters, "protocol")
 	params.Host = "badhost"
 	params.Instance = "foobar"
+	protocols := params.Protocols
+	params.Protocols = []string{"tcp"}
 
 	// Specify no port, so error must indicate SQL Browser lookup failed
 	params.Port = 0 // No port spcified, sql browser should be used
 
 	err := testConnectionBad(t, params.URL().String())
 
-	if !strings.Contains(err.Error(), errorSubstrStringToCheckFor) {
-		t.Fatal("Connection should have tried to use SQL Browser")
+	if !strings.Contains(strings.ToLower(err.Error()), errorSubstrStringToCheckFor) {
+		t.Fatalf("Connection should have tried to use SQL Browser. Error:%s", err.Error())
 	}
 
 	// Specify port, ensure error does not indicate SQL Browser lookup failed
 	params.Port = 1500 // Specify a port, sql browser should not be tried
+	params.Protocols = protocols
 	err = testConnectionBad(t, params.URL().String())
 
 	if strings.Contains(err.Error(), errorSubstrStringToCheckFor) {
@@ -769,7 +786,7 @@ func TestUcs22str(t *testing.T) {
 
 var sideeffect_varchar string
 
-//ucs22str benchmarks
+// ucs22str benchmarks
 func BenchmarkUcs22strAscii(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		s, _ := ucs22str(encoded123Bytes)
@@ -939,4 +956,18 @@ func runBatch(t testing.TB, p msdsn.Config) {
 			return
 		}
 	}
+}
+
+func TestGetDriverVersion(t *testing.T) {
+	v := getDriverVersion("v1.20.3")
+	t.Logf("driverVersion %08x (%s)", v, versionToHexString(v))
+	if v != (1<<24)|(20<<16)|(3) {
+		t.Fatalf("Incorrect getDriverVersion. In: v1.20.3 Out: 0x%x", v)
+	}
+}
+
+func versionToHexString(v uint32) string {
+	b := make([]byte, 4)
+	binary.LittleEndian.PutUint32(b, v)
+	return hex.EncodeToString(b)
 }
