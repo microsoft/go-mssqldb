@@ -18,7 +18,7 @@ import (
 type (
 	Encryption int
 	Log        uint64
-	BrowserMsg int
+	BrowserMsg byte
 )
 
 const (
@@ -385,12 +385,24 @@ func (p Config) URL() *url.URL {
 		q.Add("log", strconv.FormatUint(uint64(p.LogFlags), 10))
 	}
 	host := p.Host
+	protocol := ""
+	hostParts := strings.Split(p.Host, ":")
+	if len(hostParts) > 1 {
+		host = hostParts[1]
+		protocol = hostParts[0]
+	}
 	if p.Port > 0 {
 		host = fmt.Sprintf("%s:%d", p.Host, p.Port)
 	}
 	q.Add("disableRetry", fmt.Sprintf("%t", p.DisableRetry))
-	protocol, ok := p.Parameters["protocol"]
+	protocolParam, ok := p.Parameters["protocol"]
 	if ok {
+		if protocol != "" && protocolParam != protocol {
+			panic("Mismatched protocol parameters!")
+		}
+		protocol = protocolParam
+	}
+	if protocol != "" {
 		q.Add("protocol", protocol)
 	}
 	pipe, ok := p.Parameters["pipe"]
@@ -703,6 +715,9 @@ func (t tcpParser) ParseServer(server string, p *Config) error {
 		p.Instance = parts[1]
 	}
 	if t.Prefix == "admin" {
+		if p.Instance == "" {
+			p.Port = 1434
+		}
 		p.BrowserMessage = BrowserDAC
 	} else {
 		p.BrowserMessage = BrowserAllInstances
@@ -711,5 +726,5 @@ func (t tcpParser) ParseServer(server string, p *Config) error {
 }
 
 func (t tcpParser) Protocol() string {
-	return "tcp"
+	return t.Prefix
 }
