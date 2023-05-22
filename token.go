@@ -953,7 +953,7 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 
 		// first lets finish reading current response and look
 		// for confirmation in it
-		if readCancelConfirmation(t.tokChan) {
+		if len(t.tokChan) > 0 && readCancelConfirmation(t.tokChan) {
 			// we got confirmation in current response
 			return nil, t.ctx.Err()
 		}
