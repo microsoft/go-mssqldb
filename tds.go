@@ -48,20 +48,28 @@ func parseInstances(msg []byte) msdsn.BrowserData {
 	return results
 }
 
-func getInstances(ctx context.Context, d Dialer, address string) (msdsn.BrowserData, error) {
-	conn, err := d.DialContext(ctx, "udp", net.JoinHostPort(address, "1434"))
+func getInstances(ctx context.Context, d Dialer, address string, browserMsg msdsn.BrowserMsg) (msdsn.BrowserData, error) {
 	emptyInstances := msdsn.BrowserData{}
+	var bmsg []byte
+	var resp []byte
+	if browserMsg == msdsn.BrowserDAC {
+		return emptyInstances, fmt.Errorf("not implemented yet")
+	} else { // default to AllInstances
+		bmsg = []byte{byte(msdsn.BrowserAllInstances)}
+		resp = make([]byte, 16*1024-1)
+	}
+	conn, err := d.DialContext(ctx, "udp", net.JoinHostPort(address, "1434"))
 	if err != nil {
 		return emptyInstances, err
 	}
 	defer conn.Close()
 	deadline, _ := ctx.Deadline()
 	conn.SetDeadline(deadline)
-	_, err = conn.Write([]byte{3})
+	_, err = conn.Write(bmsg)
 	if err != nil {
 		return emptyInstances, err
 	}
-	var resp = make([]byte, 16*1024-1)
+
 	read, err := conn.Read(resp)
 	if err != nil {
 		return emptyInstances, err
@@ -904,7 +912,7 @@ func dialConnection(ctx context.Context, c *Connector, p *msdsn.Config, logger C
 		if dialer.CallBrowser(p) {
 			if instances == nil {
 				d := c.getDialer(p)
-				instances, err = getInstances(ctx, d, p.Host)
+				instances, err = getInstances(ctx, d, p.Host, p.BrowserMessage)
 				if err != nil && logger != nil && uint64(p.LogFlags)&logErrors != 0 {
 					e := fmt.Sprintf("unable to get instances from Sql Server Browser on host %v: %v", p.Host, err.Error())
 					logger.Log(ctx, msdsn.Log(logErrors), e)

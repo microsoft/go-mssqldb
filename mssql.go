@@ -23,9 +23,9 @@ import (
 
 // ReturnStatus may be used to return the return value from a proc.
 //
-//   var rs mssql.ReturnStatus
-//   _, err := db.Exec("theproc", &rs)
-//   log.Printf("return status = %d", rs)
+//	var rs mssql.ReturnStatus
+//	_, err := db.Exec("theproc", &rs)
+//	log.Printf("return status = %d", rs)
 type ReturnStatus int32
 
 var driverInstance = &Driver{processQueryText: true}
@@ -878,12 +878,13 @@ func (r *Rows) ColumnTypeDatabaseTypeName(index int) string {
 // not a variable length type ok should return false.
 // If length is not limited other than system limits, it should return math.MaxInt64.
 // The following are examples of returned values for various types:
-//   TEXT          (math.MaxInt64, true)
-//   varchar(10)   (10, true)
-//   nvarchar(10)  (10, true)
-//   decimal       (0, false)
-//   int           (0, false)
-//   bytea(30)     (30, true)
+//
+//	TEXT          (math.MaxInt64, true)
+//	varchar(10)   (10, true)
+//	nvarchar(10)  (10, true)
+//	decimal       (0, false)
+//	int           (0, false)
+//	bytea(30)     (30, true)
 func (r *Rows) ColumnTypeLength(index int) (int64, bool) {
 	return makeGoLangTypeLength(r.cols[index].ti)
 }
@@ -891,9 +892,10 @@ func (r *Rows) ColumnTypeLength(index int) (int64, bool) {
 // It should return
 // the precision and scale for decimal types. If not applicable, ok should be false.
 // The following are examples of returned values for various types:
-//   decimal(38, 4)    (38, 4, true)
-//   int               (0, 0, false)
-//   decimal           (math.MaxInt64, math.MaxInt64, true)
+//
+//	decimal(38, 4)    (38, 4, true)
+//	int               (0, 0, false)
+//	decimal           (math.MaxInt64, math.MaxInt64, true)
 func (r *Rows) ColumnTypePrecisionScale(index int) (int64, int64, bool) {
 	return makeGoLangTypePrecisionScale(r.cols[index].ti)
 }
@@ -1320,12 +1322,13 @@ func (r *Rowsq) ColumnTypeDatabaseTypeName(index int) string {
 // not a variable length type ok should return false.
 // If length is not limited other than system limits, it should return math.MaxInt64.
 // The following are examples of returned values for various types:
-//   TEXT          (math.MaxInt64, true)
-//   varchar(10)   (10, true)
-//   nvarchar(10)  (10, true)
-//   decimal       (0, false)
-//   int           (0, false)
-//   bytea(30)     (30, true)
+//
+//	TEXT          (math.MaxInt64, true)
+//	varchar(10)   (10, true)
+//	nvarchar(10)  (10, true)
+//	decimal       (0, false)
+//	int           (0, false)
+//	bytea(30)     (30, true)
 func (r *Rowsq) ColumnTypeLength(index int) (int64, bool) {
 	return makeGoLangTypeLength(r.cols[index].ti)
 }
@@ -1333,9 +1336,10 @@ func (r *Rowsq) ColumnTypeLength(index int) (int64, bool) {
 // It should return
 // the precision and scale for decimal types. If not applicable, ok should be false.
 // The following are examples of returned values for various types:
-//   decimal(38, 4)    (38, 4, true)
-//   int               (0, 0, false)
-//   decimal           (math.MaxInt64, math.MaxInt64, true)
+//
+//	decimal(38, 4)    (38, 4, true)
+//	int               (0, 0, false)
+//	decimal           (math.MaxInt64, math.MaxInt64, true)
 func (r *Rowsq) ColumnTypePrecisionScale(index int) (int64, int64, bool) {
 	return makeGoLangTypePrecisionScale(r.cols[index].ti)
 }
