@@ -386,10 +386,13 @@ func (p Config) URL() *url.URL {
 	}
 	host := p.Host
 	protocol := ""
-	hostParts := strings.SplitN(p.Host, ":", 2)
-	if len(hostParts) > 1 {
-		host = hostParts[1]
-		protocol = hostParts[0]
+	// Can't just check for a : because of IPv6 host names
+	if strings.HasPrefix(host, "admin") || strings.HasPrefix(host, "np") || strings.HasPrefix(host, "sm") || strings.HasPrefix(host, "tcp") {
+		hostParts := strings.SplitN(p.Host, ":", 2)
+		if len(hostParts) > 1 {
+			host = hostParts[1]
+			protocol = hostParts[0]
+		}
 	}
 	if p.Port > 0 {
 		host = fmt.Sprintf("%s:%d", host, p.Port)
