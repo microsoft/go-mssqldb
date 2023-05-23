@@ -386,9 +386,10 @@ func (p Config) URL() *url.URL {
 	}
 	host := p.Host
 	protocol := ""
-	if p, h, ok := strings.Cut(p.Host, ":"); ok {
-		protocol = p
-		host = h
+	hostParts := strings.SplitN(p.Host, ":", 2)
+	if len(hostParts) > 1 {
+		host = hostParts[1]
+		protocol = hostParts[0]
 	}
 	if p.Port > 0 {
 		host = fmt.Sprintf("%s:%d", host, p.Port)
