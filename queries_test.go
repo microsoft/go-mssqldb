@@ -2766,7 +2766,7 @@ func skipIfNamedPipesEnabled(t *testing.T) {
 func TestAdminConnection(t *testing.T) {
 	params := testConnParams(t)
 	protocol, ok := params.Parameters["protocol"]
-	if ok && protocol != "admin" {
+	if !ok || protocol != "admin" {
 		t.Skip("Test is not running with admin protocol set")
 	}
 	conn, _ := open(t)
