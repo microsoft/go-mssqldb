@@ -103,18 +103,38 @@ func (e PipeError) Temporary() bool {
 // Dial will return a PipeError if you pass in a badly formatted pipe name.
 //
 // Examples:
-//   // local pipe
-//   conn, err := Dial(`\\.\pipe\mypipename`)
 //
-//   // remote pipe
-//   conn, err := Dial(`\\othercomp\pipe\mypipename`)
+//	// local pipe
+//	conn, err := Dial(`\\.\pipe\mypipename`)
+//
+//	// remote pipe
+//	conn, err := Dial(`\\othercomp\pipe\mypipename`)
 func Dial(address string) (*PipeConn, error) {
+	return dialImpl(address, true)
+}
+
+// DialExisting acts like Dial but fails right away if the pipe doesn't exist
+func DialExisting(address string) (*PipeConn, error) {
+	return dialImpl(address, false)
+}
+
+// DialTimeout acts like Dial, but will time out after the duration of timeout
+func DialTimeout(address string, timeout time.Duration) (*PipeConn, error) {
+	return dialTimeoutImpl(address, timeout, true)
+}
+
+// DialTimeoutExisting acts like DialTimeout but fails right away if the pipe doesn't exist
+func DialTimeoutExisting(address string, timeout time.Duration) (*PipeConn, error) {
+	return dialTimeoutImpl(address, timeout, false)
+}
+
+func dialImpl(address string, waitForPipe bool) (*PipeConn, error) {
 	for {
 		conn, err := dial(address, nmpwait_wait_forever)
 		if err == nil {
 			return conn, nil
 		}
-		if isPipeNotReady(err) {
+		if isPipeNotReady(err, waitForPipe) {
 			<-time.After(100 * time.Millisecond)
 			continue
 		}
@@ -123,7 +143,7 @@ func Dial(address string) (*PipeConn, error) {
 }
 
 // DialTimeout acts like Dial, but will time out after the duration of timeout
-func DialTimeout(address string, timeout time.Duration) (*PipeConn, error) {
+func dialTimeoutImpl(address string, timeout time.Duration, waitForPipe bool) (*PipeConn, error) {
 	deadline := time.Now().Add(timeout)
 
 	now := time.Now()
@@ -138,7 +158,7 @@ func DialTimeout(address string, timeout time.Duration) (*PipeConn, error) {
 			return nil, PipeError{fmt.Sprintf(
 				"Timed out waiting for pipe '%s' to come available", address), true}
 		}
-		if isPipeNotReady(err) {
+		if isPipeNotReady(err, waitForPipe) {
 			left := deadline.Sub(time.Now())
 			retry := 100 * time.Millisecond
 			if left > retry {
@@ -156,13 +176,13 @@ func DialTimeout(address string, timeout time.Duration) (*PipeConn, error) {
 }
 
 // isPipeNotReady checks the error to see if it indicates the pipe is not ready
-func isPipeNotReady(err error) bool {
+func isPipeNotReady(err error, waitForPipe bool) bool {
 	// Pipe Busy means another client just grabbed the open pipe end,
 	// and the server hasn't made a new one yet.
 	// File Not Found means the server hasn't created the pipe yet.
-	// Neither is a fatal error.
+	// If waitForPipe is false, File Not Found is treated as fatal
 
-	return err == syscall.ERROR_FILE_NOT_FOUND || err == error_pipe_busy
+	return (waitForPipe && err == syscall.ERROR_FILE_NOT_FOUND) || err == error_pipe_busy
 }
 
 // newOverlapped creates a structure used to track asynchronous
