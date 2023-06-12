@@ -11,3 +11,5 @@ require (
 	golang.org/x/crypto v0.9.0
 	gopkg.in/natefinch/npipe.v2 v2.0.0-20160621034901-c1b8fa8bdcce
 )
+
+replace gopkg.in/natefinch/nvpipe.v2 => ./internal/gopkg.in/natefinch/nvpipe.v2
