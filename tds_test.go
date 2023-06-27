@@ -988,12 +988,16 @@ func TestDialSqlConnectionCustomDialer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 
-	// if a dialer is specified, the dialer should be used to make the connection
+	// if a host dialer is specified, the dialer should be used to resolve the DNS
 	mock := NewMockTransportDialer(
 		[]string{},
 		[]string{},
 	)
-	connector.Dialer = mock
+	connector.Dialer = MockHostTransportDialer{
+		Dialer: mock,
+		Host:   params.Host,
+	}
+
 	if mock.count != 0 {
 		t.Error("expecting no connections")
 	}
@@ -1010,5 +1014,13 @@ func TestDialSqlConnectionCustomDialer(t *testing.T) {
 	err = conn.Close()
 	if err != nil {
 		t.Error(err)
+	}
+
+	// if it is not a host dialer, the dialer should not be used to resolve DNS
+	connector.Dialer = mock
+	sqlDialer, _ = msdsn.ProtocolDialers["tcp"].(MssqlProtocolDialer)
+	_, err = sqlDialer.DialSqlConnection(ctx, connector, &params)
+	if !strings.Contains(err.Error(), "no such host") {
+		t.Error(fmt.Errorf("dialer should not be used to resolve dns if not a host dialer"))
 	}
 }

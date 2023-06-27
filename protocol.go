@@ -51,10 +51,10 @@ func (t tcpDialer) DialSqlConnection(ctx context.Context, c *Connector, p *msdsn
 	var ips []net.IP
 	ip := net.ParseIP(p.Host)
 	if ip == nil {
-		// if the dialer has been updated, the dialer may be proxying to a different network, and so the
-		// dialer should be used to connect so the DNS is resolved within the right network
-		if c != nil && c.Dialer != nil {
-			d := c.getDialer(p)
+		// if the custom dialer is a host dialer, the DNS is resolved within the network
+		// the dialer is sending the request to, rather than the one the driver is running on
+		d := c.getDialer(p)
+		if _, ok := d.(HostDialer); ok {
 			addr := net.JoinHostPort(p.Host, strconv.Itoa(int(resolveServerPort(p.Port))))
 			return d.DialContext(ctx, "tcp", addr)
 		}
