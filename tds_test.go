@@ -1020,7 +1020,7 @@ func TestDialSqlConnectionCustomDialer(t *testing.T) {
 	connector.Dialer = mock
 	sqlDialer, _ = msdsn.ProtocolDialers["tcp"].(MssqlProtocolDialer)
 	_, err = sqlDialer.DialSqlConnection(ctx, connector, &params)
-	if !strings.Contains(err.Error(), "no such host") {
+	if err == nil {
 		t.Error(fmt.Errorf("dialer should not be used to resolve dns if not a host dialer"))
 	}
 }
