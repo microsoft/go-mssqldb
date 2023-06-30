@@ -1,5 +1,5 @@
-//go:build !386 && !arm
-// +build !386,!arm
+//go:build !386 && !arm && !mips && !mipsel
+// +build !386,!arm,!mips,!mipsel
 
 package mssql
 
