@@ -84,11 +84,10 @@ func (u UniqueIdentifier) MarshalText() (text []byte, err error) {
 // Unmarshals a string representation of a UniqueIndentifier to bytes
 // "01234567-89AB-CDEF-0123-456789ABCDEF" -> [48, 49, 50, 51, 52, 53, 54, 55, 45, 56, 57, 65, 66, 45, 67, 68, 69, 70, 45, 48, 49, 50, 51, 45, 52, 53, 54, 55, 56, 57, 65, 66, 67, 68, 69, 70]
 func (u *UniqueIdentifier) UnmarshalJSON(b []byte) error {
-	input := string(b)
 	// remove quotes
-	input = strings.Trim(input, `"`)
+	input := strings.Trim(string(b), `"`)
 	// decode
-	bytes, err := hex.DecodeString(strings.ReplaceAll(input, "-", ""))
+	bytes, err := hex.DecodeString(strings.Replace(input, "-", "", -1))
 
 	if err != nil {
 		return err
