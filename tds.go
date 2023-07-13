@@ -296,6 +296,10 @@ func readPreloginOption(buffer []byte, offset int) (*preloginOption, error) {
 	rec_type := buffer[offset]
 	if rec_type == preloginTERMINATOR {
 		return &preloginOption{token: rec_type}, nil
+	} else if rec_type == preloginTHREADID {
+		// This value SHOULD be empty when being sent from the server to the client.
+		// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/60f56408-0188-4cd5-8b90-25c6f2423868
+		return &preloginOption{token: rec_type}, nil
 	}
 
 	// check if prelogin option exists in buffer
