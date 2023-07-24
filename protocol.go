@@ -54,8 +54,8 @@ func (t tcpDialer) ParseBrowserData(data msdsn.BrowserData, p *msdsn.Config) err
 // SQL returns 0xc5 as the byte value for Å while the UTF8 bytes in a Go string are [195 133]
 // QuoteToASCII returns "TJUTV\u00c5" for both
 func stringForInstanceNameComparison(inst string) (instanceName string) {
-	instanceName = strings.ReplaceAll(strconv.QuoteToASCII(inst), `\u00`, `\x`)
-	instanceName = strings.ReplaceAll(instanceName, `\u`, `\x`)
+	instanceName = strings.Replace(strconv.QuoteToASCII(inst), `\u00`, `\x`, -1)
+	instanceName = strings.Replace(instanceName, `\u`, `\x`, -1)
 	return
 }
 
