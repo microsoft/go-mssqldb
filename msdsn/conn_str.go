@@ -118,6 +118,8 @@ type Config struct {
 	BrowserMessage BrowserMsg
 	// ChangePassword is used to set the login's password during login. Ignored for non-SQL authentication.
 	ChangePassword string
+	//ColumnEncryption is true if the application needs to decrypt or encrypt Always Encrypted values
+	ColumnEncryption bool
 }
 
 // Build a tls.Config object from the supplied certificate.
@@ -401,6 +403,19 @@ func Parse(dsn string) (Config, error) {
 		return p, err
 	}
 
+	if c, ok := params["columnencryption"]; ok {
+		columnEncryption, err := strconv.ParseBool(c)
+		if err != nil {
+			if strings.EqualFold(c, "Enabled") {
+				columnEncryption = true
+			} else if strings.EqualFold(c, "Disabled") {
+				columnEncryption = false
+			} else {
+				return p, fmt.Errorf("invalid columnencryption '%v' : %v", columnEncryption, err.Error())
+			}
+		}
+		p.ColumnEncryption = columnEncryption
+	}
 	return p, nil
 }
 
@@ -451,11 +466,15 @@ func (p Config) URL() *url.URL {
 		res.Path = p.Instance
 	}
 	q.Add(DialTimeout, strconv.FormatFloat(float64(p.DialTimeout.Seconds()), 'f', 0, 64))
+
 	switch p.Encryption {
 	case EncryptionDisabled:
 		q.Add(Encrypt, "DISABLE")
 	case EncryptionRequired:
 		q.Add(Encrypt, "true")
+	}
+	if p.ColumnEncryption {
+		q.Add("columnencryption", "true")
 	}
 	if len(q) > 0 {
 		res.RawQuery = q.Encode()
@@ -464,15 +483,17 @@ func (p Config) URL() *url.URL {
 	return &res
 }
 
+// ADO connection string keywords at https://github.com/dotnet/SqlClient/blob/main/src/Microsoft.Data.SqlClient/src/Microsoft/Data/Common/DbConnectionStringCommon.cs
 var adoSynonyms = map[string]string{
-	"application name": AppName,
-	"data source":      Server,
-	"address":          Server,
-	"network address":  Server,
-	"addr":             Server,
-	"user":             UserId,
-	"uid":              UserId,
-	"initial catalog":  Database,
+	"application name":          AppName,
+	"data source":               Server,
+	"address":                   Server,
+	"network address":           Server,
+	"addr":                      Server,
+	"user":                      UserId,
+	"uid":                       UserId,
+	"initial catalog":           Database,
+	"column encryption setting": "columnencryption",
 }
 
 func splitConnectionString(dsn string) (res map[string]string) {
