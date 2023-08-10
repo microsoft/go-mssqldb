@@ -577,7 +577,7 @@ func sendLogin(w *tdsBuffer, login *login) error {
 	language := str2ucs2(login.Language)
 	database := str2ucs2(login.Database)
 	atchdbfile := str2ucs2(login.AtchDBFile)
-	changepassword := str2ucs2(login.ChangePassword)
+	changepassword := manglePassword(login.ChangePassword)
 	featureExt := login.FeatureExt.toBytes()
 
 	hdr := loginHeader{
@@ -637,6 +637,9 @@ func sendLogin(w *tdsBuffer, login *login) error {
 		hdr.ExtensionLength = 4
 		offset += hdr.ExtensionLength // DWORD
 		featureExtOffset = uint32(offset)
+	}
+	if len(changepassword) > 0 {
+		hdr.OptionFlags3 |= fChangePassword
 	}
 	hdr.Length = uint32(offset) + uint32(featureExtLen)
 
@@ -1035,17 +1038,18 @@ func prepareLogin(ctx context.Context, c *Connector, p msdsn.Config, logger Cont
 		serverName = p.Host
 	}
 	l = &login{
-		TDSVersion:    verTDS74,
-		PacketSize:    packetSize,
-		Database:      p.Database,
-		OptionFlags2:  fODBC, // to get unlimited TEXTSIZE
-		OptionFlags1:  fUseDB | fSetLang,
-		HostName:      p.Workstation,
-		ServerName:    serverName,
-		AppName:       p.AppName,
-		TypeFlags:     typeFlags,
-		CtlIntName:    "go-mssqldb",
-		ClientProgVer: getDriverVersion(driverVersion),
+		TDSVersion:     verTDS74,
+		PacketSize:     packetSize,
+		Database:       p.Database,
+		OptionFlags2:   fODBC, // to get unlimited TEXTSIZE
+		OptionFlags1:   fUseDB | fSetLang,
+		HostName:       p.Workstation,
+		ServerName:     serverName,
+		AppName:        p.AppName,
+		TypeFlags:      typeFlags,
+		CtlIntName:     "go-mssqldb",
+		ClientProgVer:  getDriverVersion(driverVersion),
+		ChangePassword: p.ChangePassword,
 	}
 	switch {
 	case fe.FedAuthLibrary == FedAuthLibrarySecurityToken:
