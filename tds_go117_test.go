@@ -26,7 +26,7 @@ func TestChangePassword(t *testing.T) {
 	p.ChangePassword = "Change" + pwd
 	p.User = login
 	p.Password = pwd
-	p.Parameters[msdsn.UserId] = p.User
+	p.Parameters[msdsn.UserID] = p.User
 	p.Parameters[msdsn.Password] = p.Password
 	tl := testLogger{t: t}
 	defer tl.StopLogging()

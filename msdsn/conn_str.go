@@ -49,18 +49,18 @@ const (
 	Encrypt                = "encrypt"
 	Password               = "password"
 	ChangePassword         = "change password"
-	UserId                 = "user id"
+	UserID                 = "user id"
 	Port                   = "port"
 	TrustServerCertificate = "trustservercertificate"
 	Certificate            = "certificate"
-	TlsMin                 = "tlsmin"
+	TLSMin                 = "tlsmin"
 	PacketSize             = "packet size"
 	LogParam               = "log"
 	ConnectionTimeout      = "connection timeout"
 	HostNameInCertificate  = "hostnameincertificate"
 	KeepAlive              = "keepalive"
 	ServerSpn              = "serverspn"
-	WorkstationId          = "workstation id"
+	WorkstationID          = "workstation id"
 	AppName                = "app name"
 	ApplicationIntent      = "applicationintent"
 	FailoverPartner        = "failoverpartner"
@@ -188,7 +188,7 @@ func parseTLS(params map[string]string, host string) (Encryption, *tls.Config, e
 	}
 	certificate := params[Certificate]
 	if encryption != EncryptionDisabled {
-		tlsMin := params[TlsMin]
+		tlsMin := params[TLSMin]
 		tlsConfig, err := SetupTLS(certificate, trustServerCert, host, tlsMin)
 		if err != nil {
 			return encryption, nil, fmt.Errorf("failed to setup TLS: %w", err)
@@ -234,7 +234,7 @@ func Parse(dsn string) (Config, error) {
 	}
 
 	p.Database = params[Database]
-	p.User = params[UserId]
+	p.User = params[UserID]
 	p.Password = params[Password]
 	p.ChangePassword = params[ChangePassword]
 	p.Port = 0
@@ -300,7 +300,7 @@ func Parse(dsn string) (Config, error) {
 		p.ServerSPN = serverSPN
 	} // If not set by the app, ServerSPN will be set by the successful dialer.
 
-	workstation, ok := params[WorkstationId]
+	workstation, ok := params[WorkstationID]
 	if ok {
 		p.Workstation = workstation
 	} else {
@@ -490,8 +490,8 @@ var adoSynonyms = map[string]string{
 	"address":                   Server,
 	"network address":           Server,
 	"addr":                      Server,
-	"user":                      UserId,
-	"uid":                       UserId,
+	"user":                      UserID,
+	"uid":                       UserID,
 	"initial catalog":           Database,
 	"column encryption setting": "columnencryption",
 }
@@ -550,7 +550,7 @@ func splitConnectionStringURL(dsn string) (map[string]string, error) {
 	}
 
 	if u.User != nil {
-		res[UserId] = u.User.Username()
+		res[UserID] = u.User.Username()
 		p, exists := u.User.Password()
 		if exists {
 			res[Password] = p
