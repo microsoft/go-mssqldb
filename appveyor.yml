@@ -15,8 +15,6 @@ environment:
   RACE: -race -cpu 4
   TAGS:
   matrix:
-    - GOVERSION: 110
-      SQLINSTANCE: SQL2017
     - GOVERSION: 111
       SQLINSTANCE: SQL2017
     - GOVERSION: 112
@@ -70,6 +68,7 @@ install:
   - go get -u github.com/golang-sql/civil
   - go get -u github.com/golang-sql/sqlexp
   - go get -u golang.org/x/crypto/md4
+  - go get -u github.com/stretchr/testify/assert
 
 build_script:
   - go build
