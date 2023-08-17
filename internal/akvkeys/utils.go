@@ -21,16 +21,16 @@ func GetTestAKV() (client *azkeys.Client, u string, err error) {
 		err = fmt.Errorf("KEY_VAULT_NAME is not set in the environment")
 		return
 	}
-	vaultUrl := fmt.Sprintf("https://%s.vault.azure.net/", vaultName)
+	vaultURL := fmt.Sprintf("https://%s.vault.azure.net/", url.PathEscape(vaultName))
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
 		return
 	}
-	client, err = azkeys.NewClient(vaultUrl, cred, nil)
+	client, err = azkeys.NewClient(vaultURL, cred, nil)
 	if err != nil {
 		return
 	}
-	u, err = url.JoinPath(vaultUrl, "keys")
+	u = vaultURL + "keys"
 	return
 }
 
@@ -47,7 +47,7 @@ func CreateRSAKey(client *azkeys.Client) (name string, err error) {
 	return
 }
 
-func DeleteRSAKey(client *azkeys.Client, name string) (err error) {
-	_, err = client.DeleteKey(context.TODO(), name, nil)
-	return
+func DeleteRSAKey(client *azkeys.Client, name string) bool {
+	_, err := client.DeleteKey(context.TODO(), name, nil)
+	return err == nil
 }

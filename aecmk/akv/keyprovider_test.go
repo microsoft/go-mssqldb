@@ -22,7 +22,7 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 	assert.NoError(t, err, "CreateRSAKey")
 	defer akvkeys.DeleteRSAKey(client, name)
 	keyPath, _ := url.JoinPath(vaultUrl, name)
-	p := &AkvKeyProvider
+	p := &KeyProvider
 	plainKey := make([]byte, 32)
 	_, _ = rand.Read(plainKey)
 	t.Log("Plainkey:", plainKey)

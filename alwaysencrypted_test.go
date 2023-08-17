@@ -75,7 +75,10 @@ func TestAlwaysEncryptedE2E(t *testing.T) {
 			if _, err := conn.Exec(s); err != nil {
 				t.Fatalf("Unable to create CMK: %s", err.Error())
 			}
-			defer conn.Exec(fmt.Sprintf(dropColumnMasterKey, certPath))
+			defer func() {
+				_, err := conn.Exec(fmt.Sprintf(dropColumnMasterKey, certPath))
+				assert.NoError(t, err, "dropColumnMasterKey")
+			}()
 			r, _ := rand.Int(rand.Reader, big.NewInt(1000))
 			cekName := fmt.Sprintf("mssqlCek%d", r.Int64())
 			tableName := fmt.Sprintf("mssqlAe%d", r.Int64())
@@ -85,7 +88,10 @@ func TestAlwaysEncryptedE2E(t *testing.T) {
 			createCek := fmt.Sprintf(createColumnEncryptionKey, cekName, certPath, encryptedCek)
 			_, err := conn.Exec(createCek)
 			assert.NoError(t, err, "Unable to create CEK")
-			defer conn.Exec(fmt.Sprintf(dropColumnEncryptionKey, cekName))
+			defer func() {
+				_, err := conn.Exec(fmt.Sprintf(dropColumnEncryptionKey, cekName))
+				assert.NoError(t, err, "dropColumnMasterKey")
+			}()
 			_, _ = conn.Exec("DROP TABLE IF EXISTS " + tableName)
 			query := new(strings.Builder)
 			insert := new(strings.Builder)
@@ -145,8 +151,8 @@ func TestAlwaysEncryptedE2E(t *testing.T) {
 			}
 			scanValues[len(encryptableColumns)] = &unencryptedColumnValue
 			err = rows.Scan(scanValues...)
+			defer rows.Close()
 			if err != nil {
-				rows.Close()
 				assert.FailNow(t, "Scan failed ", err)
 			}
 			for i := range encryptableColumns {
@@ -167,7 +173,7 @@ func TestAlwaysEncryptedE2E(t *testing.T) {
 				assert.Equalf(t, expectedStrVal, strVal, "Incorrect value for col%d. ", i)
 			}
 			assert.Equalf(t, "unencryptedvalue", unencryptedColumnValue, "Got wrong value for unencrypted column")
-			rows.Close()
+			_ = rows.Next()
 			err = rows.Err()
 			assert.NoError(t, err, "rows.Err() has non-nil values")
 		})

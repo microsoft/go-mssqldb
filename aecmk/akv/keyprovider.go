@@ -52,10 +52,10 @@ func (p Provider) SetCertificateCredential(endpoint string, credential azcore.To
 	p.credentials[endpoint] = credential
 }
 
-var AkvKeyProvider = Provider{credentials: make(map[string]azcore.TokenCredential), AllowedLocations: make([]string, 0)}
+var KeyProvider = Provider{credentials: make(map[string]azcore.TokenCredential), AllowedLocations: make([]string, 0)}
 
 func init() {
-	err := aecmk.RegisterCekProvider(aecmk.AzureKeyVaultKeyProvider, &AkvKeyProvider)
+	err := aecmk.RegisterCekProvider(aecmk.AzureKeyVaultKeyProvider, &KeyProvider)
 	if err != nil {
 		panic(err)
 	}
@@ -235,18 +235,6 @@ func (p *Provider) allowedPathAndEndpoint(masterKeyPath string) (endpoint string
 		endpoint = url.String()
 	}
 	return
-}
-
-func (p *Provider) getAKVKeySize(endpoint string, keyPath string) int {
-	client := p.getAKVClient(endpoint)
-	r, err := client.GetKey(context.Background(), keyPath, "", nil)
-	if err != nil {
-		panic(fmt.Errorf("Unable to get key from AKV %w", err))
-	}
-	if r.Key.Kty == nil || (*r.Key.Kty != azkeys.KeyTypeRSA && *r.Key.Kty != azkeys.KeyTypeRSAHSM) {
-		panic(fmt.Errorf("Key type not supported for Always Encrypted"))
-	}
-	return len(r.Key.N)
 }
 
 func (p *Provider) getAKVClient(endpoint string) (client *azkeys.Client) {
