@@ -4,7 +4,6 @@ pool:
 trigger: none
 variables:
   TESTPASSWORD: $(SQLPASSWORD)
-  AZURE_CLIENT_SECRET: $(AZURE_CLIENT_SECRET)
 
 steps: 
 - task: GoTool@0
