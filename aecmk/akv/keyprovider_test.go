@@ -14,14 +14,14 @@ import (
 )
 
 func TestEncryptDecryptRoundTrip(t *testing.T) {
-	client, vaultUrl, err := akvkeys.GetTestAKV()
+	client, vaultURL, err := akvkeys.GetTestAKV()
 	if err != nil {
 		t.Skip("No access to AKV")
 	}
 	name, err := akvkeys.CreateRSAKey(client)
 	assert.NoError(t, err, "CreateRSAKey")
 	defer akvkeys.DeleteRSAKey(client, name)
-	keyPath, _ := url.JoinPath(vaultUrl, name)
+	keyPath, _ := url.JoinPath(vaultURL, name)
 	p := &KeyProvider
 	plainKey := make([]byte, 32)
 	_, _ = rand.Read(plainKey)
