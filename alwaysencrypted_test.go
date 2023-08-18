@@ -126,7 +126,7 @@ func TestAlwaysEncryptedE2E(t *testing.T) {
 			sel.WriteString(fmt.Sprintf("unencryptedcolumn from [%s]", tableName))
 			_, err = conn.Exec(query.String())
 			assert.NoError(t, err, "Failed to create encrypted table")
-			defer conn.Exec("DROP TABLE IF EXISTS " + tableName)
+			defer func() { _, _ = conn.Exec("DROP TABLE IF EXISTS " + tableName) }()
 			_, err = conn.Exec(insert.String(), insertArgs...)
 			assert.NoError(t, err, "Failed to insert row in encrypted table")
 			rows, err := conn.Query(sel.String())
