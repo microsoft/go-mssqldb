@@ -4,7 +4,6 @@
 package mssql
 
 import (
-	"net/url"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys"
@@ -28,7 +27,7 @@ func (p *akvProviderTest) ProvisionMasterKey(t *testing.T) string {
 	}
 	name, err := akvkeys.CreateRSAKey(client)
 	assert.NoError(t, err, "CreateRSAKey")
-	keyPath, _ := url.JoinPath(vaultURL, name)
+	keyPath := vaultURL + "/" + name
 	p.client = client
 	p.keyName = name
 	return keyPath
