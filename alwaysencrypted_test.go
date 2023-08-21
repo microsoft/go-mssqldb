@@ -39,31 +39,33 @@ type aeColumnInfo struct {
 	sampleValue interface{}
 }
 
-var encryptableColumns = []aeColumnInfo{
-	{"int", "INT", ColumnEncryptionDeterministic, int32(1)},
-	{"nchar(10) COLLATE Latin1_General_BIN2", "NCHAR", ColumnEncryptionDeterministic, NChar("ncharval")},
-	{"tinyint", "TINYINT", ColumnEncryptionRandomized, byte(2)},
-	{"smallint", "SMALLINT", ColumnEncryptionDeterministic, int16(-3)},
-	{"bigint", "BIGINT", ColumnEncryptionRandomized, int64(4)},
-	// We can't use fractional float/real values due to rounding errors in the round trip
-	{"real", "REAL", ColumnEncryptionDeterministic, float32(5)},
-	{"float", "FLOAT", ColumnEncryptionRandomized, float64(6)},
-	{"varbinary(10)", "VARBINARY", ColumnEncryptionDeterministic, []byte{1, 2, 3, 4}},
-	// TODO: Varchar support requires proper selection of a collation and conversion
-	// {"varchar(10) COLLATE Latin1_General_BIN2", "VARCHAR", ColumnEncryptionRandomized, VarChar("varcharval")},
-	{"nvarchar(30)", "NVARCHAR", ColumnEncryptionRandomized, "nvarcharval"},
-	{"bit", "BIT", ColumnEncryptionDeterministic, true},
-	{"datetimeoffset(7)", "DATETIMEOFFSET", ColumnEncryptionRandomized, time.Now()},
-	{"datetime2(7)", "DATETIME2", ColumnEncryptionDeterministic, civil.DateTimeOf(time.Now())},
-	{"nvarchar(max)", "NVARCHAR", ColumnEncryptionRandomized, NVarCharMax("nvarcharmaxval")},
-	// TODO: The driver throws away type information about Valuer implementations and sends nil as nvarchar(1). Fix that.
-	// {"int", "INT", ColumnEncryptionDeterministic, sql.NullInt32{Valid: false}},
-}
-
 func TestAlwaysEncryptedE2E(t *testing.T) {
 	params := testConnParams(t)
 	if !params.ColumnEncryption {
 		t.Skip("Test is not running with column encryption enabled")
+	}
+	// civil.DateTime has 9 digit precision while SQL only has 7, so we can't use time.Now
+	dt, err := time.Parse("2006-01-02T15:04:05.9999999", "2023-08-21T18:33:36.5315137")
+	assert.NoError(t, err, "time.Parse")
+	encryptableColumns := []aeColumnInfo{
+		{"int", "INT", ColumnEncryptionDeterministic, int32(1)},
+		{"nchar(10) COLLATE Latin1_General_BIN2", "NCHAR", ColumnEncryptionDeterministic, NChar("ncharval")},
+		{"tinyint", "TINYINT", ColumnEncryptionRandomized, byte(2)},
+		{"smallint", "SMALLINT", ColumnEncryptionDeterministic, int16(-3)},
+		{"bigint", "BIGINT", ColumnEncryptionRandomized, int64(4)},
+		// We can't use fractional float/real values due to rounding errors in the round trip
+		{"real", "REAL", ColumnEncryptionDeterministic, float32(5)},
+		{"float", "FLOAT", ColumnEncryptionRandomized, float64(6)},
+		{"varbinary(10)", "VARBINARY", ColumnEncryptionDeterministic, []byte{1, 2, 3, 4}},
+		// TODO: Varchar support requires proper selection of a collation and conversion
+		// {"varchar(10) COLLATE Latin1_General_BIN2", "VARCHAR", ColumnEncryptionRandomized, VarChar("varcharval")},
+		{"nvarchar(30)", "NVARCHAR", ColumnEncryptionRandomized, "nvarcharval"},
+		{"bit", "BIT", ColumnEncryptionDeterministic, true},
+		{"datetimeoffset(7)", "DATETIMEOFFSET", ColumnEncryptionRandomized, dt},
+		{"datetime2(7)", "DATETIME2", ColumnEncryptionDeterministic, civil.DateTimeOf(dt)},
+		{"nvarchar(max)", "NVARCHAR", ColumnEncryptionRandomized, NVarCharMax("nvarcharmaxval")},
+		// TODO: The driver throws away type information about Valuer implementations and sends nil as nvarchar(1). Fix that.
+		// {"int", "INT", ColumnEncryptionDeterministic, sql.NullInt32{Valid: false}},
 	}
 	for _, test := range providerTests {
 		t.Run(test.Name(), func(t *testing.T) {
@@ -90,7 +92,7 @@ func TestAlwaysEncryptedE2E(t *testing.T) {
 			assert.NoError(t, err, "Unable to create CEK")
 			defer func() {
 				_, err := conn.Exec(fmt.Sprintf(dropColumnEncryptionKey, cekName))
-				assert.NoError(t, err, "dropColumnMasterKey")
+				assert.NoError(t, err, "dropColumnEncryptionKey")
 			}()
 			_, _ = conn.Exec("DROP TABLE IF EXISTS " + tableName)
 			query := new(strings.Builder)
