@@ -56,7 +56,7 @@ steps:
     KEY_VAULT_NAME: $(KEY_VAULT_NAME)
     AZURE_TENANT_ID: $(AZURE_TENANT_ID)
     AZURE_CLIENT_ID: $(AZURE_CLIENT_ID)
-    COLUMN_ENCRYPTION: 1
+    COLUMNENCRYPTION: 1
   continueOnError: true
 - task: PublishTestResults@2
   displayName: "Publish junit-style results"
