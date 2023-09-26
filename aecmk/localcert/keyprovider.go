@@ -79,6 +79,7 @@ func (p *Provider) DecryptColumnEncryptionKey(ctx context.Context, masterKeyPath
 	cekv := ae.LoadCEKV(encryptedCek)
 	if !cekv.Verify(cert) {
 		err = aecmk.NewError(aecmk.Decryption, fmt.Sprintf("Invalid certificate provided for decryption. Key Store Path: %s. <%s>-<%v>", masterKeyPath, cekv.KeyPath, fmt.Sprintf("%02x", sha1.Sum(cert.Raw))), nil)
+		return
 	}
 
 	decryptedKey, err = cekv.Decrypt(pk.(*rsa.PrivateKey))
@@ -161,7 +162,7 @@ func (p *Provider) EncryptColumnEncryptionKey(ctx context.Context, masterKeyPath
 	// version
 	keyPathBytes, err := enc.Bytes([]byte(strings.ToLower(masterKeyPath)))
 	if err != nil {
-		err = aecmk.NewError(aecmk.Encryption, fmt.Sprintf("Unable to serialize key path"), err)
+		err = aecmk.NewError(aecmk.Encryption, "Unable to serialize key path", err)
 		return
 	}
 	k := uint16(len(keyPathBytes))
