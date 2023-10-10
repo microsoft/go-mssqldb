@@ -200,9 +200,8 @@ func testProviderErrorHandling(t *testing.T, name string, provider aecmk.ColumnE
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(1*time.Hour))
 	defer cancel()
 	rows, err := conn.QueryContext(ctx, sel)
-	if err != nil {
-		defer rows.Close()
-	}
+	defer rows.Close()
+
 	if assert.NoError(t, err, "Exec should return no error") {
 		if rows.Next() {
 			assert.Fail(t, "rows.Next should have failed")
