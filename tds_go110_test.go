@@ -22,5 +22,5 @@ func getTestConnector(t testing.TB) (*Connector, *testLogger) {
 		t.Error("Open connection failed:", err.Error())
 		return nil, &tl
 	}
-	return connector, nil
+	return connector, &tl
 }
