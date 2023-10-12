@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.0
+
+### Changed
+
+* krb5 authenticator supports standard Kerberos environment variables for configuration
+
 ## 1.6.0
 
 ### Changed
