@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jcmturner/gokrb5/v8/config"
 	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
@@ -136,6 +137,9 @@ func TestReadKrb5ConfigHappyPath(t *testing.T) {
 	revert := mockFileExists()
 	defer revert()
 
+	revertConfig := mockDefaultConfig()
+	defer revertConfig()
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if len(test.cachePath) > 0 {
@@ -225,6 +229,9 @@ func TestReadKrb5ConfigErrorCases(t *testing.T) {
 		},
 	}
 
+	revertConfig := mockDefaultConfig()
+	defer revertConfig()
+
 	for _, tt := range tests {
 		config := msdsn.Config{
 			Parameters: map[string]string{
@@ -251,6 +258,42 @@ func TestReadKrb5ConfigErrorCases(t *testing.T) {
 	}
 }
 
+func TestReadKrb5ConfigGetsDefaultsFromConfFile(t *testing.T) {
+	loadDefaultConfigFromFile = func(krb5Login *krb5Login) (*config.Config, error) {
+		c := config.New()
+		c.LibDefaults.DefaultRealm = "myrealm"
+		c.LibDefaults.DefaultClientKeytabName = "mykeytabexists"
+		c.LibDefaults.DNSLookupKDC = krb5Login.DNSLookupKDC
+		c.LibDefaults.UDPPreferenceLimit = krb5Login.UDPPreferenceLimit
+		return c, nil
+	}
+	defer func() {
+		loadDefaultConfigFromFile = newKrb5ConfigFromFile
+	}()
+	revert := mockFileExists()
+	defer revert()
+
+	cfg := msdsn.Config{
+		User:      "username",
+		Password:  "",
+		ServerSPN: "serverspn",
+		Parameters: map[string]string{
+			"krb5-dnslookupkdc":       "false",
+			"krb5-udppreferencelimit": "1234",
+		},
+	}
+	login, err := readKrb5Config(cfg)
+	if err != nil {
+		t.Errorf("Unexpected error from readKrb5Config %s", err.Error())
+	}
+	if login.Realm != "myrealm" {
+		t.Errorf("Unexpected realm. Got %s", login.Realm)
+	}
+	if login.KeytabFile != "mykeytabexists" {
+		t.Errorf("Unexpected keytab file. Got: %s", login.KeytabFile)
+	}
+
+}
 func TestValidateKrb5LoginParams(t *testing.T) {
 
 	tests := []struct {
@@ -453,6 +496,15 @@ func mockFileExists() func() {
 	return func() { fileExists = fileExistsOS }
 }
 
+func mockDefaultConfig() func() {
+	loadDefaultConfigFromFile = func(krb5Login *krb5Login) (*config.Config, error) {
+		return config.New(), nil
+	}
+	return func() {
+		loadDefaultConfigFromFile = newKrb5ConfigFromFile
+	}
+}
+
 func TestGetAuth(t *testing.T) {
 	config := msdsn.Config{
 		User:      "username",
@@ -470,6 +522,8 @@ func TestGetAuth(t *testing.T) {
 
 	revert := mockFileExists()
 	defer revert()
+	revertConfig := mockDefaultConfig()
+	defer revertConfig()
 
 	a, err := getAuth(config)
 	if err != nil {

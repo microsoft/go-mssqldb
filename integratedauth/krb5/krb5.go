@@ -43,9 +43,10 @@ var (
 )
 
 var (
-	_                integratedauth.IntegratedAuthenticator = (*krbAuth)(nil)
-	fileExists                                              = fileExistsOS
-	AuthProviderFunc integratedauth.Provider                = integratedauth.ProviderFunc(getAuth)
+	_                         integratedauth.IntegratedAuthenticator = (*krbAuth)(nil)
+	fileExists                                                       = fileExistsOS
+	loadDefaultConfigFromFile                                        = newKrb5ConfigFromFile
+	AuthProviderFunc          integratedauth.Provider                = integratedauth.ProviderFunc(getAuth)
 )
 
 func init() {
@@ -95,7 +96,7 @@ type krb5Login struct {
 
 // copies string parameters from connection string, parses optional parameters
 // Environment variables for Kerberos config are listed at https://web.mit.edu/kerberos/krb5-1.12/doc/admin/env_variables.html
-func readKrb5Config(cfg msdsn.Config) (*krb5Login, error) {
+func readKrb5Config(cfg msdsn.Config) (l *krb5Login, err error) {
 	login := &krb5Login{
 		Krb5ConfigFile:     cfg.Parameters[keytabConfigFile],
 		KeytabFile:         cfg.Parameters[keytabFile],
@@ -109,7 +110,6 @@ func readKrb5Config(cfg msdsn.Config) (*krb5Login, error) {
 		loginMethod:        none,
 	}
 
-	defaults := config.New()
 	// If no conf file is provided , use the environment variable first then just use the default conf file location if not set
 	if len(login.Krb5ConfigFile) == 0 {
 		login.Krb5ConfigFile = os.Getenv("KRB5_CONFIG")
@@ -117,6 +117,12 @@ func readKrb5Config(cfg msdsn.Config) (*krb5Login, error) {
 
 	if len(login.Krb5ConfigFile) == 0 {
 		login.Krb5ConfigFile = `/etc/krb5.conf`
+	}
+
+	defaults, cerr := loadDefaultConfigFromFile(login)
+	if cerr != nil {
+		err = fmt.Errorf("Unable to load krb5 config to get default values: %w", cerr)
+		return
 	}
 
 	// If no Realm passed, try to split out the user name as `username@realm`
@@ -128,13 +134,17 @@ func readKrb5Config(cfg msdsn.Config) (*krb5Login, error) {
 		}
 	}
 
+	if len(login.Realm) == 0 {
+		login.Realm = defaults.LibDefaults.DefaultRealm
+	}
+
 	// If the app provides a user name with no password, give the keytab file precedence over the credential cache
 	if len(login.UserName) > 0 && len(login.Password) == 0 {
 		if len(login.KeytabFile) == 0 {
 			login.KeytabFile = os.Getenv("KRB5_KTNAME")
 		}
 		if len(login.KeytabFile) == 0 {
-			kt := defaults.LibDefaults.DefaultKeytabName
+			kt := defaults.LibDefaults.DefaultClientKeytabName
 			if ok, _ := fileExists(kt, nil); ok {
 				login.KeytabFile = kt
 			}
@@ -149,23 +159,25 @@ func readKrb5Config(cfg msdsn.Config) (*krb5Login, error) {
 	// read optional parameters
 	val, ok := cfg.Parameters[dnsLookupKDC]
 	if ok {
-		parsed, err := strconv.ParseBool(val)
-		if err != nil {
-			return nil, fmt.Errorf("invalid '%s' parameter '%s': %s", dnsLookupKDC, val, err.Error())
+		parsed, perr := strconv.ParseBool(val)
+		if perr != nil {
+			err = fmt.Errorf("invalid '%s' parameter '%s': %s", dnsLookupKDC, val, perr.Error())
+			return
 		}
 		login.DNSLookupKDC = parsed
 	}
 
 	val, ok = cfg.Parameters[udpPreferenceLimit]
 	if ok {
-		parsed, err := strconv.Atoi(val)
-		if err != nil {
-			return nil, fmt.Errorf("invalid '%s' parameter '%s': %s", udpPreferenceLimit, val, err.Error())
+		parsed, serr := strconv.Atoi(val)
+		if serr != nil {
+			err = fmt.Errorf("invalid '%s' parameter '%s': %s", udpPreferenceLimit, val, serr.Error())
+			return
 		}
 		login.UDPPreferenceLimit = parsed
 	}
-
-	return login, nil
+	l = login
+	return
 }
 
 func validateKrb5LoginParams(krbLoginParams *krb5Login) error {
