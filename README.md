@@ -65,6 +65,9 @@ Other supported formats are listed below.
 * `ApplicationIntent` - Can be given the value `ReadOnly` to initiate a read-only connection to an Availability Group listener. The `database` must be specified when connecting with `Application Intent` set to `ReadOnly`.
 * `protocol` - forces use of a protocol. Make sure the corresponding package is imported.
 * `columnencryption` or `column encryption setting` - a boolean value indicating whether Always Encrypted should be enabled on the connection.
+* `multisubnetfailover`
+  * `true` (Default) Client library will attempt to connect to all IPs simultaneously. For non multi subnet configurations, servers with multiple IPs, may cause SQL Server to log error 17830 due to the abrupt closure of initial connections during the parallel attempts "fire and forget pattern". Consider false in those scenarios to avoid the misleading error "Network error code 0x2746 occurred while establishing a connection; the connection has been closed. This may have been caused by client or server login timeout expiration".
+  * `false` Client library attempts to connect to IPs in serial.
 
 ### Connection parameters for namedpipe package
 * `pipe`  - If set, no Browser query is made and named pipe used will be `\\<host>\pipe\<pipe>`
