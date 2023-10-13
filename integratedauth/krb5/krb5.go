@@ -149,6 +149,12 @@ func readKrb5Config(cfg msdsn.Config) (l *krb5Login, err error) {
 				login.KeytabFile = kt
 			}
 		}
+		if len(login.KeytabFile) == 0 {
+			kt := defaults.LibDefaults.DefaultKeytabName
+			if ok, _ := fileExists(kt, nil); ok {
+				login.KeytabFile = kt
+			}
+		}
 	}
 
 	// We fall back to the environment variable if set, but it will be ignored for login if login.KeytabFile is set
