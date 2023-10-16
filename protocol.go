@@ -86,10 +86,20 @@ func (t tcpDialer) DialSqlConnection(ctx context.Context, c *Connector, p *msdsn
 		ips = []net.IP{ip}
 	}
 	if len(ips) == 1 || !p.MultiSubnetFailover {
+<<<<<<< HEAD
 		// Try to connect to IPs sequentially until one is successful per MultiSubnetFailover false rules
 		for _, ipaddress := range ips {
 			d := c.getDialer(p)
 			addr := net.JoinHostPort(ipaddress.String(), strconv.Itoa(int(resolveServerPort(p.Port))))
+=======
+		// Attempt IPs sequentially when MultiSubnetFailover is false (or we only have one)
+		// to avoid triggering a 17830 error on SQL Server from a "fire and forget" pattern
+		// caused by connecting and immediately closing without doing any work
+		for _, ipaddress := range ips {
+			d := c.getDialer(p)
+			addr := net.JoinHostPort(ipaddress.String(), strconv.Itoa(int(resolveServerPort(p.Port))))
+			fmt.Println(ipaddress.String())
+>>>>>>> 8eaca2b5ffe2c6980b56db6989b6aab9f61085e2
 			conn, err = d.DialContext(ctx, "tcp", addr)
 			if err == nil {
 				break
