@@ -66,8 +66,13 @@ Other supported formats are listed below.
 * `protocol` - forces use of a protocol. Make sure the corresponding package is imported.
 * `columnencryption` or `column encryption setting` - a boolean value indicating whether Always Encrypted should be enabled on the connection.
 * `multisubnetfailover`
+<<<<<<< HEAD
   * `true` (Default) Client attempt to connect to all IPs simultaneously. 
   * `false` Client attempts to connect to IPs in serial.
+=======
+  * `true` (Default) Client library will attempt to connect to all IPs simultaneously. For non multi subnet configurations, servers with multiple IPs, may cause SQL Server to log error 17830 due to the abrupt closure of initial connections during the parallel attempts "fire and forget pattern". Consider false in those scenarios to avoid the misleading error "Network error code 0x2746 occurred while establishing a connection; the connection has been closed. This may have been caused by client or server login timeout expiration".
+  * `false` Client library attempts to connect to IPs in serial.
+>>>>>>> 8eaca2b5ffe2c6980b56db6989b6aab9f61085e2
 
 ### Connection parameters for namedpipe package
 * `pipe`  - If set, no Browser query is made and named pipe used will be `\\<host>\pipe\<pipe>`
