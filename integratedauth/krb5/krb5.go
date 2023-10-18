@@ -96,7 +96,7 @@ type krb5Login struct {
 
 // copies string parameters from connection string, parses optional parameters
 // Environment variables for Kerberos config are listed at https://web.mit.edu/kerberos/krb5-1.12/doc/admin/env_variables.html
-func readKrb5Config(cfg msdsn.Config) (l *krb5Login, err error) {
+func readKrb5Config(cfg msdsn.Config) (*krb5Login, error) {
 	login := &krb5Login{
 		Krb5ConfigFile:     cfg.Parameters[keytabConfigFile],
 		KeytabFile:         cfg.Parameters[keytabFile],
@@ -119,10 +119,9 @@ func readKrb5Config(cfg msdsn.Config) (l *krb5Login, err error) {
 		login.Krb5ConfigFile = `/etc/krb5.conf`
 	}
 
-	defaults, cerr := loadDefaultConfigFromFile(login)
-	if cerr != nil {
-		err = fmt.Errorf("Unable to load krb5 config to get default values: %w", cerr)
-		return
+	defaults, err := loadDefaultConfigFromFile(login)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to load krb5 config to get default values: %w", err)
 	}
 
 	// If no Realm passed, try to split out the user name as `username@realm`
@@ -165,25 +164,22 @@ func readKrb5Config(cfg msdsn.Config) (l *krb5Login, err error) {
 	// read optional parameters
 	val, ok := cfg.Parameters[dnsLookupKDC]
 	if ok {
-		parsed, perr := strconv.ParseBool(val)
-		if perr != nil {
-			err = fmt.Errorf("invalid '%s' parameter '%s': %s", dnsLookupKDC, val, perr.Error())
-			return
+		parsed, err := strconv.ParseBool(val)
+		if err != nil {
+			return nil, fmt.Errorf("invalid '%s' parameter '%s': %w", dnsLookupKDC, val, err)
 		}
 		login.DNSLookupKDC = parsed
 	}
 
 	val, ok = cfg.Parameters[udpPreferenceLimit]
 	if ok {
-		parsed, serr := strconv.Atoi(val)
-		if serr != nil {
-			err = fmt.Errorf("invalid '%s' parameter '%s': %s", udpPreferenceLimit, val, serr.Error())
-			return
+		parsed, err := strconv.Atoi(val)
+		if err != nil {
+			return nil, fmt.Errorf("invalid '%s' parameter '%s': %s", udpPreferenceLimit, val, err.Error())
 		}
 		login.UDPPreferenceLimit = parsed
 	}
-	l = login
-	return
+	return login, nil
 }
 
 func validateKrb5LoginParams(krbLoginParams *krb5Login) error {
