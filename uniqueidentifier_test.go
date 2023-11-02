@@ -10,6 +10,7 @@ import (
 )
 
 func TestUniqueIdentifierScanBytes(t *testing.T) {
+	t.Parallel()
 	dbUUID := UniqueIdentifier{0x67, 0x45, 0x23, 0x01,
 		0xAB, 0x89,
 		0xEF, 0xCD,
@@ -28,6 +29,7 @@ func TestUniqueIdentifierScanBytes(t *testing.T) {
 }
 
 func TestUniqueIdentifierScanString(t *testing.T) {
+	t.Parallel()
 	uuid := UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}
 
 	var sut UniqueIdentifier
@@ -41,6 +43,7 @@ func TestUniqueIdentifierScanString(t *testing.T) {
 }
 
 func TestUniqueIdentifierScanUnexpectedType(t *testing.T) {
+	t.Parallel()
 	var sut UniqueIdentifier
 	scanErr := sut.Scan(int(1))
 	if scanErr == nil {
@@ -49,6 +52,7 @@ func TestUniqueIdentifierScanUnexpectedType(t *testing.T) {
 }
 
 func TestUniqueIdentifierValue(t *testing.T) {
+	t.Parallel()
 	dbUUID := UniqueIdentifier{0x67, 0x45, 0x23, 0x01,
 		0xAB, 0x89,
 		0xEF, 0xCD,
@@ -74,6 +78,7 @@ func TestUniqueIdentifierValue(t *testing.T) {
 }
 
 func TestUniqueIdentifierString(t *testing.T) {
+	t.Parallel()
 	sut := UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}
 	expected := "01234567-89AB-CDEF-0123-456789ABCDEF"
 	if actual := sut.String(); actual != expected {
@@ -82,6 +87,7 @@ func TestUniqueIdentifierString(t *testing.T) {
 }
 
 func TestUniqueIdentifierMarshalText(t *testing.T) {
+	t.Parallel()
 	sut := UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}
 	expected := []byte{48, 49, 50, 51, 52, 53, 54, 55, 45, 56, 57, 65, 66, 45, 67, 68, 69, 70, 45, 48, 49, 50, 51, 45, 52, 53, 54, 55, 56, 57, 65, 66, 67, 68, 69, 70}
 	text, _ := sut.MarshalText()
@@ -91,6 +97,7 @@ func TestUniqueIdentifierMarshalText(t *testing.T) {
 }
 
 func TestUniqueIdentifierUnmarshalJSON(t *testing.T) {
+	t.Parallel()
 	input := []byte("01234567-89AB-CDEF-0123-456789ABCDEF")
 	var u UniqueIdentifier
 
