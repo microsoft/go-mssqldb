@@ -9,7 +9,46 @@ import (
 	"testing"
 )
 
-func TestUniqueIdentifier(t *testing.T) {
+func TestUniqueIdentifierScanBytes(t *testing.T) {
+	dbUUID := UniqueIdentifier{0x67, 0x45, 0x23, 0x01,
+		0xAB, 0x89,
+		0xEF, 0xCD,
+		0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+	}
+	uuid := UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}
+
+	var sut UniqueIdentifier
+	scanErr := sut.Scan(dbUUID[:])
+	if scanErr != nil {
+		t.Fatal(scanErr)
+	}
+	if sut != uuid {
+		t.Errorf("bytes not swapped correctly: got %q; want %q", sut, uuid)
+	}
+}
+
+func TestUniqueIdentifierScanString(t *testing.T) {
+	uuid := UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}
+
+	var sut UniqueIdentifier
+	scanErr := sut.Scan(uuid.String())
+	if scanErr != nil {
+		t.Fatal(scanErr)
+	}
+	if sut != uuid {
+		t.Errorf("string not scanned correctly: got %q; want %q", sut, uuid)
+	}
+}
+
+func TestUniqueIdentifierScanUnexpectedType(t *testing.T) {
+	var sut UniqueIdentifier
+	scanErr := sut.Scan(int(1))
+	if scanErr == nil {
+		t.Fatal(scanErr)
+	}
+}
+
+func TestUniqueIdentifierValue(t *testing.T) {
 	dbUUID := UniqueIdentifier{0x67, 0x45, 0x23, 0x01,
 		0xAB, 0x89,
 		0xEF, 0xCD,
@@ -18,44 +57,20 @@ func TestUniqueIdentifier(t *testing.T) {
 
 	uuid := UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}
 
-	t.Run("Scan", func(t *testing.T) {
-		t.Run("[]byte", func(t *testing.T) {
-			var sut UniqueIdentifier
-			if err := sut.Scan(dbUUID[:]); err != nil {
-				t.Fatal(err)
-			}
-			if sut != uuid {
-				t.Errorf("bytes not swapped correctly: got %q; want %q", sut, uuid)
-			}
-		})
+	sut := uuid
+	v, valueErr := sut.Value()
+	if valueErr != nil {
+		t.Fatal(valueErr)
+	}
 
-		t.Run("string", func(t *testing.T) {
-			var sut UniqueIdentifier
-			if err := sut.Scan(uuid.String()); err != nil {
-				t.Fatal(err)
-			}
-			if sut != uuid {
-				t.Errorf("string not scanned correctly: got %q; want %q", sut, uuid)
-			}
-		})
-	})
+	b, ok := v.([]byte)
+	if !ok {
+		t.Fatalf("(%T) is not []byte", v)
+	}
 
-	t.Run("Value", func(t *testing.T) {
-		sut := uuid
-		v, err := sut.Value()
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		b, ok := v.([]byte)
-		if !ok {
-			t.Fatalf("(%T) is not []byte", v)
-		}
-
-		if !bytes.Equal(b, dbUUID[:]) {
-			t.Errorf("got %q; want %q", b, dbUUID)
-		}
-	})
+	if !bytes.Equal(b, dbUUID[:]) {
+		t.Errorf("got %q; want %q", b, dbUUID)
+	}
 }
 
 func TestUniqueIdentifierString(t *testing.T) {
