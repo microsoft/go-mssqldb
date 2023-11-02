@@ -9,6 +9,16 @@ import (
 	"testing"
 )
 
+func TestUniqueIdentifierScanNull(t *testing.T) {
+	t.Parallel()
+
+	sut := UniqueIdentifier{0x01}
+	scanErr := sut.Scan(nil) // NULL in the DB
+	if scanErr == nil {
+		t.Fatal("expected an error for Scan(nil)")
+	}
+}
+
 func TestUniqueIdentifierScanBytes(t *testing.T) {
 	t.Parallel()
 	dbUUID := UniqueIdentifier{0x67, 0x45, 0x23, 0x01,
