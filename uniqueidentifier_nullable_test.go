@@ -16,7 +16,7 @@ func TestNullableUniqueIdentifierScanNull(t *testing.T) {
 	sut := NullableUniqueIdentifier{0x01}
 	scanErr := sut.Scan(nil) // NULL in the DB
 	if scanErr != nil {
-		t.Fatal(scanErr)
+		t.Fatal("NullableUniqueIdentifier should not error out on Scan(nil)")
 	}
 	if sut != nullUUID {
 		t.Errorf("bytes not swapped correctly: got %q; want %q", sut, nullUUID)
