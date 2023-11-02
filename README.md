@@ -477,6 +477,7 @@ Constrain the provider to an allowed list of key vaults by appending vault host 
 * Supports connections to AlwaysOn Availability Group listeners, including re-direction to read-only replicas.
 * Supports query notifications
 * Supports Kerberos Authentication
+* Supports handling the `uniqueidentifier` data type with the `UniqueIdentifier` and `NullUniqueIdentifier` go types
 * Pluggable Dialer implementations through `msdsn.ProtocolParsers` and `msdsn.ProtocolDialers`
 * A `namedpipe` package to support connections using named pipes (np:) on Windows
 * A `sharedmemory` package to support connections using shared memory (lpc:) on Windows
