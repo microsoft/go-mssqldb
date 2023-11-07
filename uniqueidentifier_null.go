@@ -40,6 +40,13 @@ func (n NullUniqueIdentifier) MarshalText() (text []byte, err error) {
 
 func (n *NullUniqueIdentifier) UnmarshalJSON(b []byte) error {
 	u := n.UUID
+	if string(b) == "null" {
+		*n = NullUniqueIdentifier{
+			UUID:  [16]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+			Valid: false,
+		}
+		return nil
+	}
 	err := u.UnmarshalJSON(b)
 	*n = NullUniqueIdentifier{
 		UUID:  u,

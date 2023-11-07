@@ -139,6 +139,26 @@ func TestNullableUniqueIdentifierUnmarshalJSON(t *testing.T) {
 	}
 }
 
+func TestNullableUniqueIdentifierUnmarshalJSONNull(t *testing.T) {
+	t.Parallel()
+	u := NullUniqueIdentifier{
+		UUID:  [16]byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
+		Valid: true,
+	}
+
+	err := u.UnmarshalJSON([]byte("null"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := NullUniqueIdentifier{
+		UUID:  [16]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+		Valid: false,
+	}
+	if u != expected {
+		t.Errorf("u.UnmarshalJSON() = %v; want %v", u, expected)
+	}
+}
+
 var _ fmt.Stringer = NullUniqueIdentifier{}
 var _ sql.Scanner = &NullUniqueIdentifier{}
 var _ driver.Valuer = NullUniqueIdentifier{}
