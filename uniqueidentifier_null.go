@@ -27,14 +27,23 @@ func (n *NullUniqueIdentifier) Scan(v interface{}) error {
 }
 
 func (n NullUniqueIdentifier) Value() (driver.Value, error) {
+	if !n.Valid {
+		return nil, nil
+	}
 	return n.UUID.Value()
 }
 
 func (n NullUniqueIdentifier) String() string {
+	if !n.Valid {
+		return "NULL"
+	}
 	return n.UUID.String()
 }
 
 func (n NullUniqueIdentifier) MarshalText() (text []byte, err error) {
+	if !n.Valid {
+		return []byte("null"), nil
+	}
 	return n.UUID.MarshalText()
 }
 

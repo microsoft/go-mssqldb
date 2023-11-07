@@ -98,12 +98,43 @@ func TestNullableUniqueIdentifierValue(t *testing.T) {
 	}
 }
 
+func TestNullableUniqueIdentifierValueNull(t *testing.T) {
+	t.Parallel()
+	uuid := NullUniqueIdentifier{
+		UUID:  [16]byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
+		Valid: false,
+	}
+
+	sut := uuid
+	v, valueErr := sut.Value()
+	if valueErr != nil {
+		t.Errorf("unexpected error for invalid uuid: %s", valueErr)
+	}
+
+	if v != nil {
+		t.Errorf("expected non-nil value for invalid uuid: %s", v)
+	}
+}
+
 func TestNullableUniqueIdentifierString(t *testing.T) {
 	t.Parallel()
 	sut := NullUniqueIdentifier{
-		UUID: [16]byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
+		UUID:  [16]byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
+		Valid: true,
 	}
 	expected := "01234567-89AB-CDEF-0123-456789ABCDEF"
+	if actual := sut.String(); actual != expected {
+		t.Errorf("sut.String() = %s; want %s", sut, expected)
+	}
+}
+
+func TestNullableUniqueIdentifierStringNull(t *testing.T) {
+	t.Parallel()
+	sut := NullUniqueIdentifier{
+		UUID:  [16]byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
+		Valid: false,
+	}
+	expected := "NULL"
 	if actual := sut.String(); actual != expected {
 		t.Errorf("sut.String() = %s; want %s", sut, expected)
 	}
@@ -112,10 +143,30 @@ func TestNullableUniqueIdentifierString(t *testing.T) {
 func TestNullableUniqueIdentifierMarshalText(t *testing.T) {
 	t.Parallel()
 	sut := NullUniqueIdentifier{
-		UUID: [16]byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
+		UUID:  [16]byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
+		Valid: true,
 	}
 	expected := []byte{48, 49, 50, 51, 52, 53, 54, 55, 45, 56, 57, 65, 66, 45, 67, 68, 69, 70, 45, 48, 49, 50, 51, 45, 52, 53, 54, 55, 56, 57, 65, 66, 67, 68, 69, 70}
-	text, _ := sut.MarshalText()
+	text, marshalErr := sut.MarshalText()
+	if marshalErr != nil {
+		t.Errorf("unexpected error while marshalling: %s", marshalErr)
+	}
+	if actual := text; !reflect.DeepEqual(actual, expected) {
+		t.Errorf("sut.MarshalText() = %v; want %v", actual, expected)
+	}
+}
+
+func TestNullableUniqueIdentifierMarshalTextNull(t *testing.T) {
+	t.Parallel()
+	sut := NullUniqueIdentifier{
+		UUID:  [16]byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
+		Valid: false,
+	}
+	expected := []byte("null")
+	text, marshalErr := sut.MarshalText()
+	if marshalErr != nil {
+		t.Errorf("unexpected error while marshalling: %s", marshalErr)
+	}
 	if actual := text; !reflect.DeepEqual(actual, expected) {
 		t.Errorf("sut.MarshalText() = %v; want %v", actual, expected)
 	}
