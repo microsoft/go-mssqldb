@@ -57,6 +57,8 @@ type tdsBuffer struct {
 	// before the first use. It is executed after the first packet is
 	// written and then removed.
 	afterFirst func()
+
+	serverConn *tdsSession
 }
 
 func newTdsBuffer(bufsize uint16, transport io.ReadWriteCloser) *tdsBuffer {
@@ -185,10 +187,31 @@ func (r *tdsBuffer) readNextPacket() error {
 	r.rsize = int(h.Size)
 	r.final = h.Status != 0
 	r.rPacketType = h.PacketType
+
+	if r.serverConn != nil {
+		_, err := r.serverConn.buf.Write(r.rbuf[r.rpos:r.rsize])
+		if err != nil {
+			return err
+		}
+
+		if r.final {
+			if err := r.serverConn.buf.FinishPacket(); err != nil {
+				return err
+			}
+		} else {
+			if err := r.serverConn.buf.flush(); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
 func (r *tdsBuffer) BeginRead() (packetType, error) {
+	if r.serverConn != nil {
+		r.serverConn.buf.BeginPacket(r.rPacketType, false)
+	}
+
 	err := r.readNextPacket()
 	if err != nil {
 		return 0, err
