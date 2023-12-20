@@ -2,14 +2,40 @@ package cp
 
 import (
 	"strings"
+	"sync"
 )
+
+var initOnce sync.Once
 
 type charsetMap struct {
 	sb [256]rune    // single byte runes, -1 for a double byte character lead byte
 	db map[int]rune // double byte runes
 }
 
+// lazy initialization of all charset maps
+func initCharsetMaps() {
+	initOnce.Do(func() {
+		initcp437()
+		initcp850()
+		initcp874()
+		initcp932()
+		initcp936()
+		initcp949()
+		initcp950()
+		initcp1250()
+		initcp1251()
+		initcp1252()
+		initcp1253()
+		initcp1254()
+		initcp1255()
+		initcp1256()
+		initcp1257()
+		initcp1258()
+	})
+}
+
 func collation2charset(col Collation) *charsetMap {
+	initCharsetMaps()
 	// http://msdn.microsoft.com/en-us/library/ms144250.aspx
 	// http://msdn.microsoft.com/en-us/library/ms144250(v=sql.105).aspx
 	switch col.SortId {
