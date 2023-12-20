@@ -7,7 +7,7 @@ var (
 	cp949Once sync.Once
 )
 
-func initcp949() {
+func getcp949() *charsetMap {
 	cp949Once.Do(func() {
 		cp949 = &charsetMap{
 			sb: [256]rune{
@@ -17320,4 +17320,5 @@ func initcp949() {
 			},
 		}
 	})
+	return cp949
 }

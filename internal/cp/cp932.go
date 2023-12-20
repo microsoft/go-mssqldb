@@ -7,7 +7,7 @@ var (
 	cp932Once sync.Once
 )
 
-func initcp932() {
+func getcp932() *charsetMap {
 	cp932Once.Do(func() {
 		cp932 = &charsetMap{
 			sb: [256]rune{
@@ -7996,4 +7996,5 @@ func initcp932() {
 			},
 		}
 	})
+	return cp932
 }

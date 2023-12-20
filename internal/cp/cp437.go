@@ -7,7 +7,7 @@ var (
 	cp437Once sync.Once
 )
 
-func initcp437() {
+func getcp437() *charsetMap {
 	cp437Once.Do(func() {
 		cp437 = &charsetMap{
 			sb: [256]rune{
@@ -270,4 +270,5 @@ func initcp437() {
 			},
 		}
 	})
+	return cp437
 }

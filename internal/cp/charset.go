@@ -14,115 +14,80 @@ func collation2charset(col Collation) *charsetMap {
 	// http://msdn.microsoft.com/en-us/library/ms144250(v=sql.105).aspx
 	switch col.SortId {
 	case 30, 31, 32, 33, 34:
-		initcp437()
-		return cp437
+		return getcp437()
 	case 40, 41, 42, 44, 49, 55, 56, 57, 58, 59, 60, 61:
-		initcp850()
-		return cp850
+		return getcp850()
 	case 50, 51, 52, 53, 54, 71, 72, 73, 74, 75:
-		initcp1252()
-		return cp1252
+		return getcp1252()
 	case 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96:
-		initcp1250()
-		return cp1250
+		return getcp1250()
 	case 104, 105, 106, 107, 108:
-		initcp1251()
-		return cp1251
+		return getcp1251()
 	case 112, 113, 114, 121, 124:
-		initcp1253()
-		return cp1253
+		return getcp1253()
 	case 128, 129, 130:
-		initcp1254()
-		return cp1254
+		return getcp1254()
 	case 136, 137, 138:
-		initcp1255()
-		return cp1255
+		return getcp1255()
 	case 144, 145, 146:
-		initcp1256()
-		return cp1256
+		return getcp1256()
 	case 152, 153, 154, 155, 156, 157, 158, 159, 160:
-		initcp1257()
-		return cp1257
+		return getcp1257()
 	case 183, 184, 185, 186:
-		initcp1252()
-		return cp1252
+		return getcp1252()
 	case 192, 193:
-		initcp932()
-		return cp932
+		return getcp932()
 	case 194, 195:
-		initcp949()
-		return cp949
+		return getcp949()
 	case 196, 197:
-		initcp950()
-		return cp950
+		return getcp950()
 	case 198, 199:
-		initcp936()
-		return cp936
+		return getcp936()
 	case 200:
-		initcp932()
-		return cp932
+		return getcp932()
 	case 201:
-		initcp949()
-		return cp949
+		return getcp949()
 	case 202:
-		initcp950()
-		return cp950
+		return getcp950()
 	case 203:
-		initcp936()
-		return cp936
+		return getcp936()
 	case 204, 205, 206:
-		initcp874()
-		return cp874
+		return getcp874()
 	case 210, 211, 212, 213, 214, 215, 216, 217:
-		initcp1252()
-		return cp1252
+		return getcp1252()
 	}
 	// http://technet.microsoft.com/en-us/library/aa176553(v=sql.80).aspx
 	switch col.getLcid() {
 	case 0x001e, 0x041e:
-		initcp874()
-		return cp874
+		return getcp874()
 	case 0x0411, 0x10411, 0x40411:
-		initcp932()
-		return cp932
+		return getcp932()
 	case 0x0804, 0x1004, 0x20804:
-		initcp936()
-		return cp936
+		return getcp936()
 	case 0x0012, 0x0412:
-		initcp949()
-		return cp949
+		return getcp949()
 	case 0x0404, 0x1404, 0x0c04, 0x7c04, 0x30404, 0x21404:
-		initcp950()
-		return cp950
+		return getcp950()
 	case 0x041c, 0x041a, 0x0405, 0x040e, 0x104e, 0x0415, 0x0418, 0x041b, 0x0424, 0x1040e, 0x0442, 0x081A, 0x141A:
-		initcp1250()
-		return cp1250
+		return getcp1250()
 	case 0x0423, 0x0402, 0x042f, 0x0419, 0x0c1a, 0x0422, 0x043f, 0x0444, 0x082c, 0x046D, 0x0485, 0x201A:
-		initcp1251()
-		return cp1251
+		return getcp1251()
 	case 0x0408:
-		initcp1253()
-		return cp1253
+		return getcp1253()
 	case 0x041f, 0x042c, 0x0443:
-		initcp1254()
-		return cp1254
+		return getcp1254()
 	case 0x040d:
-		initcp1255()
-		return cp1255
+		return getcp1255()
 	case 0x0401, 0x0801, 0xc01, 0x1001, 0x1401, 0x1801, 0x1c01, 0x2001, 0x2401, 0x2801, 0x2c01, 0x3001, 0x3401, 0x3801, 0x3c01, 0x4001, 0x0429, 0x0420, 0x0480, 0x048C:
-		initcp1256()
-		return cp1256
+		return getcp1256()
 	case 0x0425, 0x0426, 0x0427, 0x0827:
-		initcp1257()
-		return cp1257
+		return getcp1257()
 	case 0x042a:
-		initcp1258()
-		return cp1258
+		return getcp1258()
 	case 0x0439, 0x045a, 0x0465, 0x043A, 0x0445, 0x044D, 0x0451, 0x0453, 0x0454, 0x0461, 0x0463, 0x0481:
 		return nil
 	}
-	initcp1252()
-	return cp1252
+	return getcp1252()
 }
 
 func CharsetToUTF8(col Collation, s []byte) string {
