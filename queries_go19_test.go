@@ -346,6 +346,107 @@ SELECT @param2 = 'World'
 	})
 }
 
+func TestOutputINOUTStringParam(t *testing.T) {
+	sqltextcreate := `
+CREATE PROCEDURE vinout
+   @sinout NVARCHAR(4000) OUTPUT
+AS
+BEGIN
+	IF @sinout = 'empty'
+		SET @sinout = NULL
+	ELSE
+		SET @sinout = 'long_long_value'
+END;
+`
+	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextrun := `vinout`
+
+	checkConnStr(t)
+	tl := testLogger{t: t}
+	defer tl.StopLogging()
+	SetLogger(&tl)
+
+	db, err := sql.Open("sqlserver", makeConnStr(t).String())
+	if err != nil {
+		t.Fatalf("failed to open driver sqlserver")
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	db.ExecContext(ctx, sqltextdrop)
+	_, err = db.ExecContext(ctx, sqltextcreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.ExecContext(ctx, sqltextdrop)
+
+	t.Run("original test", func(t *testing.T) {
+		sinout := "short_value"
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("sinout", sql.Out{Dest: &sinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if sinout != "long_long_value" {
+			t.Errorf("expected long_long_value, got %s", sinout)
+		}
+	})
+
+	t.Run("nullable value", func(t *testing.T) {
+		sinout := sql.NullString{String: "short_value", Valid: true}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("sinout", sql.Out{Dest: &sinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if !sinout.Valid || sinout.String != "long_long_value" {
+			if sinout.Valid {
+				t.Errorf("expected long_long_value, got %s", sinout.String)
+			} else {
+				t.Errorf("expected long_long_value, got NULL")
+			}
+		}
+	})
+
+	t.Run("null value", func(t *testing.T) {
+		sinout := sql.NullString{}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("sinout", sql.Out{Dest: &sinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if !sinout.Valid || sinout.String != "long_long_value" {
+			if sinout.Valid {
+				t.Errorf("expected long_long_value, got %s", sinout.String)
+			} else {
+				t.Errorf("expected long_long_value, got NULL")
+			}
+		}
+	})
+
+	t.Run("null result", func(t *testing.T) {
+		sinout := sql.NullString{String: "empty", Valid: true}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("sinout", sql.Out{Dest: &sinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if sinout.Valid {
+			t.Errorf("expected NULL, got %s", sinout.String)
+		}
+	})
+}
+
 func TestOutputINOUTParam(t *testing.T) {
 	sqltextcreate := `
 CREATE PROCEDURE abinout
