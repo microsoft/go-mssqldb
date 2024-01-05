@@ -447,6 +447,54 @@ END;
 	})
 }
 
+func TestOutputINOUTBytesParam(t *testing.T) {
+	sqltextcreate := `
+CREATE PROCEDURE vinout
+   @binout VARBINARY(4000) OUTPUT
+AS
+BEGIN
+	SET @binout = CONVERT(VARBINARY(4000), 'long_long_value')
+END;
+`
+	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextrun := `vinout`
+
+	checkConnStr(t)
+	tl := testLogger{t: t}
+	defer tl.StopLogging()
+	SetLogger(&tl)
+
+	db, err := sql.Open("sqlserver", makeConnStr(t).String())
+	if err != nil {
+		t.Fatalf("failed to open driver sqlserver")
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	db.ExecContext(ctx, sqltextdrop)
+	_, err = db.ExecContext(ctx, sqltextcreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.ExecContext(ctx, sqltextdrop)
+
+	t.Run("original test", func(t *testing.T) {
+		binout := []byte("short_value")
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("binout", sql.Out{Dest: &binout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if !bytes.Equal(binout, []byte("long_long_value")) {
+			t.Errorf("expected long_long_value, got %s", string(binout))
+		}
+	})
+}
+
 func TestOutputINOUTParam(t *testing.T) {
 	sqltextcreate := `
 CREATE PROCEDURE abinout
