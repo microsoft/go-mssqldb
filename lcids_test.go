@@ -22,7 +22,7 @@ import (
 //
 // None of the SQL syntax uses any SQL Server version-specific syntax,
 // and should work on any version without change.
-const comparisonQueriesGeneratorSql = `
+const comparisonQueriesGeneratorSQL = `
 --
 -- Generates SELECT statements for fetching data encoded with various code pages
 -- along with the same data encoded in UTF-16.
@@ -264,9 +264,9 @@ type CpLcidComparisonMap map[CpLcid]CpLcidComparisonData
 
 // Builds a map of LCID fetching queries for all codepage/LCID pairs.
 func buildLcidFetchComparisonMap(conn *sql.DB, t *testing.T) CpLcidComparisonMap {
-	stmt, err := conn.Prepare(comparisonQueriesGeneratorSql)
+	stmt, err := conn.Prepare(comparisonQueriesGeneratorSQL)
 	if err != nil {
-		t.Fatalf("Unable to run comparison queries generator query %s", err.Error())
+		t.Error("Unable to run comparison queries generator query", err.Error())
 	}
 	defer stmt.Close()
 
@@ -290,12 +290,20 @@ func buildLcidFetchComparisonMap(conn *sql.DB, t *testing.T) CpLcidComparisonMap
 		}
 
 		var lcid int32
-		binary.Read(bytes.NewReader(lcidRaw), binary.BigEndian, &lcid)
+		err = binary.Read(bytes.NewReader(lcidRaw), binary.BigEndian, &lcid)
+		if err != nil {
+			t.Error("Failed to convert LCID from binary to int:", err.Error())
+		}
 
 		cplcid := CpLcid{codepage, lcid}
 		cplciddata := CpLcidComparisonData{collation, sqltext}
 
 		result[cplcid] = cplciddata
+	}
+
+	err = rows.Err()
+	if err != nil {
+		t.Error("Rows containing comparison queries have errors", err)
 	}
 
 	return result
@@ -308,7 +316,7 @@ func verifyLcidFetch(conn *sql.DB, sqltext *string, t *testing.T) bool {
 
 	err := conn.QueryRow(*sqltext).Scan(&refdata, &cpdata)
 	if err != nil {
-		t.Fatal("Cannot scan reference and codepage data", err)
+		t.Error("Cannot scan reference and codepage data", err)
 	}
 
 	return refdata == cpdata
