@@ -17,7 +17,7 @@ import (
 // There are some test integrity assertions that:
 //  1. Ensure that all LCIDs in the system (as returned by sys.fn_helpcollations())
 //     are covered by the test.
-//  2. The 1252 CTE does not return any "leaked code pages that are not 1252.
+//  2. The 1252 CTE does not return any "leaked" code pages that are not 1252.
 //  3. All code pages come with sample reference data for fetching comparison.
 //
 // None of the SQL syntax uses any SQL Server version-specific syntax,
@@ -36,7 +36,7 @@ const comparisonQueriesGeneratorSQL = `
 -- The format of the query is
 --    SELECT
 --        N'<sample data>' AS [reference_data]
---      , CAST(N'<sample data> COLLATE <collation with the given code page> AS VARCHAR(1000)) AS [codepage_data]
+--      , CAST(N'<sample data> COLLATE <collation with the given code page and lcid> AS VARCHAR(1000)) AS [codepage_data]
 -- This way the conversion from Nvarchar to Varchar does not depend on the collation
 -- of the currently active database.
 --
