@@ -1124,7 +1124,7 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 	case typeNChar:
 		return reflect.TypeOf("")
 	case typeGuid:
-		return reflect.TypeOf([]byte{})
+		return reflect.TypeOf(UniqueIdentifier{})
 	case typeXml:
 		return reflect.TypeOf("")
 	case typeText:
