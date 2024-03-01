@@ -67,7 +67,9 @@ func TestAlwaysEncryptedE2E(t *testing.T) {
 		{"datetime2(7)", "DATETIME2", ColumnEncryptionDeterministic, civil.DateTimeOf(dt)},
 		{"nvarchar(max)", "NVARCHAR", ColumnEncryptionRandomized, NVarCharMax("nvarcharmaxval")},
 		{"int", "INT", ColumnEncryptionDeterministic, sql.NullInt32{Valid: false}},
-		{"int", "INT", ColumnEncryptionDeterministic, sql.NullInt64{Int64: 128, Valid: true}},
+		{"bigint", "BIGINT", ColumnEncryptionDeterministic, sql.NullInt64{Int64: 128, Valid: true}},
+		{"uniqueidentifier", "UNIQUEIDENTIFIER", ColumnEncryptionRandomized, UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}},
+		{"uniqueidentifier", "UNIQUEIDENTIFIER", ColumnEncryptionRandomized, NullUniqueIdentifier{Valid: false}},
 	}
 	for _, test := range providerTests {
 		// turn off key caching
@@ -231,8 +233,6 @@ func comparisonValueFromObject(object interface{}) string {
 	case time.Time:
 		return civil.DateTimeOf(v).String()
 		//return v.Format(time.RFC3339)
-	case fmt.Stringer:
-		return v.String()
 	case bool:
 		if v == true {
 			return "1"
@@ -244,6 +244,8 @@ func comparisonValueFromObject(object interface{}) string {
 			return "<nil>"
 		}
 		return comparisonValueFromObject(val)
+	case fmt.Stringer:
+		return v.String()
 	default:
 		return fmt.Sprintf("%v", v)
 	}
