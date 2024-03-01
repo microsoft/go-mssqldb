@@ -28,26 +28,34 @@ func (n namedPipeDialer) ParseServer(server string, p *msdsn.Config) error {
 	if strings.HasPrefix(server, `\\`) {
 		// assume a server name starting with \\ is the full named pipe path
 		p.ProtocolParameters[n.Protocol()] = namedPipeData{PipeName: server}
-	} else if p.Host == "" { // if the string specifies np:host\instance, tcpParser won't have filled in p.Host
+		return nil
+	}
+	pipeHost := "."
+	if p.Host == "" { // if the string specifies np:host\instance, tcpParser won't have filled in p.Host
 		parts := strings.SplitN(server, `\`, 2)
-		p.Host = parts[0]
-		if p.Host == "." || strings.ToUpper(p.Host) == "(LOCAL)" {
+		host := parts[0]
+		if host == "." || strings.ToUpper(host) == "(LOCAL)" {
+			// localhost replaces . to query the browser service but some SQL instances
+			// like Windows Internal Database require the . in the pipe name to connect
 			p.Host = "localhost"
+		} else {
+			p.Host = host
+			pipeHost = host
 		}
 		if len(parts) > 1 {
 			p.Instance = parts[1]
 		}
 	} else {
-		host := strings.ToLower(p.Host)
+		pipeHost = strings.ToLower(p.Host)
 		for _, domain := range azureDomains {
-			if strings.HasSuffix(host, domain) {
+			if strings.HasSuffix(pipeHost, domain) {
 				return fmt.Errorf("Named pipes disallowed for Azure SQL Database connections")
 			}
 		}
 	}
 	pipe, ok := p.Parameters["pipe"]
 	if ok {
-		p.ProtocolParameters[n.Protocol()] = namedPipeData{PipeName: fmt.Sprintf(`\\%s\pipe\%s`, p.Host, pipe)}
+		p.ProtocolParameters[n.Protocol()] = namedPipeData{PipeName: fmt.Sprintf(`\\%s\pipe\%s`, pipeHost, pipe)}
 	}
 	return nil
 }
