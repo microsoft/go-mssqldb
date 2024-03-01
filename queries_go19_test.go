@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,6 +32,36 @@ func TestOutputParam(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	t.Run("varchar(max) to sql.NullString", func(t *testing.T) {
+		sqltextcreate := `CREATE PROCEDURE [GetTask]
+		@strparam varchar(max) = NULL OUTPUT
+	AS
+	SELECT @strparam = REPLICATE('a', 8000)
+	RETURN 0`
+		sqltextdrop := `drop procedure GetTask`
+		sqltextrun := `GetTask`
+		_, _ = db.ExecContext(ctx, sqltextdrop)
+		_, err = db.ExecContext(ctx, sqltextcreate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.ExecContext(ctx, sqltextdrop)
+		if err != nil {
+			t.Error(err)
+		}
+
+		nullstr := sql.NullString{}
+		_, err := db.ExecContext(ctx, sqltextrun,
+			sql.Named("strparam", sql.Out{Dest: &nullstr}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+		defer db.ExecContext(ctx, sqltextdrop)
+		if nullstr.String != strings.Repeat("a", 8000) {
+			t.Error("Got incorrect NullString of length:", len(nullstr.String))
+		}
+	})
 	t.Run("sp with rows", func(t *testing.T) {
 		sqltextcreate := `
 CREATE PROCEDURE spwithrows

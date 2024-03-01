@@ -198,6 +198,19 @@ func TestSelect(t *testing.T) {
 			}
 		})
 	})
+	t.Run("scan into sql.NullString", func(t *testing.T) {
+		row := conn.QueryRow("SELECT REPLICATE('a', 8000)")
+		var out sql.NullString
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to NullString failed", err.Error())
+			return
+		}
+
+		if out.String != strings.Repeat("a", 8000) {
+			t.Error("got back a string with count:", len(out.String))
+		}
+	})
 }
 
 func TestSelectDateTimeOffset(t *testing.T) {

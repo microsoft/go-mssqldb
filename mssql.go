@@ -982,6 +982,17 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		res.ti.Size = 0
 		return
 	}
+	// If the value has a non-nil value, call MakeParam on its Value
+	if valuer, ok := val.(driver.Valuer); ok {
+		val, e := driver.DefaultParameterConverter.ConvertValue(valuer)
+		if e != nil {
+			err = e
+			return
+		}
+		if val != nil {
+			return s.makeParam(val)
+		}
+	}
 	switch val := val.(type) {
 	case int:
 		res.ti.TypeId = typeIntN
@@ -1020,6 +1031,10 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		// only null values should be getting here
 		res.ti.TypeId = typeIntN
 		res.ti.Size = 8
+		res.buffer = []byte{}
+	case sql.NullInt32:
+		res.ti.TypeId = typeIntN
+		res.ti.Size = 4
 		res.buffer = []byte{}
 	case byte:
 		res.ti.TypeId = typeIntN
