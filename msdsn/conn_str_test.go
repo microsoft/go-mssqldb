@@ -193,6 +193,15 @@ func TestValidConnectionString(t *testing.T) {
 		{"sqlserver://somehost?encrypt=true&tlsmin=1.1&columnencryption=1", func(p Config) bool {
 			return p.Host == "somehost" && p.Encryption == EncryptionRequired && p.TLSConfig.MinVersion == tls.VersionTLS11 && p.ColumnEncryption
 		}},
+		{"sqlserver://somehost", func(p Config) bool {
+			return p.Host == "somehost" && p.SendStringParametersAsUnicode
+		}},
+		{"sqlserver://somehost?sendStringParametersAsUnicode=true", func(p Config) bool {
+			return p.Host == "somehost" && p.SendStringParametersAsUnicode
+		}},
+		{"sqlserver://somehost?sendStringParametersAsUnicode=false", func(p Config) bool {
+			return p.Host == "somehost" && !p.SendStringParametersAsUnicode
+		}},
 	}
 	for _, ts := range connStrings {
 		p, err := Parse(ts.connStr)
