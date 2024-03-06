@@ -46,10 +46,6 @@ func TestOutputParam(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer db.ExecContext(ctx, sqltextdrop)
-		if err != nil {
-			t.Error(err)
-		}
-
 		nullstr := sql.NullString{}
 		_, err := db.ExecContext(ctx, sqltextrun,
 			sql.Named("strparam", sql.Out{Dest: &nullstr}),
