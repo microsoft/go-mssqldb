@@ -1040,6 +1040,22 @@ func TestIgnoreEmptyResults(t *testing.T) {
 	}
 }
 
+func TestProcessQueryError(t *testing.T) {
+	conn, logger := open(t)
+	defer conn.Close()
+	defer logger.StopLogging()
+	_, err := conn.Exec("create table test (f int identity, g text)")
+	defer conn.Exec("drop table test")
+	if err != nil {
+		t.Fatal("create table failed with error", err)
+	}
+
+	_, err = conn.Query("insert into test (f, g) output inserted.f, inserted.g values (1, 'testValue');")
+	if err == nil || err.Error() != "mssql: Cannot insert explicit value for identity column in table 'test' when IDENTITY_INSERT is set to OFF." {
+		t.Error("Error failed to be processed after query")
+	}
+}
+
 func TestStmt_SetQueryNotification(t *testing.T) {
 	checkConnStr(t)
 	tl := testLogger{t: t}
