@@ -750,7 +750,7 @@ loop:
 		tok, err := reader.nextToken()
 		if err == nil {
 			if tok == nil {
-				break
+				break loop
 			} else {
 				switch token := tok.(type) {
 				// By ignoring DONE token we effectively
@@ -762,7 +762,6 @@ loop:
 				//break loop
 				case []columnStruct:
 					cols = token
-					break loop
 				case doneStruct:
 					if token.isError() {
 						// need to cleanup cancellable context
