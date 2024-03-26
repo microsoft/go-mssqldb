@@ -750,7 +750,7 @@ loop:
 		tok, err := reader.nextToken()
 		if err == nil {
 			if tok == nil {
-				break loop
+				break
 			} else {
 				switch token := tok.(type) {
 				// By ignoring DONE token we effectively
@@ -783,8 +783,8 @@ loop:
 	}
 
 	rows := Rows{stmt: s, reader: reader, cols: cols, cancel: cancel}
+	err = rows.SurfaceError()
 	res = &rows
-	err = rows.PeekNextTokenError()
 	return
 }
 
@@ -918,22 +918,33 @@ func (rc *Rows) NextResultSet() error {
 	return nil
 }
 
-// This is only handling the next one, but the error could be at the end of the batch
-func (rc *Rows) PeekNextTokenError() error {
-	tok, err := rc.reader.nextToken()
-	if err == nil {
-		if tok == nil {
-			return nil
-		} else {
-			switch tokdata := tok.(type) {
-			case doneStruct:
-				if tokdata.isError() {
-					return tokdata.getError()
+// Errors may be contained in the token channel after finishing processing the query response.
+// Sift through the tokens forwarding them to a fresh channel and surface any errors.
+func (rc *Rows) SurfaceError() error {
+	forwardingTokenChannel := make(chan tokenStruct, 5)
+loop:
+	for {
+		tok, err := rc.reader.nextToken()
+		if err == nil {
+			if tok == nil {
+				break loop
+			} else {
+				forwardingTokenChannel <- tok
+				switch token := tok.(type) {
+				case doneStruct:
+					if token.isError() {
+						return token.getError()
+					} else {
+						break loop
+					}
 				}
 			}
+		} else {
+			return err
 		}
 	}
-
+	rc.reader.tokChan = forwardingTokenChannel
+	close(forwardingTokenChannel)
 	return nil
 }
 
