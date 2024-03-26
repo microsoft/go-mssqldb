@@ -762,6 +762,7 @@ loop:
 				//break loop
 				case []columnStruct:
 					cols = token
+					break loop
 				case doneStruct:
 					if token.isError() {
 						// need to cleanup cancellable context
@@ -780,7 +781,10 @@ loop:
 			return nil, s.c.checkBadConn(ctx, err, false)
 		}
 	}
-	res = &Rows{stmt: s, reader: reader, cols: cols, cancel: cancel}
+
+	rows := Rows{stmt: s, reader: reader, cols: cols, cancel: cancel}
+	res = &rows
+	err = rows.PeekNextTokenError()
 	return
 }
 
@@ -911,6 +915,25 @@ func (rc *Rows) NextResultSet() error {
 	if rc.cols == nil {
 		return io.EOF
 	}
+	return nil
+}
+
+// This is only handling the next one, but the error could be at the end of the batch
+func (rc *Rows) PeekNextTokenError() error {
+	tok, err := rc.reader.nextToken()
+	if err == nil {
+		if tok == nil {
+			return nil
+		} else {
+			switch tokdata := tok.(type) {
+			case doneStruct:
+				if tokdata.isError() {
+					return tokdata.getError()
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
