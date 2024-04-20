@@ -326,26 +326,29 @@ func TestSelectWithVarchar(t *testing.T) {
 	defer conn.Close()
 	defer logger.StopLogging()
 
-	t.Run("scan into interface{}", func(t *testing.T) {
+	t.Run("scan into string", func(t *testing.T) {
 		type testStruct struct {
-			sql string
-			val string
+			sql  string
+			args []interface{}
+			val  string
 		}
 
 		longstr := strings.Repeat("x", 10000)
 
 		values := []testStruct{
-			{"'abc'", "abc"},
-			{"N'abc'", "abc"},
-			{"cast(N'abc' as nvarchar(max))", "abc"},
-			{"cast('abc' as text)", "abc"},
-			{"cast(N'abc' as ntext)", "abc"},
-			{"cast('abc' as char(3))", "abc"},
-			{"cast('abc' as varchar(3))", "abc"},
-			{fmt.Sprintf("cast(N'%s' as nvarchar(max))", longstr), longstr},
-			{"cast(cast('abc' as varchar(3)) as sql_variant)", "abc"},
-			{"cast(cast('abc' as char(3)) as sql_variant)", "abc"},
-			{"cast(N'abc' as sql_variant)", "abc"},
+			{"'abc'", []interface{}{}, "abc"},
+			{"N'abc'", []interface{}{}, "abc"},
+			{"cast(N'abc' as nvarchar(max))", []interface{}{}, "abc"},
+			{"cast('abc' as text)", []interface{}{}, "abc"},
+			{"cast(N'abc' as ntext)", []interface{}{}, "abc"},
+			{"cast('abc' as char(3))", []interface{}{}, "abc"},
+			{"cast('abc' as varchar(3))", []interface{}{}, "abc"},
+			{fmt.Sprintf("cast(N'%s' as nvarchar(max))", longstr), []interface{}{}, longstr},
+			{"cast(cast('abc' as varchar(3)) as sql_variant)", []interface{}{}, "abc"},
+			{"cast(cast('abc' as char(3)) as sql_variant)", []interface{}{}, "abc"},
+			{"cast(N'abc' as sql_variant)", []interface{}{}, "abc"},
+			{"$1", []interface{}{"abc"}, "abc"},
+			{"$1", []interface{}{longstr}, longstr},
 		}
 
 		for _, test := range values {
@@ -357,7 +360,7 @@ func TestSelectWithVarchar(t *testing.T) {
 				}
 				defer stmt.Close()
 
-				row := stmt.QueryRow()
+				row := stmt.QueryRow(test.args...)
 				var retval string
 				err = row.Scan(&retval)
 				if err != nil {
