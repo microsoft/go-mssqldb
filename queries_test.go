@@ -321,6 +321,58 @@ func TestSelectNewTypes(t *testing.T) {
 	}
 }
 
+func TestSelectWithVarchar(t *testing.T) {
+	conn, logger := openWithVarcharDSN(t)
+	defer conn.Close()
+	defer logger.StopLogging()
+
+	t.Run("scan into interface{}", func(t *testing.T) {
+		type testStruct struct {
+			sql string
+			val string
+		}
+
+		longstr := strings.Repeat("x", 10000)
+
+		values := []testStruct{
+			{"'abc'", "abc"},
+			{"N'abc'", "abc"},
+			{"cast(N'abc' as nvarchar(max))", "abc"},
+			{"cast('abc' as text)", "abc"},
+			{"cast(N'abc' as ntext)", "abc"},
+			{"cast('abc' as char(3))", "abc"},
+			{"cast('abc' as varchar(3))", "abc"},
+			{fmt.Sprintf("cast(N'%s' as nvarchar(max))", longstr), longstr},
+			{"cast(cast('abc' as varchar(3)) as sql_variant)", "abc"},
+			{"cast(cast('abc' as char(3)) as sql_variant)", "abc"},
+			{"cast(N'abc' as sql_variant)", "abc"},
+		}
+
+		for _, test := range values {
+			t.Run(test.sql, func(t *testing.T) {
+				stmt, err := conn.Prepare("select " + test.sql)
+				if err != nil {
+					t.Error("Prepare failed:", test.sql, err.Error())
+					return
+				}
+				defer stmt.Close()
+
+				row := stmt.QueryRow()
+				var retval string
+				err = row.Scan(&retval)
+				if err != nil {
+					t.Error("Scan failed:", test.sql, err.Error())
+					return
+				}
+				if retval != test.val {
+					t.Errorf("Values don't match '%s' '%s' for test: %s", retval, test.val, test.sql)
+					return
+				}
+			})
+		}
+	})
+}
+
 func TestTrans(t *testing.T) {
 	conn, logger := open(t)
 	defer conn.Close()
