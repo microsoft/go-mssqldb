@@ -347,8 +347,8 @@ func TestSelectWithVarchar(t *testing.T) {
 			{"cast(cast('abc' as varchar(3)) as sql_variant)", []interface{}{}, "abc"},
 			{"cast(cast('abc' as char(3)) as sql_variant)", []interface{}{}, "abc"},
 			{"cast(N'abc' as sql_variant)", []interface{}{}, "abc"},
-			{"$1", []interface{}{"abc"}, "abc"},
-			{"$1", []interface{}{longstr}, longstr},
+			{"@p1", []interface{}{"abc"}, "abc"},
+			{"@p1", []interface{}{longstr}, longstr},
 		}
 
 		for _, test := range values {
