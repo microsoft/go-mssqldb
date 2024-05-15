@@ -70,6 +70,13 @@ func TestBulkcopy(t *testing.T) {
 		{"test_uniqueidentifier", uid, string(uid)},
 		{"test_nulluniqueidentifier", nil, nil},
 		{"test_nullfloat", sql.NullFloat64{Float64: 64, Valid: true}, 64.0},
+		{"test_nullstring", sql.NullString{String: "abcdefg", Valid: true}, "abcdefg"},
+		{"test_nullbyte", sql.NullByte{Byte: 0x01, Valid: true}, byte(0x01)},
+		{"test_nullbool", sql.NullBool{Bool: true, Valid: true}, true},
+		{"test_nullint64", sql.NullInt64{Int64: 1234, Valid: true}, int64(1234)},
+		{"test_nullint32", sql.NullInt32{Int32: 1234, Valid: true}, int32(1234)},
+		{"test_nullint16", sql.NullInt16{Int16: 1234, Valid: true}, int16(1234)},
+		{"test_nulltime", sql.NullTime{Time: time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC), Valid: true}, time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC)},
 		// {"test_smallmoney", 1234.56, nil},
 		// {"test_money", 1234.56, nil},
 		{"test_decimal_18_0", 1234.0001, "1234"},
@@ -292,6 +299,13 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 	[test_int8nvarchar] [varchar](3) NULL,
 	[test_intnvarchar] [varchar](4) NULL,
 	[test_nullfloat] [float] NULL,
+	[test_nullstring] [nvarchar](50) NULL,
+	[test_nullbyte] [tinyint] NULL,
+	[test_nullbool] [bit] NULL,
+	[test_nullint64] [bigint] NULL,
+	[test_nullint32] [int] NULL,
+	[test_nullint16] [smallint] NULL,
+	[test_nulltime] [time](7) NULL,
  CONSTRAINT [PK_` + tableName + `_id] PRIMARY KEY CLUSTERED
 (
 	[id] ASC
