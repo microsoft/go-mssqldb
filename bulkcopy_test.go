@@ -69,6 +69,7 @@ func TestBulkcopy(t *testing.T) {
 		{"test_geom", geom, string(geom)},
 		{"test_uniqueidentifier", uid, string(uid)},
 		{"test_nulluniqueidentifier", nil, nil},
+		{"test_nullfloat", sql.NullFloat64{Float64: 64, Valid: true}, 64.0},
 		// {"test_smallmoney", 1234.56, nil},
 		// {"test_money", 1234.56, nil},
 		{"test_decimal_18_0", 1234.0001, "1234"},
@@ -290,6 +291,7 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 	[test_int16nvarchar] [varchar](4) NULL,
 	[test_int8nvarchar] [varchar](3) NULL,
 	[test_intnvarchar] [varchar](4) NULL,
+	[test_nullfloat] [float] NULL,
  CONSTRAINT [PK_` + tableName + `_id] PRIMARY KEY CLUSTERED
 (
 	[id] ASC
