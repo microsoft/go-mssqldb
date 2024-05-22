@@ -17,9 +17,27 @@ import (
 func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 	// Arrange
 	tableName := "#table_test"
-	columns := []string{"test_nullfloat"}
+	columns := []string{
+		"test_nullfloat",
+		"test_nullstring",
+		"test_nullbyte",
+		"test_nullbool",
+		"test_nullint64",
+		"test_nullint32",
+		"test_nullint16",
+		"test_nulltime",
+		"test_nulluniqueidentifier",
+	}
 	values := []interface{}{
-		sql.NullFloat64{math.NaN(), false},
+		sql.NullFloat64{Valid: false},
+		sql.NullString{Valid: false},
+		sql.NullByte{Valid: false},
+		sql.NullBool{Valid: false},
+		sql.NullInt64{Valid: false},
+		sql.NullInt32{Valid: false},
+		sql.NullInt16{Valid: false},
+		sql.NullTime{Valid: false},
+		NullUniqueIdentifier{Valid: false},
 	}
 
 	pool, logger := open(t)
@@ -321,6 +339,7 @@ func setupNullableTypeTable(ctx context.Context, t *testing.T, conn *sql.Conn, t
 	[test_nullint32] [int] NULL,
 	[test_nullint16] [smallint] NULL,
 	[test_nulltime] [datetime] NULL,
+	[test_nulluniqueidentifier] [uniqueidentifier] NULL,
  CONSTRAINT [PK_` + tableName + `_id] PRIMARY KEY CLUSTERED
 (
 	[id] ASC
