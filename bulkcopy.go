@@ -3,6 +3,7 @@ package mssql
 import (
 	"bytes"
 	"context"
+	"database/sql/driver"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -317,6 +318,19 @@ func (b *Bulk) getMetadata(ctx context.Context) (err error) {
 func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error) {
 	res.ti.Size = col.ti.Size
 	res.ti.TypeId = col.ti.TypeId
+
+	switch valuer := val.(type) {
+	case driver.Valuer:
+		var e error
+		val, e = driver.DefaultParameterConverter.ConvertValue(valuer)
+		if e != nil {
+			err = e
+			return
+		}
+		if val != nil {
+			return b.makeParam(val, col)
+		}
+	}
 
 	if val == nil {
 		res.ti.Size = 0
