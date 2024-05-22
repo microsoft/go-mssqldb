@@ -1110,6 +1110,15 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 			res.buffer = encodeDateTime(val)
 			res.ti.Size = len(res.buffer)
 		}
+	case sql.NullTime: // only null values reach here
+		res.buffer = []byte{}
+		res.ti.Size = 8
+		if s.c.sess.loginAck.TDSVersion >= verTDS73 {
+			res.ti.TypeId = typeDateTimeOffsetN
+			res.ti.Scale = 7
+		} else {
+			res.ti.TypeId = typeDateTimeN
+		}
 	default:
 		return s.makeParamExtra(val)
 	}
