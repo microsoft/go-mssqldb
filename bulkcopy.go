@@ -3,7 +3,6 @@ package mssql
 import (
 	"bytes"
 	"context"
-	"database/sql/driver"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -322,19 +321,6 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 	if val == nil {
 		res.ti.Size = 0
 		return
-	}
-
-	switch valuer := val.(type) {
-	case driver.Valuer:
-		// If the value has a non-nil value, call MakeParam on its Value
-		val, e := driver.DefaultParameterConverter.ConvertValue(valuer)
-		if e != nil {
-			err = e
-			return
-		}
-		if val != nil {
-			return b.makeParam(val, col)
-		}
 	}
 
 	switch col.ti.TypeId {

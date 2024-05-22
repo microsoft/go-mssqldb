@@ -75,7 +75,7 @@ func convertInputParameter(val interface{}) (interface{}, error) {
 	// 	return nil
 	case float32:
 		return val, nil
-	case driver.Valuer:
+	case NullUniqueIdentifier, UniqueIdentifier:
 		return val, nil
 	default:
 		return driver.DefaultParameterConverter.ConvertValue(v)
