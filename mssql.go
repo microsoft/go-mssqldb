@@ -1143,6 +1143,9 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		} else {
 			res.ti.TypeId = typeDateTimeN
 		}
+	case driver.Valuer:
+		// We have a custom Valuer implementation with a nil value
+		return s.makeParam(nil)
 	default:
 		return s.makeParamExtra(val)
 	}

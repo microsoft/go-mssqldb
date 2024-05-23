@@ -41,6 +41,13 @@ type aeColumnInfo struct {
 	sampleValue interface{}
 }
 
+type customValuer struct {
+}
+
+func (n customValuer) Value() (driver.Value, error) {
+	return nil, nil
+}
+
 func TestAlwaysEncryptedE2E(t *testing.T) {
 	params := testConnParams(t)
 	if !params.ColumnEncryption {
@@ -116,7 +123,7 @@ func TestAlwaysEncryptedE2E(t *testing.T) {
 			_, _ = query.WriteString(fmt.Sprintf("CREATE TABLE [%s] (", tableName))
 			_, _ = insert.WriteString(fmt.Sprintf("INSERT INTO [%s] VALUES (", tableName))
 			_, _ = sel.WriteString("select top(1) ")
-			insertArgs := make([]interface{}, len(encryptableColumns)+1)
+			insertArgs := make([]interface{}, len(encryptableColumns)+2)
 			for i, ec := range encryptableColumns {
 				encType := "RANDOMIZED"
 				null := ""
@@ -136,11 +143,13 @@ func TestAlwaysEncryptedE2E(t *testing.T) {
 				insert.WriteString(fmt.Sprintf("@p%d,", i+1))
 				sel.WriteString(fmt.Sprintf("col%d,", i))
 			}
-			_, _ = query.WriteString("unencryptedcolumn nvarchar(100)")
+			_, _ = query.WriteString("unencryptedcolumn nvarchar(100),")
+			_, _ = query.WriteString("nullableCustomValuer int NULL")
 			_, _ = query.WriteString(")")
 			insertArgs[len(encryptableColumns)] = "unencryptedvalue"
-			insert.WriteString(fmt.Sprintf("@p%d)", len(encryptableColumns)+1))
-			sel.WriteString(fmt.Sprintf("unencryptedcolumn from [%s]", tableName))
+			insertArgs[len(encryptableColumns)+1] = customValuer{}
+			insert.WriteString(fmt.Sprintf("@p%d,@p%d)", len(encryptableColumns)+1, len(encryptableColumns)+2))
+			sel.WriteString(fmt.Sprintf("unencryptedcolumn, nullableCustomValuer from [%s]", tableName))
 			_, err = conn.Exec(query.String())
 			assert.NoError(t, err, "Failed to create encrypted table")
 			defer func() { _, _ = conn.Exec("DROP TABLE IF EXISTS " + tableName) }()
@@ -160,13 +169,15 @@ func TestAlwaysEncryptedE2E(t *testing.T) {
 			}
 
 			var unencryptedColumnValue string
-			scanValues := make([]interface{}, len(encryptableColumns)+1)
+			var nullint sql.NullInt32
+			scanValues := make([]interface{}, len(encryptableColumns)+2)
 			for v := range scanValues {
 				if v < len(encryptableColumns) {
 					scanValues[v] = new(interface{})
 				}
 			}
 			scanValues[len(encryptableColumns)] = &unencryptedColumnValue
+			scanValues[len(encryptableColumns)+1] = &nullint
 			err = rows.Scan(scanValues...)
 			defer rows.Close()
 			if err != nil {
@@ -190,6 +201,7 @@ func TestAlwaysEncryptedE2E(t *testing.T) {
 				assert.Equalf(t, expectedStrVal, strVal, "Incorrect value for col%d. ", i)
 			}
 			assert.Equalf(t, "unencryptedvalue", unencryptedColumnValue, "Got wrong value for unencrypted column")
+			assert.False(t, nullint.Valid, "custom valuer should have null value")
 			_ = rows.Next()
 			err = rows.Err()
 			assert.NoError(t, err, "rows.Err() has non-nil values")
