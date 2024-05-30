@@ -1137,6 +1137,9 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 		return reflect.TypeOf([]byte{})
 	case typeVariant:
 		return reflect.TypeOf(nil)
+	// Bytebase Hack: To handle Geometry type which is UDT, we scan it into []byte.
+	case typeUdt:
+		return reflect.TypeOf([]byte{})
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangScanType for type %d", ti.TypeId))
 	}
@@ -1366,6 +1369,8 @@ func makeGoLangTypeName(ti typeInfo) string {
 		return "SQL_VARIANT"
 	case typeBigBinary:
 		return "BINARY"
+	case typeUdt:
+		return ti.UdtInfo.TypeName
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypeName for type %d", ti.TypeId))
 	}
@@ -1490,6 +1495,8 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 		return 0, false
 	case typeBigBinary:
 		return int64(ti.Size), true
+	case typeUdt:
+		return int64(ti.Size), true
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypeLength for type %d", ti.TypeId))
 	}
@@ -1601,6 +1608,8 @@ func makeGoLangTypePrecisionScale(ti typeInfo) (int64, int64, bool) {
 	case typeVariant:
 		return 0, 0, false
 	case typeBigBinary:
+		return 0, 0, false
+	case typeUdt:
 		return 0, 0, false
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypePrecisionScale for type %d", ti.TypeId))
