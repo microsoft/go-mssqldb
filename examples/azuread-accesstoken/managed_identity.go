@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"flag"
 	"fmt"
 	"log"
 
-	"github.com/Azure/go-autorest/autorest/adal"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	mssql "github.com/microsoft/go-mssqldb"
 )
 
@@ -37,13 +39,18 @@ func main() {
 		fmt.Printf(" connString:%s\n", connString)
 	}
 
-	tokenProvider, err := getMSITokenProvider()
+	cred, err := azidentity.NewManagedIdentityCredential(nil)
 	if err != nil {
-		log.Fatal("Error creating token provider for system assigned Azure Managed Identity:", err.Error())
+		log.Fatal("Error creating managed identity credential:", err.Error())
+	}
+	tokenProvider := func() (string, error) {
+		token, err := cred.GetToken(context.TODO(), policy.TokenRequestOptions{
+			Scopes: []string{"https://database.windows.net//.default"},
+		})
+		return token.Token, err
 	}
 
-	connector, err := mssql.NewAccessTokenConnector(
-		connString, tokenProvider)
+	connector, err := mssql.NewAccessTokenConnector(connString, tokenProvider)
 	if err != nil {
 		log.Fatal("Connector creation failed:", err.Error())
 	}
@@ -61,22 +68,4 @@ func main() {
 	fmt.Printf("somechars:%s\n", somechars)
 
 	fmt.Printf("bye\n")
-}
-
-func getMSITokenProvider() (func() (string, error), error) {
-	msiEndpoint, err := adal.GetMSIEndpoint()
-	if err != nil {
-		return nil, err
-	}
-	msi, err := adal.NewServicePrincipalTokenFromMSI(
-		msiEndpoint, "https://database.windows.net/")
-	if err != nil {
-		return nil, err
-	}
-
-	return func() (string, error) {
-		msi.EnsureFresh()
-		token := msi.OAuthToken()
-		return token, nil
-	}, nil
 }
