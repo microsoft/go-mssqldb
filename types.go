@@ -215,7 +215,7 @@ func writeVarLen(w io.Writer, ti *typeInfo) (err error) {
 		if err = binary.Write(w, binary.LittleEndian, uint8(ti.Size)); err != nil {
 			return
 		}
-		ti.Writer = writeByteLenType
+		ti.Writer = writeGuidType
 	case typeBigVarBin, typeBigVarChar, typeBigBinary, typeBigChar,
 		typeNVarChar, typeNChar, typeXml, typeUdt:
 
@@ -445,6 +445,25 @@ func writeByteLenType(w io.Writer, ti typeInfo, buf []byte) (err error) {
 		return
 	}
 	_, err = w.Write(buf)
+	return
+}
+
+func writeGuidType(w io.Writer, ti typeInfo, buf []byte) (err error) {
+	if !(ti.Size == 0x10 || ti.Size == 0x00) {
+		panic("Invalid size for BYTELEN_TYPE")
+	}
+	err = binary.Write(w, binary.LittleEndian, uint8(len(buf)))
+	if err != nil {
+		return
+	}
+	if ti.Size == 0x10 {
+		res := make([]byte, 0x10)
+		copy(res, buf)
+		binary.BigEndian.PutUint32(res[0:4], binary.LittleEndian.Uint32(res[0:4]))
+		binary.BigEndian.PutUint16(res[4:6], binary.LittleEndian.Uint16(res[4:6]))
+		binary.BigEndian.PutUint16(res[6:8], binary.LittleEndian.Uint16(res[6:8]))
+		_, err = w.Write(buf)
+	}
 	return
 }
 
@@ -839,6 +858,9 @@ func decodeMoney4(buf []byte) []byte {
 func decodeGuid(buf []byte) []byte {
 	res := make([]byte, 16)
 	copy(res, buf)
+	binary.LittleEndian.PutUint32(res[0:4], binary.BigEndian.Uint32(res[0:4]))
+	binary.LittleEndian.PutUint16(res[4:6], binary.BigEndian.Uint16(res[4:6]))
+	binary.LittleEndian.PutUint16(res[6:8], binary.BigEndian.Uint16(res[6:8]))
 	return res
 }
 
