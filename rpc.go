@@ -2,6 +2,8 @@ package mssql
 
 import (
 	"encoding/binary"
+
+	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
 type procId struct {
@@ -43,7 +45,7 @@ var (
 )
 
 // http://msdn.microsoft.com/en-us/library/dd357576.aspx
-func sendRpc(buf *tdsBuffer, headers []headerStruct, proc procId, flags uint16, params []param, resetSession bool) (err error) {
+func sendRpc(buf *tdsBuffer, headers []headerStruct, proc procId, flags uint16, params []param, resetSession bool, encoding msdsn.EncodeParameters) (err error) {
 	buf.BeginPacket(packRPCRequest, resetSession)
 	writeAllHeaders(buf, headers)
 	if len(proc.name) == 0 {
@@ -73,7 +75,7 @@ func sendRpc(buf *tdsBuffer, headers []headerStruct, proc procId, flags uint16, 
 		if err = binary.Write(buf, binary.LittleEndian, param.Flags); err != nil {
 			return
 		}
-		err = writeTypeInfo(buf, &param.ti, (param.Flags&fByRevValue) != 0)
+		err = writeTypeInfo(buf, &param.ti, (param.Flags&fByRevValue) != 0, encoding)
 		if err != nil {
 			return
 		}
@@ -82,7 +84,7 @@ func sendRpc(buf *tdsBuffer, headers []headerStruct, proc procId, flags uint16, 
 			return
 		}
 		if (param.Flags & fEncrypted) == fEncrypted {
-			err = writeTypeInfo(buf, &param.tiOriginal, false)
+			err = writeTypeInfo(buf, &param.tiOriginal, false, encoding)
 			if err != nil {
 				return
 			}

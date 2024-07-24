@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
 type TestFields struct {
@@ -503,7 +505,7 @@ func Test_getSchemeAndName(t *testing.T) {
 	}
 }
 
-func TestTVP_encode(t *testing.T) {
+func testTVP_encode(t *testing.T, guidConversion bool) {
 	type fields struct {
 		TypeName string
 		Value    interface{}
@@ -566,7 +568,7 @@ func TestTVP_encode(t *testing.T) {
 				TypeName: tt.fields.TypeName,
 				Value:    tt.fields.Value,
 			}
-			got, err := tvp.encode(tt.args.schema, tt.args.name, tt.args.columnStr, tt.args.tvpFieldIndexes)
+			got, err := tvp.encode(tt.args.schema, tt.args.name, tt.args.columnStr, tt.args.tvpFieldIndexes, msdsn.EncodeParameters{GuidConversion: guidConversion})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("TVP.encode() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -576,4 +578,11 @@ func TestTVP_encode(t *testing.T) {
 			}
 		})
 	}
+}
+func TestTVP_encode_WithGuidConversion(t *testing.T) {
+	testTVP_encode(t, true /*guidConversion*/)
+}
+
+func TestTVP_encode(t *testing.T) {
+	testTVP_encode(t, false /*guidConversion*/)
 }

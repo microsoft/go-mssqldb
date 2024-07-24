@@ -27,8 +27,8 @@ func driverWithProcess(t *testing.T, tl Logger) *Driver {
 	}
 }
 
-func TestSelect(t *testing.T) {
-	conn, logger := open(t)
+func testSelect(t *testing.T, guidConversion bool) {
+	conn, logger := openSettingGuidConversion(t, guidConversion)
 	defer conn.Close()
 	defer logger.StopLogging()
 
@@ -39,6 +39,10 @@ func TestSelect(t *testing.T) {
 		}
 
 		longstr := strings.Repeat("x", 10000)
+		expectedGuid := []byte{0x6F, 0x96, 0x19, 0xFF, 0x8B, 0x86, 0xD0, 0x11, 0xB4, 0x2D, 0x00, 0xC0, 0x4F, 0xC9, 0x64, 0xFF}
+		if guidConversion {
+			expectedGuid = []byte{0xFF, 0x19, 0x96, 0x6F, 0x86, 0x8B, 0x11, 0xD0, 0xB4, 0x2D, 0x00, 0xC0, 0x4F, 0xC9, 0x64, 0xFF}
+		}
 
 		values := []testStruct{
 			{"1", int64(1)},
@@ -83,8 +87,7 @@ func TestSelect(t *testing.T) {
 			{"cast('2079-06-06T23:59:00' as smalldatetime)",
 				time.Date(2079, 6, 6, 23, 59, 0, 0, time.UTC)},
 			{"cast(NULL as smalldatetime)", nil},
-			{"cast(0x6F9619FF8B86D011B42D00C04FC964FF as uniqueidentifier)",
-				[]byte{0x6F, 0x96, 0x19, 0xFF, 0x8B, 0x86, 0xD0, 0x11, 0xB4, 0x2D, 0x00, 0xC0, 0x4F, 0xC9, 0x64, 0xFF}},
+			{"cast(0x6F9619FF8B86D011B42D00C04FC964FF as uniqueidentifier)", expectedGuid},
 			{"cast(NULL as uniqueidentifier)", nil},
 			{"cast(0x1234 as varbinary(2))", []byte{0x12, 0x34}},
 			{"cast(N'abc' as nvarchar(max))", "abc"},
@@ -114,8 +117,7 @@ func TestSelect(t *testing.T) {
 			{"cast(cast(N'chào' as nvarchar(max)) collate Vietnamese_CI_AI as varchar(max))", "chào"},              // cp1258
 			{fmt.Sprintf("cast(N'%s' as nvarchar(max))", longstr), longstr},
 			{"cast(NULL as sql_variant)", nil},
-			{"cast(cast(0x6F9619FF8B86D011B42D00C04FC964FF as uniqueidentifier) as sql_variant)",
-				[]byte{0x6F, 0x96, 0x19, 0xFF, 0x8B, 0x86, 0xD0, 0x11, 0xB4, 0x2D, 0x00, 0xC0, 0x4F, 0xC9, 0x64, 0xFF}},
+			{"cast(cast(0x6F9619FF8B86D011B42D00C04FC964FF as uniqueidentifier) as sql_variant)", expectedGuid},
 			{"cast(cast(1 as bit) as sql_variant)", true},
 			{"cast(cast(10 as tinyint) as sql_variant)", int64(10)},
 			{"cast(cast(-10 as smallint) as sql_variant)", int64(-10)},
@@ -212,6 +214,14 @@ func TestSelect(t *testing.T) {
 			t.Error("got back a string with count:", len(out.String))
 		}
 	})
+}
+
+func TestSelectWithGuidConversion(t *testing.T) {
+	testSelect(t, true /*guidConversion*/)
+}
+
+func TestSelect(t *testing.T) {
+	testSelect(t, false /*guidConversion*/)
 }
 
 func TestSelectDateTimeOffset(t *testing.T) {

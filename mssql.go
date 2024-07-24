@@ -554,7 +554,7 @@ func (s *Stmt) sendQuery(ctx context.Context, args []namedValue) (err error) {
 			params[0] = makeStrParam(s.query)
 			params[1] = makeStrParam(strings.Join(decls, ","))
 		}
-		if err = sendRpc(conn.sess.buf, headers, proc, 0, params, reset); err != nil {
+		if err = sendRpc(conn.sess.buf, headers, proc, 0, params, reset, conn.sess.encoding); err != nil {
 			conn.sess.LogF(ctx, msdsn.LogErrors, "Failed to send Rpc with %v", err)
 			conn.connectionGood = false
 			return fmt.Errorf("failed to send RPC: %v", err)

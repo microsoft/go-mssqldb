@@ -84,7 +84,13 @@ const (
 	Pipe                   = "pipe"
 	MultiSubnetFailover    = "multisubnetfailover"
 	NoTraceID              = "notraceid"
+	GuidConversion         = "guid conversion"
 )
+
+type EncodeParameters struct {
+	// Properly convert GUIDs, using correct byte endianness
+	GuidConversion bool
+}
 
 type Config struct {
 	Port       uint64
@@ -141,6 +147,8 @@ type Config struct {
 	// When true, no connection id or trace id value is sent in the prelogin packet.
 	// Some cloud servers may block connections that lack such values.
 	NoTraceID bool
+	// Parameters related to type encoding
+	Encoding EncodeParameters
 }
 
 func readDERFile(filename string) ([]byte, error) {
@@ -525,6 +533,20 @@ func Parse(dsn string) (Config, error) {
 			p.NoTraceID = notraceid
 		}
 	}
+
+	guidConversion, ok := params[GuidConversion]
+	if ok {
+		var err error
+		p.Encoding.GuidConversion, err = strconv.ParseBool(guidConversion)
+		if err != nil {
+			f := "invalid guid conversion '%s': %s"
+			return p, fmt.Errorf(f, guidConversion, err.Error())
+		}
+	} else {
+		// set to false for backward compatibility
+		p.Encoding.GuidConversion = false
+	}
+
 	return p, nil
 }
 
@@ -585,6 +607,11 @@ func (p Config) URL() *url.URL {
 	if p.ColumnEncryption {
 		q.Add("columnencryption", "true")
 	}
+
+	if p.Encoding.GuidConversion {
+		q.Add(GuidConversion, strconv.FormatBool(p.Encoding.GuidConversion))
+	}
+
 	if len(q) > 0 {
 		res.RawQuery = q.Encode()
 	}

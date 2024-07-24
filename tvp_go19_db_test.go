@@ -416,13 +416,22 @@ func TestTVPGoSQLTypes(t *testing.T) {
 	}
 }
 
-func TestTVP(t *testing.T) {
+func getNullableUniqueIdentifier(guidConversion bool) *UniqueIdentifier {
+	result := UniqueIdentifier{}
+	if !guidConversion {
+		// if guidConversion is enabled nullable UUIDs can only be accessed using NullUniqueIdentifier
+		result = UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}
+	}
+	return &result
+}
+
+func testTVP(t *testing.T, guidConversion bool) {
 	checkConnStr(t)
 	tl := testLogger{t: t}
 	defer tl.StopLogging()
 	SetLogger(&tl)
 
-	c := makeConnStr(t).String()
+	c := makeConnStrSettingGuidConversion(t, guidConversion).String()
 	db, err := sql.Open("sqlserver", c)
 	if err != nil {
 		t.Fatalf("failed to open driver sqlserver")
@@ -571,7 +580,7 @@ func TestTVP(t *testing.T) {
 			PBinary:       nil,
 			PVarcharNull:  &varcharNull,
 			PNvarcharNull: &nvarchar,
-			PIDNull:       &UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
+			PIDNull:       getNullableUniqueIdentifier(guidConversion),
 			PTinyintNull:  &i8,
 			PSmallintNull: &i16,
 			PIntNull:      &i32,
@@ -699,13 +708,21 @@ func TestTVP(t *testing.T) {
 	}
 }
 
-func TestTVP_WithTag(t *testing.T) {
+func TestTVP_WithGuidConversion(t *testing.T) {
+	testTVP(t, true /*guidConversion*/)
+}
+
+func TestTVP(t *testing.T) {
+	testTVP(t, false /*guidConversion*/)
+}
+
+func testTVP_WithTag(t *testing.T, guidConversion bool) {
 	checkConnStr(t)
 	tl := testLogger{t: t}
 	defer tl.StopLogging()
 	SetLogger(&tl)
 
-	db, err := sql.Open("sqlserver", makeConnStr(t).String())
+	db, err := sql.Open("sqlserver", makeConnStrSettingGuidConversion(t, guidConversion).String())
 	if err != nil {
 		t.Fatalf("failed to open driver sqlserver")
 	}
@@ -884,7 +901,7 @@ func TestTVP_WithTag(t *testing.T) {
 			PBinary:       nil,
 			PVarcharNull:  &varcharNull,
 			PNvarcharNull: &nvarchar,
-			PIDNull:       &UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
+			PIDNull:       getNullableUniqueIdentifier(guidConversion),
 			PTinyintNull:  &i8,
 			PSmallintNull: &i16,
 			PIntNull:      &i32,
@@ -1112,6 +1129,14 @@ func TestTVPSchema(t *testing.T) {
 		tvpResult = append(tvpResult, tvpExemple)
 	}
 	log.Println(tvpResult)
+}
+
+func TestTVP_WithTagAndGuidConversion(t *testing.T) {
+	testTVP_WithTag(t, true /*guidConversion*/)
+}
+
+func TestTVP_WithTag(t *testing.T) {
+	testTVP_WithTag(t, false /*guidConversion*/)
 }
 
 func TestTVPObject(t *testing.T) {

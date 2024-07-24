@@ -213,7 +213,7 @@ func TestAlwaysEncryptedE2E(t *testing.T) {
 func testProviderErrorHandling(t *testing.T, name string, provider aecmk.ColumnEncryptionKeyProvider, sel string, insert string, insertArgs []interface{}) {
 	t.Helper()
 	testProvider := &testKeyProvider{fallback: provider}
-	connector, _ := getTestConnector(t)
+	connector, _ := getTestConnector(t, false /*guidConversion*/)
 	connector.RegisterCekProvider(name, testProvider)
 	conn := sql.OpenDB(connector)
 	defer conn.Close()

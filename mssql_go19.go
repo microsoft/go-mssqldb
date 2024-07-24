@@ -206,7 +206,7 @@ func (s *Stmt) makeParamExtra(val driver.Value) (res param, err error) {
 			err = errCalTypes
 			return
 		}
-		res.buffer, err = val.encode(schema, name, columnStr, tvpFieldIndexes)
+		res.buffer, err = val.encode(schema, name, columnStr, tvpFieldIndexes, s.c.sess.encoding)
 		if err != nil {
 			return
 		}

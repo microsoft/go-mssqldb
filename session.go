@@ -15,6 +15,7 @@ func newSession(outbuf *tdsBuffer, logger ContextLogger, p msdsn.Config) *tdsSes
 		logger:     logger,
 		logFlags:   uint64(p.LogFlags),
 		aeSettings: &alwaysEncryptedSettings{keyProviders: aecmk.GetGlobalCekProviders()},
+		encoding:   p.Encoding,
 	}
 	_ = sess.activityid.Scan(p.ActivityID)
 	// generating a guid has a small chance of failure. Make a best effort
