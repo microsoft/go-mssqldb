@@ -193,7 +193,7 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool) (err error) {
 
 		// byle len types
 		if ti.Size > 0xff {
-			panic("Invalid size for BYLELEN_TYPE")
+			panic("Invalid size for BYTELEN_TYPE")
 		}
 		if err = binary.Write(w, binary.LittleEndian, uint8(ti.Size)); err != nil {
 			return
@@ -212,12 +212,12 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool) (err error) {
 		ti.Writer = writeByteLenType
 	case typeGuid:
 		if !(ti.Size == 0x10 || ti.Size == 0x00) {
-			panic("Invalid size for BYLELEN_TYPE")
+			panic("Invalid size for UNIQUEIDENTIFIER")
 		}
 		if err = binary.Write(w, binary.LittleEndian, uint8(ti.Size)); err != nil {
 			return
 		}
-		ti.Writer = writeByteLenType
+		ti.Writer = writeGuidType
 	case typeBigVarBin, typeBigVarChar, typeBigBinary, typeBigChar,
 		typeNVarChar, typeNChar, typeXml, typeUdt:
 
@@ -455,6 +455,25 @@ func writeByteLenType(w io.Writer, ti typeInfo, buf []byte) (err error) {
 	return
 }
 
+func writeGuidType(w io.Writer, ti typeInfo, buf []byte) (err error) {
+	if !(ti.Size == 0x10 || ti.Size == 0x00) {
+		panic("Invalid size for UNIQUEIDENTIFIER")
+	}
+	err = binary.Write(w, binary.LittleEndian, uint8(len(buf)))
+	if err != nil {
+		return
+	}
+	if ti.Size == 0x10 {
+		res := make([]byte, 0x10)
+		copy(res, buf)
+		binary.BigEndian.PutUint32(res[0:4], binary.LittleEndian.Uint32(res[0:4]))
+		binary.BigEndian.PutUint16(res[4:6], binary.LittleEndian.Uint16(res[4:6]))
+		binary.BigEndian.PutUint16(res[6:8], binary.LittleEndian.Uint16(res[6:8]))
+		_, err = w.Write(res)
+	}
+	return
+}
+
 func readShortLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
 	var size uint16
 	if c != nil {
@@ -589,7 +608,7 @@ func readVariantType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} 
 	case typeGuid:
 		buf := make([]byte, size-2-propbytes)
 		r.ReadFull(buf)
-		return buf
+		return decodeGuid(buf)
 	case typeBit:
 		return r.byte() != 0
 	case typeInt1:
@@ -857,6 +876,9 @@ func decodeMoney4(buf []byte) []byte {
 func decodeGuid(buf []byte) []byte {
 	res := make([]byte, 16)
 	copy(res, buf)
+	binary.LittleEndian.PutUint32(res[0:4], binary.BigEndian.Uint32(res[0:4]))
+	binary.LittleEndian.PutUint16(res[4:6], binary.BigEndian.Uint16(res[4:6]))
+	binary.LittleEndian.PutUint16(res[6:8], binary.BigEndian.Uint16(res[6:8]))
 	return res
 }
 
