@@ -364,6 +364,12 @@ func makeConnStr(t testing.TB) *url.URL {
 	return testConnParams(t).URL()
 }
 
+func makeConnStrSettingGuidConversion(t testing.TB, guidConversion bool) *url.URL {
+	config := testConnParams(t)
+	config.Encoding.GuidConversion = guidConversion
+	return config.URL()
+}
+
 type testLogger struct {
 	t    testing.TB
 	mu   sync.Mutex
