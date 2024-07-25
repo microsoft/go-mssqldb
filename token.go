@@ -616,7 +616,7 @@ func parseColMetadata72(r *tdsBuffer, s *tdsSession) (columns []columnStruct) {
 	for i := range columns {
 		column := &columns[i]
 		baseTi := getBaseTypeInfo(r, true)
-		typeInfo := readTypeInfo(r, baseTi.TypeId, column.cryptoMeta)
+		typeInfo := readTypeInfo(r, baseTi.TypeId, column.cryptoMeta, s.guidConversion)
 		typeInfo.UserType = baseTi.UserType
 		typeInfo.Flags = baseTi.Flags
 		typeInfo.TypeId = baseTi.TypeId
@@ -627,7 +627,7 @@ func parseColMetadata72(r *tdsBuffer, s *tdsSession) (columns []columnStruct) {
 
 		if column.isEncrypted() && s.alwaysEncrypted {
 			// Read Crypto Metadata
-			cryptoMeta := parseCryptoMetadata(r, cekTable)
+			cryptoMeta := parseCryptoMetadata(r, cekTable, s.guidConversion)
 			cryptoMeta.typeInfo.Flags = baseTi.Flags
 			column.cryptoMeta = &cryptoMeta
 		} else {
@@ -663,14 +663,14 @@ type cryptoMetadata struct {
 	typeInfo      typeInfo
 }
 
-func parseCryptoMetadata(r *tdsBuffer, cekTable *cekTable) cryptoMetadata {
+func parseCryptoMetadata(r *tdsBuffer, cekTable *cekTable, guidConversion bool) cryptoMetadata {
 	ordinal := uint16(0)
 	if cekTable != nil {
 		ordinal = r.uint16()
 	}
 
 	typeInfo := getBaseTypeInfo(r, false)
-	ti := readTypeInfo(r, typeInfo.TypeId, nil)
+	ti := readTypeInfo(r, typeInfo.TypeId, nil, guidConversion)
 	ti.UserType = typeInfo.UserType
 	ti.Flags = typeInfo.Flags
 	ti.TypeId = typeInfo.TypeId
@@ -935,11 +935,11 @@ func parseReturnValue(r *tdsBuffer, s *tdsSession) (nv namedValue) {
 
 	var cryptoMetadata *cryptoMetadata = nil
 	if s.alwaysEncrypted && (ti.Flags&fEncrypted) == fEncrypted {
-		cm := parseCryptoMetadata(r, nil) // CryptoMetadata
+		cm := parseCryptoMetadata(r, nil, s.guidConversion) // CryptoMetadata
 		cryptoMetadata = &cm
 	}
 
-	ti2 := readTypeInfo(r, ti.TypeId, cryptoMetadata)
+	ti2 := readTypeInfo(r, ti.TypeId, cryptoMetadata, s.guidConversion)
 	nv.Value = ti2.Reader(&ti2, r, cryptoMetadata)
 
 	return
