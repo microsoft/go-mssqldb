@@ -8,16 +8,16 @@ import (
 
 func TestMakeGoLangScanType(t *testing.T) {
 	if (reflect.TypeOf(int64(0)) != makeGoLangScanType(typeInfo{TypeId: typeInt8})) {
-		t.Errorf("invalid type returned for typeDateTime")
+		t.Errorf("invalid type returned for typeInt8")
 	}
 	if (reflect.TypeOf(float64(0)) != makeGoLangScanType(typeInfo{TypeId: typeFlt4})) {
-		t.Errorf("invalid type returned for typeDateTime")
+		t.Errorf("invalid type returned for typeFlt4")
 	}
 	if (reflect.TypeOf(float64(0)) != makeGoLangScanType(typeInfo{TypeId: typeFlt8})) {
-		t.Errorf("invalid type returned for typeDateTime")
+		t.Errorf("invalid type returned for typeFlt8")
 	}
 	if (reflect.TypeOf("") != makeGoLangScanType(typeInfo{TypeId: typeVarChar})) {
-		t.Errorf("invalid type returned for typeDateTime")
+		t.Errorf("invalid type returned for typeVarChar")
 	}
 	if (reflect.TypeOf(time.Time{}) != makeGoLangScanType(typeInfo{TypeId: typeDateTime})) {
 		t.Errorf("invalid type returned for typeDateTime")
@@ -38,7 +38,7 @@ func TestMakeGoLangScanType(t *testing.T) {
 		t.Errorf("invalid type returned for typeIntN")
 	}
 	if (reflect.TypeOf([]byte{}) != makeGoLangScanType(typeInfo{TypeId: typeMoney, Size: 8})) {
-		t.Errorf("invalid type returned for typeIntN")
+		t.Errorf("invalid type returned for typeMoney")
 	}
 }
 
