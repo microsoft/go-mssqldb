@@ -416,13 +416,13 @@ func TestTVPGoSQLTypes(t *testing.T) {
 	}
 }
 
-func TestTVP(t *testing.T) {
+func testTVP(t *testing.T, guidConversion bool) {
 	checkConnStr(t)
 	tl := testLogger{t: t}
 	defer tl.StopLogging()
 	SetLogger(&tl)
 
-	c := makeConnStr(t).String()
+	c := makeConnStrSettingGuidConversion(t, guidConversion).String()
 	db, err := sql.Open("sqlserver", c)
 	if err != nil {
 		t.Fatalf("failed to open driver sqlserver")
@@ -699,13 +699,21 @@ func TestTVP(t *testing.T) {
 	}
 }
 
-func TestTVP_WithTag(t *testing.T) {
+func TestTVP_WithGuidConversion(t *testing.T) {
+	testTVP(t, true /*guidConversion*/)
+}
+
+func TestTVP_WithoutGuidConversion(t *testing.T) {
+	testTVP(t, false /*guidConversion*/)
+}
+
+func testTVP_WithTag(t *testing.T, guidConversion bool) {
 	checkConnStr(t)
 	tl := testLogger{t: t}
 	defer tl.StopLogging()
 	SetLogger(&tl)
 
-	db, err := sql.Open("sqlserver", makeConnStr(t).String())
+	db, err := sql.Open("sqlserver", makeConnStrSettingGuidConversion(t, guidConversion).String())
 	if err != nil {
 		t.Fatalf("failed to open driver sqlserver")
 	}
@@ -1112,6 +1120,14 @@ func TestTVPSchema(t *testing.T) {
 		tvpResult = append(tvpResult, tvpExemple)
 	}
 	log.Println(tvpResult)
+}
+
+func TestTVP_WithTagAndGuidConversion(t *testing.T) {
+	testTVP_WithTag(t, true /*guidConversion*/)
+}
+
+func TestTVP_WithTagWithoutGuidConversion(t *testing.T) {
+	testTVP_WithTag(t, false /*guidConversion*/)
 }
 
 func TestTVPObject(t *testing.T) {

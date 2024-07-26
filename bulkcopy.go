@@ -264,7 +264,7 @@ func (b *Bulk) createColMetadata() []byte {
 		}
 		binary.Write(buf, binary.LittleEndian, uint16(col.Flags))
 
-		writeTypeInfo(buf, &b.bulkColumns[i].ti, false)
+		writeTypeInfo(buf, &b.bulkColumns[i].ti, false, b.cn.sess.encoding)
 
 		if col.ti.TypeId == typeNText ||
 			col.ti.TypeId == typeText ||
