@@ -82,6 +82,11 @@ const (
 	GuidConversion         = "guid conversion"
 )
 
+type EncodeParameters struct {
+	// Properly convert GUIDs, using correct byte endianness
+	GuidConversion bool
+}
+
 type Config struct {
 	Port       uint64
 	Host       string
@@ -132,8 +137,8 @@ type Config struct {
 	ColumnEncryption bool
 	// Attempt to connect to all IPs in parallel when MultiSubnetFailover is true
 	MultiSubnetFailover bool
-	// Properly convert GUIDs, using correct byte endianness
-	GuidConversion bool
+	// Parameters related to type encoding
+	Encoding EncodeParameters
 }
 
 func readDERFile(filename string) ([]byte, error) {
@@ -511,14 +516,14 @@ func Parse(dsn string) (Config, error) {
 	guidConversion, ok := params[GuidConversion]
 	if ok {
 		var err error
-		p.GuidConversion, err = strconv.ParseBool(guidConversion)
+		p.Encoding.GuidConversion, err = strconv.ParseBool(guidConversion)
 		if err != nil {
 			f := "invalid guid conversion '%s': %s"
 			return p, fmt.Errorf(f, guidConversion, err.Error())
 		}
 	} else {
 		// set to false for backward compatibility
-		p.GuidConversion = false
+		p.Encoding.GuidConversion = false
 	}
 
 	return p, nil
@@ -582,7 +587,7 @@ func (p Config) URL() *url.URL {
 		q.Add("columnencryption", "true")
 	}
 
-	q.Add(GuidConversion, strconv.FormatBool(p.GuidConversion))
+	q.Add(GuidConversion, strconv.FormatBool(p.Encoding.GuidConversion))
 
 	if len(q) > 0 {
 		res.RawQuery = q.Encode()

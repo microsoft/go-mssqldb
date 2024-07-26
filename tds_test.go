@@ -366,7 +366,7 @@ func makeConnStr(t testing.TB) *url.URL {
 
 func makeConnStrSettingGuidConversion(t testing.TB, guidConversion bool) *url.URL {
 	config := testConnParams(t)
-	config.GuidConversion = guidConversion
+	config.Encoding.GuidConversion = guidConversion
 	return config.URL()
 }
 

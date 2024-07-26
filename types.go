@@ -12,6 +12,7 @@ import (
 
 	"github.com/microsoft/go-mssqldb/internal/cp"
 	"github.com/microsoft/go-mssqldb/internal/decimal"
+	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
 // fixed-length data types
@@ -121,7 +122,7 @@ type xmlInfo struct {
 	XmlSchemaCollection string
 }
 
-func readTypeInfo(r *tdsBuffer, typeId byte, c *cryptoMetadata, guidConversion bool) (res typeInfo) {
+func readTypeInfo(r *tdsBuffer, typeId byte, c *cryptoMetadata, encoding msdsn.EncodeParameters) (res typeInfo) {
 	res.TypeId = typeId
 	switch typeId {
 	case typeNull, typeInt1, typeBit, typeInt2, typeInt4, typeDateTim4,
@@ -142,13 +143,13 @@ func readTypeInfo(r *tdsBuffer, typeId byte, c *cryptoMetadata, guidConversion b
 		res.Reader = readFixedType
 		res.Buffer = make([]byte, res.Size)
 	default: // all others are VARLENTYPE
-		readVarLen(&res, r, c, guidConversion)
+		readVarLen(&res, r, c, encoding)
 	}
 	return
 }
 
 // https://msdn.microsoft.com/en-us/library/dd358284.aspx
-func writeTypeInfo(w io.Writer, ti *typeInfo, out bool, guidConversion bool) (err error) {
+func writeTypeInfo(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodeParameters) (err error) {
 	err = binary.Write(w, binary.LittleEndian, ti.TypeId)
 	if err != nil {
 		return
@@ -162,7 +163,7 @@ func writeTypeInfo(w io.Writer, ti *typeInfo, out bool, guidConversion bool) (er
 	case typeTvp:
 		ti.Writer = writeFixedType
 	default: // all others are VARLENTYPE
-		err = writeVarLen(w, ti, out, guidConversion)
+		err = writeVarLen(w, ti, out, encoding)
 		if err != nil {
 			return
 		}
@@ -176,7 +177,7 @@ func writeFixedType(w io.Writer, ti typeInfo, buf []byte) (err error) {
 }
 
 // https://msdn.microsoft.com/en-us/library/dd358341.aspx
-func writeVarLen(w io.Writer, ti *typeInfo, out bool, guidConversion bool) (err error) {
+func writeVarLen(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodeParameters) (err error) {
 	switch ti.TypeId {
 
 	case typeDateN:
@@ -217,7 +218,7 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool, guidConversion bool) (err 
 		if err = binary.Write(w, binary.LittleEndian, uint8(ti.Size)); err != nil {
 			return
 		}
-		if guidConversion {
+		if encoding.GuidConversion {
 			ti.Writer = writeGuidTypeWithConversion
 		} else {
 			ti.Writer = writeGuidTypeWithoutConversion
@@ -355,7 +356,7 @@ func readFixedType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
 	panic("shoulnd't get here")
 }
 
-func readByteLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, guidConversion bool) interface{} {
+func readByteLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) interface{} {
 	var size byte
 	if c != nil {
 		size = byte(r.rsize)
@@ -380,7 +381,7 @@ func readByteLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, guidConversi
 	case typeDateTimeOffsetN:
 		return decodeDateTimeOffset(ti.Scale, buf)
 	case typeGuid:
-		return decodeGuid(buf, guidConversion)
+		return decodeGuid(buf, encoding)
 	case typeIntN:
 		switch len(buf) {
 		case 1:
@@ -448,11 +449,11 @@ func readByteLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, guidConversi
 }
 
 func readByteLenTypeWithGuidConversion(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
-	return readByteLenType(ti, r, c, true /*guidConversion*/)
+	return readByteLenType(ti, r, c, msdsn.EncodeParameters{GuidConversion: true})
 }
 
 func readByteLenTypeWithoutGuidConversion(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
-	return readByteLenType(ti, r, c, false /*guidConversion*/)
+	return readByteLenType(ti, r, c, msdsn.EncodeParameters{GuidConversion: false})
 }
 
 func writeByteLenType(w io.Writer, ti typeInfo, buf []byte) (err error) {
@@ -467,7 +468,7 @@ func writeByteLenType(w io.Writer, ti typeInfo, buf []byte) (err error) {
 	return
 }
 
-func writeGuidType(w io.Writer, ti typeInfo, buf []byte, guidConversion bool) (err error) {
+func writeGuidType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error) {
 	if !(ti.Size == 0x10 || ti.Size == 0x00) {
 		panic("Invalid size for UNIQUEIDENTIFIER")
 	}
@@ -478,7 +479,7 @@ func writeGuidType(w io.Writer, ti typeInfo, buf []byte, guidConversion bool) (e
 	if ti.Size == 0x10 {
 		res := make([]byte, 0x10)
 		copy(res, buf)
-		if guidConversion {
+		if encoding.GuidConversion {
 			binary.BigEndian.PutUint32(res[0:4], binary.LittleEndian.Uint32(res[0:4]))
 			binary.BigEndian.PutUint16(res[4:6], binary.LittleEndian.Uint16(res[4:6]))
 			binary.BigEndian.PutUint16(res[6:8], binary.LittleEndian.Uint16(res[6:8]))
@@ -489,11 +490,11 @@ func writeGuidType(w io.Writer, ti typeInfo, buf []byte, guidConversion bool) (e
 }
 
 func writeGuidTypeWithConversion(w io.Writer, ti typeInfo, buf []byte) (err error) {
-	return writeGuidType(w, ti, buf, true /*guidConversion*/)
+	return writeGuidType(w, ti, buf, msdsn.EncodeParameters{GuidConversion: true})
 }
 
 func writeGuidTypeWithoutConversion(w io.Writer, ti typeInfo, buf []byte) (err error) {
-	return writeGuidType(w, ti, buf, false /*guidConversion*/)
+	return writeGuidType(w, ti, buf, msdsn.EncodeParameters{GuidConversion: false})
 }
 
 func readShortLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
@@ -619,7 +620,7 @@ func writeCollation(w io.Writer, col cp.Collation) (err error) {
 
 // reads variant value
 // http://msdn.microsoft.com/en-us/library/dd303302.aspx
-func readVariantType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, guidConversion bool) interface{} {
+func readVariantType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) interface{} {
 	size := r.int32()
 	if size == 0 {
 		return nil
@@ -630,7 +631,7 @@ func readVariantType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, guidConversi
 	case typeGuid:
 		buf := make([]byte, size-2-propbytes)
 		r.ReadFull(buf)
-		return decodeGuid(buf, guidConversion)
+		return decodeGuid(buf, encoding)
 	case typeBit:
 		return r.byte() != 0
 	case typeInt1:
@@ -710,11 +711,11 @@ func readVariantType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, guidConversi
 }
 
 func readVariantTypeWithGuidConversion(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
-	return readVariantType(ti, r, c, true /*guidConversion*/)
+	return readVariantType(ti, r, c, msdsn.EncodeParameters{GuidConversion: true})
 }
 
 func readVariantTypeWithoutGuidConversion(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
-	return readVariantType(ti, r, c, false /*guidConversion*/)
+	return readVariantType(ti, r, c, msdsn.EncodeParameters{GuidConversion: false})
 }
 
 // partially length prefixed stream
@@ -786,7 +787,7 @@ func writePLPType(w io.Writer, ti typeInfo, buf []byte) (err error) {
 	}
 }
 
-func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, guidConversion bool) {
+func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) {
 	switch ti.TypeId {
 	case typeDateN:
 		ti.Size = 3
@@ -824,7 +825,7 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, guidConversion bo
 			ti.Prec = r.byte()
 			ti.Scale = r.byte()
 		}
-		if guidConversion {
+		if encoding.GuidConversion {
 			ti.Reader = readByteLenTypeWithGuidConversion
 		} else {
 			ti.Reader = readByteLenTypeWithoutGuidConversion
@@ -883,7 +884,7 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, guidConversion bo
 			}
 			ti.Reader = readLongLenType
 		case typeVariant:
-			if guidConversion {
+			if encoding.GuidConversion {
 				ti.Reader = readVariantTypeWithGuidConversion
 			} else {
 				ti.Reader = readVariantTypeWithoutGuidConversion
@@ -911,10 +912,10 @@ func decodeMoney4(buf []byte) []byte {
 	return decimal.ScaleBytes(strconv.FormatInt(int64(money), 10), 4)
 }
 
-func decodeGuid(buf []byte, guidConversion bool) []byte {
+func decodeGuid(buf []byte, encoding msdsn.EncodeParameters) []byte {
 	res := make([]byte, 16)
 	copy(res, buf)
-	if guidConversion {
+	if encoding.GuidConversion {
 		binary.LittleEndian.PutUint32(res[0:4], binary.BigEndian.Uint32(res[0:4]))
 		binary.LittleEndian.PutUint16(res[4:6], binary.BigEndian.Uint16(res[4:6]))
 		binary.LittleEndian.PutUint16(res[6:8], binary.BigEndian.Uint16(res[6:8]))
