@@ -1682,6 +1682,7 @@ func TestColumnTypeIntrospection(t *testing.T) {
 		{"cast('abc' as char(3))", "CHAR", reflect.TypeOf(""), true, 3, false, 0, 0},
 		{"cast(N'abc' as nchar(3))", "NCHAR", reflect.TypeOf(""), true, 3, false, 0, 0},
 		{"cast(1 as sql_variant)", "SQL_VARIANT", reflect.TypeOf(nil), false, 0, false, 0, 0},
+		{"geometry::STGeomFromText('LINESTRING (100 100, 20 180, 180 180)', 0)", "geometry", reflect.TypeOf([]byte{}), true, 2147483647, false, 0, 0},
 	}
 	conn, logger := open(t)
 	defer conn.Close()

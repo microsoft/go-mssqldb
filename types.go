@@ -105,7 +105,7 @@ type typeInfo struct {
 // Common Language Runtime (CLR) Instances
 // http://msdn.microsoft.com/en-us/library/dd357962.aspx
 type udtInfo struct {
-	//MaxByteSize         uint32
+	// MaxByteSize         uint32
 	DBName                string
 	SchemaName            string
 	TypeName              string
@@ -535,7 +535,7 @@ func readLongLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} 
 	panic("shoulnd't get here")
 }
 func writeLongLenType(w io.Writer, ti typeInfo, buf []byte) (err error) {
-	//textptr
+	// textptr
 	err = binary.Write(w, binary.LittleEndian, byte(0x10))
 	if err != nil {
 		return
@@ -548,7 +548,7 @@ func writeLongLenType(w io.Writer, ti typeInfo, buf []byte) (err error) {
 	if err != nil {
 		return
 	}
-	//timestamp?
+	// timestamp?
 	err = binary.Write(w, binary.LittleEndian, uint64(0xFFFFFFFFFFFFFFFF))
 	if err != nil {
 		return
@@ -1137,6 +1137,8 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 		return reflect.TypeOf([]byte{})
 	case typeVariant:
 		return reflect.TypeOf(nil)
+	case typeUdt:
+		return reflect.TypeOf([]byte{})
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangScanType for type %d", ti.TypeId))
 	}
@@ -1366,6 +1368,8 @@ func makeGoLangTypeName(ti typeInfo) string {
 		return "SQL_VARIANT"
 	case typeBigBinary:
 		return "BINARY"
+	case typeUdt:
+		return ti.UdtInfo.TypeName
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypeName for type %d", ti.TypeId))
 	}
@@ -1490,6 +1494,8 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 		return 0, false
 	case typeBigBinary:
 		return int64(ti.Size), true
+	case typeUdt:
+		return 2147483647, true
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypeLength for type %d", ti.TypeId))
 	}
@@ -1601,6 +1607,8 @@ func makeGoLangTypePrecisionScale(ti typeInfo) (int64, int64, bool) {
 	case typeVariant:
 		return 0, 0, false
 	case typeBigBinary:
+		return 0, 0, false
+	case typeUdt:
 		return 0, 0, false
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypePrecisionScale for type %d", ti.TypeId))
