@@ -1370,7 +1370,6 @@ func makeGoLangTypeName(ti typeInfo) string {
 	case typeBigBinary:
 		return "BINARY"
 	case typeUdt:
-		fmt.Println("asdadsadsaasd" + strings.ToUpper(ti.UdtInfo.TypeName))
 		return strings.ToUpper(ti.UdtInfo.TypeName)
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypeName for type %d", ti.TypeId))
