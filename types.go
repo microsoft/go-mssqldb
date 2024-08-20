@@ -1501,7 +1501,7 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 			// https://learn.microsoft.com/en-us/sql/t-sql/data-types/hierarchyid-data-type-method-reference?view=sql-server-ver16
 			return 892, true
 		} else {
-			panic(fmt.Sprintf("not implemented makeGoLangTypeLength for user defined type %d", ti.TypeId))
+			panic(fmt.Sprintf("not implemented makeGoLangTypeLength for user defined type %s", ti.UdtInfo.TypeName))
 		}
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypeLength for type %d", ti.TypeId))
