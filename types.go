@@ -1496,10 +1496,14 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 	case typeBigBinary:
 		return int64(ti.Size), true
 	case typeUdt:
-		if ti.UdtInfo.TypeName == "hierarchyid" {
+		switch ti.UdtInfo.TypeName {
+		case "hierarchyid":
 			// https://learn.microsoft.com/en-us/sql/t-sql/data-types/hierarchyid-data-type-method-reference?view=sql-server-ver16
 			return 892, true
-		} else {
+		case "geography":
+		case "geometry":
+			return 2147483647, true
+		default:
 			panic(fmt.Sprintf("not implemented makeGoLangTypeLength for user defined type %s", ti.UdtInfo.TypeName))
 		}
 	default:
