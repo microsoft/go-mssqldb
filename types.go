@@ -1509,6 +1509,8 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypeLength for type %d", ti.TypeId))
 	}
+
+	return 0, false
 }
 
 // makes go/sql type precision and scale as described below
