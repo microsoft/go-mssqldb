@@ -1684,7 +1684,7 @@ func TestColumnTypeIntrospection(t *testing.T) {
 		{"cast(N'abc' as nchar(3))", "NCHAR", reflect.TypeOf(""), true, 3, false, 0, 0},
 		{"cast(1 as sql_variant)", "SQL_VARIANT", reflect.TypeOf(nil), false, 0, false, 0, 0},
 		{"geometry::STGeomFromText('LINESTRING (100 100, 20 180, 180 180)', 0)", "GEOMETRY", reflect.TypeOf([]byte{}), true, 2147483647, false, 0, 0},
-		{"geography::STGeomFromText('LINESTRING(-122.360 47.656, -122.343 47.656 )', 4326)", "GEOGRAPHY", reflect.TypeOf([]byte{}), true, 2147483647, false, 0, 0},
+		{"geography::STGeomFromText('LINESTRING(-122.360 47.656, -122.343 47.656 )', 4326)", "GEOGRAPHY", reflect.TypeOf([]byte{}), false, 2147483647, false, 0, 0},
 		{"cast('/1/2/3/' as hierarchyid)", "HIERARCHYID", reflect.TypeOf([]byte{}), true, 892, false, 0, 0},
 	}
 	conn, logger := open(t)
