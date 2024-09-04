@@ -335,6 +335,61 @@ func TestSelectNewTypes(t *testing.T) {
 	}
 }
 
+func TestSelectWithVarchar(t *testing.T) {
+	conn, logger := openWithVarcharDSN(t)
+	defer conn.Close()
+	defer logger.StopLogging()
+
+	t.Run("scan into string", func(t *testing.T) {
+		type testStruct struct {
+			sql  string
+			args []interface{}
+			val  string
+		}
+
+		longstr := strings.Repeat("x", 10000)
+
+		values := []testStruct{
+			{"'abc'", []interface{}{}, "abc"},
+			{"N'abc'", []interface{}{}, "abc"},
+			{"cast(N'abc' as nvarchar(max))", []interface{}{}, "abc"},
+			{"cast('abc' as text)", []interface{}{}, "abc"},
+			{"cast(N'abc' as ntext)", []interface{}{}, "abc"},
+			{"cast('abc' as char(3))", []interface{}{}, "abc"},
+			{"cast('abc' as varchar(3))", []interface{}{}, "abc"},
+			{fmt.Sprintf("cast(N'%s' as nvarchar(max))", longstr), []interface{}{}, longstr},
+			{"cast(cast('abc' as varchar(3)) as sql_variant)", []interface{}{}, "abc"},
+			{"cast(cast('abc' as char(3)) as sql_variant)", []interface{}{}, "abc"},
+			{"cast(N'abc' as sql_variant)", []interface{}{}, "abc"},
+			{"@p1", []interface{}{"abc"}, "abc"},
+			{"@p1", []interface{}{longstr}, longstr},
+		}
+
+		for _, test := range values {
+			t.Run(test.sql, func(t *testing.T) {
+				stmt, err := conn.Prepare("select " + test.sql)
+				if err != nil {
+					t.Error("Prepare failed:", test.sql, err.Error())
+					return
+				}
+				defer stmt.Close()
+
+				row := stmt.QueryRow(test.args...)
+				var retval string
+				err = row.Scan(&retval)
+				if err != nil {
+					t.Error("Scan failed:", test.sql, err.Error())
+					return
+				}
+				if retval != test.val {
+					t.Errorf("Values don't match '%s' '%s' for test: %s", retval, test.val, test.sql)
+					return
+				}
+			})
+		}
+	})
+}
+
 func TestTrans(t *testing.T) {
 	conn, logger := open(t)
 	defer conn.Close()

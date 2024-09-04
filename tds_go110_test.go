@@ -24,3 +24,22 @@ func getTestConnector(t testing.TB) (*Connector, *testLogger) {
 	}
 	return connector, &tl
 }
+
+func openWithVarcharDSN(t testing.TB) (*sql.DB, *testLogger) {
+	connector, logger := getTestConnectorWithVarcharDSN(t)
+	conn := sql.OpenDB(connector)
+	return conn, logger
+}
+
+func getTestConnectorWithVarcharDSN(t testing.TB) (*Connector, *testLogger) {
+	tl := testLogger{t: t}
+	SetLogger(&tl)
+	s := testConnParams(t)
+	s.SendStringParametersAsUnicode = true
+	connector, err := NewConnector(s.URL().String())
+	if err != nil {
+		t.Error("Open connection failed:", err.Error())
+		return nil, &tl
+	}
+	return connector, &tl
+}

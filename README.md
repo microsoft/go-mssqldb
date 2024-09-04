@@ -68,6 +68,9 @@ Other supported formats are listed below.
 * `multisubnetfailover`
   * `true` (Default) Client attempt to connect to all IPs simultaneously. 
   * `false` Client attempts to connect to IPs in serial.
+* `sendStringParametersAsUnicode`
+  * `true` (Default) Go default string types sent as `nvarchar`.
+  * `false` Go default string types sent as `varchar`.
 
 ### Connection parameters for namedpipe package
 * `pipe`  - If set, no Browser query is made and named pipe used will be `\\<host>\pipe\<pipe>`
@@ -371,7 +374,7 @@ To pass specific types to the query parameters, say `varchar` or `date` types,
 you must convert the types to the type before passing in. The following types
 are supported:
 
-* string -> nvarchar
+* string -> nvarchar(by default, will be varchar if `sendStringParametersAsUnicode` is set to true)
 * mssql.VarChar -> varchar
 * time.Time -> datetimeoffset or datetime (TDS version dependent)
 * mssql.DateTime1 -> datetime
