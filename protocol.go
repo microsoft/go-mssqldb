@@ -16,9 +16,9 @@ type MssqlProtocolDialer interface {
 	DialSqlConnection(ctx context.Context, c *Connector, p *msdsn.Config) (conn net.Conn, err error)
 }
 
-type tcpDialer struct{}
+type TcpDialer struct{}
 
-func (t tcpDialer) ParseBrowserData(data msdsn.BrowserData, p *msdsn.Config) error {
+func (t TcpDialer) ParseBrowserData(data msdsn.BrowserData, p *msdsn.Config) error {
 	// If instance is specified, but no port, check SQL Server Browser
 	// for the instance and discover its port.
 	ok := len(data) > 0
@@ -59,14 +59,14 @@ func stringForInstanceNameComparison(inst string) (instanceName string) {
 	return
 }
 
-func (t tcpDialer) DialConnection(ctx context.Context, p *msdsn.Config) (conn net.Conn, err error) {
+func (t TcpDialer) DialConnection(ctx context.Context, p *msdsn.Config) (conn net.Conn, err error) {
 	return nil, fmt.Errorf("tcp dialer requires a Connector instance")
 }
 
 // SQL Server AlwaysOn Availability Group Listeners are bound by DNS to a
 // list of IP addresses.  So if there is more than one, try them all and
 // use the first one that allows a connection.
-func (t tcpDialer) DialSqlConnection(ctx context.Context, c *Connector, p *msdsn.Config) (conn net.Conn, err error) {
+func (t TcpDialer) DialSqlConnection(ctx context.Context, c *Connector, p *msdsn.Config) (conn net.Conn, err error) {
 	var ips []net.IP
 	ip := net.ParseIP(p.Host)
 	portStr := strconv.Itoa(int(resolveServerPort(p.Port)))
@@ -148,7 +148,7 @@ func (t tcpDialer) DialSqlConnection(ctx context.Context, c *Connector, p *msdsn
 	return conn, err
 }
 
-func (t tcpDialer) CallBrowser(p *msdsn.Config) bool {
+func (t TcpDialer) CallBrowser(p *msdsn.Config) bool {
 	return len(p.Instance) > 0 && p.Port == 0
 }
 

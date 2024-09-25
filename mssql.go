@@ -31,7 +31,7 @@ type ReturnStatus int32
 
 var driverInstance = &Driver{processQueryText: true}
 var driverInstanceNoProcess = &Driver{processQueryText: false}
-var tcpDialerInstance *tcpDialer = &tcpDialer{}
+var tcpDialerInstance *TcpDialer = &TcpDialer{}
 
 func init() {
 	sql.Register("mssql", driverInstance)
