@@ -1382,6 +1382,7 @@ initiate_connection:
 				if token.isError() {
 					tokenErr := token.getError()
 					tokenErr.Message = "login error: " + tokenErr.Message
+					conn.Close()
 					return nil, tokenErr
 				}
 			case error:
