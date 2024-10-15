@@ -172,6 +172,7 @@ type tdsSession struct {
 	routedPort      uint16
 	alwaysEncrypted bool
 	aeSettings      *alwaysEncryptedSettings
+	encoding        msdsn.EncodeParameters
 }
 
 type alwaysEncryptedSettings struct {
@@ -1209,6 +1210,7 @@ initiate_connection:
 		logger:     logger,
 		logFlags:   uint64(p.LogFlags),
 		aeSettings: &alwaysEncryptedSettings{keyProviders: aecmk.GetGlobalCekProviders()},
+		encoding:   p.Encoding,
 	}
 
 	for i, p := range c.keyProviders {
