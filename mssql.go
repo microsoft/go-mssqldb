@@ -563,8 +563,8 @@ func (s *Stmt) sendQuery(ctx context.Context, args []namedValue) (err error) {
 			if err != nil {
 				return
 			}
-			params[0] = makeStrParam(s.query)
-			params[1] = makeStrParam(strings.Join(decls, ","))
+			params[0] = makeStrParam(s.query, true)
+			params[1] = makeStrParam(strings.Join(decls, ","), true)
 		}
 		if err = sendRpc(conn.sess.buf, headers, proc, 0, params, reset); err != nil {
 			if conn.sess.logFlags&logErrors != 0 {
@@ -968,9 +968,19 @@ func (r *Rows) ColumnTypeNullable(index int) (nullable, ok bool) {
 	return
 }
 
-func makeStrParam(val string) (res param) {
-	res.ti.TypeId = typeNVarChar
-	res.buffer = str2ucs2(val)
+func getSendStringParametersAsUnicode(s *Stmt) bool {
+	return s == nil || s.c == nil || s.c.connector == nil || s.c.connector.params.SendStringParametersAsUnicode
+}
+
+func makeStrParam(val string, sendStringParametersAsUnicode bool) (res param) {
+	if sendStringParametersAsUnicode {
+		res.ti.TypeId = typeNVarChar
+		res.buffer = str2ucs2(val)
+		res.ti.Size = len(res.buffer)
+		return
+	}
+	res.ti.TypeId = typeBigVarChar
+	res.buffer = []byte(val)
 	res.ti.Size = len(res.buffer)
 	return
 }
@@ -1104,7 +1114,7 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		res.ti.Size = len(val)
 		res.buffer = val
 	case string:
-		res = makeStrParam(val)
+		res = makeStrParam(val, getSendStringParametersAsUnicode(s))
 	case sql.NullString:
 		// only null values should be getting here
 		res.ti.TypeId = typeNVarChar

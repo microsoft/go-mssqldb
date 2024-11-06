@@ -53,32 +53,33 @@ const (
 )
 
 const (
-	Database               = "database"
-	Encrypt                = "encrypt"
-	Password               = "password"
-	ChangePassword         = "change password"
-	UserID                 = "user id"
-	Port                   = "port"
-	TrustServerCertificate = "trustservercertificate"
-	Certificate            = "certificate"
-	TLSMin                 = "tlsmin"
-	PacketSize             = "packet size"
-	LogParam               = "log"
-	ConnectionTimeout      = "connection timeout"
-	HostNameInCertificate  = "hostnameincertificate"
-	KeepAlive              = "keepalive"
-	ServerSpn              = "serverspn"
-	WorkstationID          = "workstation id"
-	AppName                = "app name"
-	ApplicationIntent      = "applicationintent"
-	FailoverPartner        = "failoverpartner"
-	FailOverPort           = "failoverport"
-	DisableRetry           = "disableretry"
-	Server                 = "server"
-	Protocol               = "protocol"
-	DialTimeout            = "dial timeout"
-	Pipe                   = "pipe"
-	MultiSubnetFailover    = "multisubnetfailover"
+	Database                      = "database"
+	Encrypt                       = "encrypt"
+	Password                      = "password"
+	ChangePassword                = "change password"
+	UserID                        = "user id"
+	Port                          = "port"
+	TrustServerCertificate        = "trustservercertificate"
+	Certificate                   = "certificate"
+	TLSMin                        = "tlsmin"
+	PacketSize                    = "packet size"
+	LogParam                      = "log"
+	ConnectionTimeout             = "connection timeout"
+	HostNameInCertificate         = "hostnameincertificate"
+	KeepAlive                     = "keepalive"
+	ServerSpn                     = "serverspn"
+	WorkstationID                 = "workstation id"
+	AppName                       = "app name"
+	ApplicationIntent             = "applicationintent"
+	FailoverPartner               = "failoverpartner"
+	FailOverPort                  = "failoverport"
+	DisableRetry                  = "disableretry"
+	Server                        = "server"
+	Protocol                      = "protocol"
+	DialTimeout                   = "dial timeout"
+	Pipe                          = "pipe"
+	MultiSubnetFailover           = "multisubnetfailover"
+	SendStringParametersAsUnicode = "sendstringparametersasunicode"
 )
 
 type Config struct {
@@ -131,6 +132,9 @@ type Config struct {
 	ColumnEncryption bool
 	// Attempt to connect to all IPs in parallel when MultiSubnetFailover is true
 	MultiSubnetFailover bool
+
+	// Sets a boolean value that indicates if sending string parameters to the server in UNICODE format is enabled.
+	SendStringParametersAsUnicode bool
 }
 
 func readDERFile(filename string) ([]byte, error) {
@@ -504,6 +508,19 @@ func Parse(dsn string) (Config, error) {
 		// Defaulting to true to prevent breaking change although other client libraries default to false
 		p.MultiSubnetFailover = true
 	}
+
+	sendStringParametersAsUnicode, ok := params[SendStringParametersAsUnicode]
+	if ok {
+		p.SendStringParametersAsUnicode, err = strconv.ParseBool(sendStringParametersAsUnicode)
+		if err != nil {
+			return p, fmt.Errorf("invalid %s '%s': %s", SendStringParametersAsUnicode,
+				sendStringParametersAsUnicode, err.Error())
+		}
+	} else {
+		// defaulting to true for backward compatibility
+		p.SendStringParametersAsUnicode = true
+	}
+
 	return p, nil
 }
 
