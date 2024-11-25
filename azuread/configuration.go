@@ -184,11 +184,11 @@ func (p *azureFedAuthConfig) provideActiveDirectoryToken(ctx context.Context, se
 		case p.certificatePath != "":
 			var certData []byte
 			certData, err = os.ReadFile(p.certificatePath)
-			if err != nil {
+			if err == nil {
 				var certs []*x509.Certificate
 				var key crypto.PrivateKey
 				certs, key, err = azidentity.ParseCertificates(certData, []byte(p.clientSecret))
-				if err != nil {
+				if err == nil {
 					cred, err = azidentity.NewClientCertificateCredential(tenant, p.clientID, certs, key, nil)
 				}
 			}
