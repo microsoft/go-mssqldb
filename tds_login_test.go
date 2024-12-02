@@ -132,7 +132,7 @@ func testLoginSequenceServer(result chan error, conn net.Conn, expectedPackets, 
 }
 
 func TestLoginWithSQLServerAuth(t *testing.T) {
-	conn, err := NewConnector("sqlserver://test:secret@localhost:1433?Workstation ID=localhost&log=128&protocol=tcp")
+	conn, err := NewConnector("sqlserver://test:secret@localhost:1433?Workstation ID=localhost&log=128&protocol=tcp&notraceid=true")
 	if err != nil {
 		t.Errorf("Unable to parse dummy DSN: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestLoginWithSQLServerAuth(t *testing.T) {
 }
 
 func TestLoginWithSecurityTokenAuth(t *testing.T) {
-	config, err := msdsn.Parse("sqlserver://localhost:1433?Workstation ID=localhost&log=128&protocol=tcp")
+	config, err := msdsn.Parse("sqlserver://localhost:1433?Workstation ID=localhost&log=128&protocol=tcp&notraceid=true")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestLoginWithSecurityTokenAuth(t *testing.T) {
 }
 
 func TestLoginWithADALUsernamePasswordAuth(t *testing.T) {
-	config, err := msdsn.Parse("sqlserver://localhost:1433?Workstation ID=localhost&log=128&protocol=tcp")
+	config, err := msdsn.Parse("sqlserver://localhost:1433?Workstation ID=localhost&log=128&protocol=tcp&notraceid=true")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func TestLoginWithADALUsernamePasswordAuth(t *testing.T) {
 }
 
 func TestLoginWithADALManagedIdentityAuth(t *testing.T) {
-	config, err := msdsn.Parse("sqlserver://localhost:1433?Workstation ID=localhost&log=128&protocol=tcp")
+	config, err := msdsn.Parse("sqlserver://localhost:1433?Workstation ID=localhost&log=128&protocol=tcp&notraceid=true")
 	if err != nil {
 		t.Fatal(err)
 	}
