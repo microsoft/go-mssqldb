@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -1055,7 +1056,9 @@ func prepareLogin(ctx context.Context, c *Connector, p msdsn.Config, logger Cont
 		CtlIntName:     "go-mssqldb",
 		ClientProgVer:  getDriverVersion(driverVersion),
 		ChangePassword: p.ChangePassword,
+		ClientPID:      uint32(os.Getpid()),
 	}
+	getClientId(&l.ClientID)
 	if p.ColumnEncryption {
 		_ = l.FeatureExt.Add(&featureExtColumnEncryption{})
 	}
@@ -1391,4 +1394,22 @@ func (f *featureExtColumnEncryption) toBytes() []byte {
 		and the ability to retry queries when the keys sent by the client do not match what is needed for the query to run.
 	*/
 	return []byte{0x01}
+}
+
+// return the 6 byte hardware identifier for the LOGIN7 packet
+func getClientId(mac *[6]byte) {
+	interfaces, err := net.Interfaces()
+	if err == nil {
+		for _, i := range interfaces {
+			if i.Flags&net.FlagUp != 0 && i.HardwareAddr != nil {
+				c := 6
+				if len(i.HardwareAddr) < 6 {
+					c = len(i.HardwareAddr)
+				}
+				copy(mac[:], i.HardwareAddr[:c])
+				return
+			}
+		}
+	}
+	return
 }
