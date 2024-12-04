@@ -71,3 +71,30 @@ func (s *tdsSession) preparePreloginFields(ctx context.Context, p msdsn.Config, 
 
 	return fields
 }
+
+type logFunc func() string
+
+func (s *tdsSession) logPrefix() string {
+	if s.logFlags&uint64(msdsn.LogSessionIDs) != 0 {
+		return fmt.Sprintf("aid:%v cid:%v - ", s.activityid, s.connid)
+	}
+	return ""
+}
+
+func (s *tdsSession) LogS(ctx context.Context, category msdsn.Log, msg string) {
+	s.Log(ctx, category, func() string { return msg })
+}
+
+// Log checks that the session logFlags includes the category before evaluating the logFunc and emitting the trace
+func (s *tdsSession) Log(ctx context.Context, category msdsn.Log, logFunc logFunc) {
+	if s.logFlags&uint64(category) != 0 {
+		s.logger.Log(ctx, category, s.logPrefix()+logFunc())
+	}
+}
+
+// LogF checks that the session logFlags includes the category before calling fmt.Sprintf and emitting the trace
+func (s *tdsSession) LogF(ctx context.Context, category msdsn.Log, format string, a ...any) {
+	if s.logFlags&uint64(category) != 0 {
+		s.logger.Log(ctx, category, s.logPrefix()+fmt.Sprintf(format, a...))
+	}
+}

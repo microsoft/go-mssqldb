@@ -46,6 +46,8 @@ const (
 	LogTransaction Log = 32
 	LogDebug       Log = 64
 	LogRetries     Log = 128
+	// LogSessionIDs tells the session logger to include activity id and connection id
+	LogSessionIDs Log = 0x8000
 )
 
 const (

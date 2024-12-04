@@ -1,6 +1,7 @@
 package mssql
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -53,4 +54,31 @@ func TestPreparePreloginFields(t *testing.T) {
 	}
 
 	assert.Equal(t, []byte{1}, fields[preloginFEDAUTHREQUIRED], "preloginFEDAUTHREQUIRED")
+}
+
+func TestLog(t *testing.T) {
+	p := msdsn.Config{
+		LogFlags:   msdsn.LogErrors | msdsn.LogMessages | msdsn.LogSessionIDs,
+		Encryption: msdsn.EncryptionStrict,
+		Instance:   "i",
+	}
+	// any 16 bytes would do
+	id, _ := uuid.Parse("5ac439f7-d5de-484c-8e0a-cbe27e7e9d72")
+	p.ActivityID = id[:]
+	buf := makeBuf(9, []byte{0x01 /*id*/, 0xFF /*status*/, 0x0, 0x9 /*size*/, 0xff, 0xff, 0xff, 0xff, 0x02 /*test byte*/})
+	var captureBuf bytes.Buffer
+
+	l := bufContextLogger{&captureBuf}
+	sess := newSession(buf, l, p)
+	ctx := context.Background()
+	sess.LogS(ctx, msdsn.LogDebug, "Debug")
+	assert.Empty(t, l.Buff.Bytes(), "Debug is masked out")
+	sess.LogS(ctx, msdsn.LogErrors, "Errors")
+	msg := l.Buff.String()
+	assert.Contains(t, msg, "aid:"+sess.activityid.String()+" cid:"+sess.connid.String(), "Message should include aid and cid")
+	assert.Contains(t, msg, "Errors")
+	l.Buff.Reset()
+	sess.LogF(ctx, msdsn.LogMessages, "format:%s", "value")
+	msg = l.Buff.String()
+	assert.Contains(t, msg, "format:value")
 }
