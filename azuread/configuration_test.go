@@ -4,7 +4,13 @@
 package azuread
 
 import (
+	"context"
+	"errors"
+	"io/fs"
+	"net/url"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	mssql "github.com/microsoft/go-mssqldb"
@@ -135,5 +141,75 @@ func TestValidateParameters(t *testing.T) {
 		if !reflect.DeepEqual(config, tst.expected) {
 			t.Errorf("Captured parameters do not match in test case '%s'. Expected:%+v, Actual:%+v", tst.name, tst.expected, config)
 		}
+	}
+}
+
+func TestProvideActiveDirectoryTokenValidations(t *testing.T) {
+	nonExistentCertPath := os.TempDir() + "non_existent_cert.pem"
+
+	f, err := os.CreateTemp("", "malformed_cert.pem")
+	if err != nil {
+		t.Fatalf("create temporary file: %v", err)
+	}
+	if err = f.Truncate(0); err != nil {
+		t.Fatalf("truncate temporary file: %v", err)
+	}
+	if _, err = f.Write([]byte("malformed")); err != nil {
+		t.Fatalf("write to temporary file: %v", err)
+	}
+	if err = f.Close(); err != nil {
+		t.Fatalf("close temporary file: %v", err)
+	}
+	malformedCertPath := f.Name()
+	t.Cleanup(func() { _ = os.Remove(malformedCertPath) })
+
+	tests := []struct {
+		name                string
+		dsn                 string
+		expectedErr         error
+		expectedErrContains string
+	}{
+		{
+			name: "ActiveDirectoryServicePrincipal_cert_not_found",
+			dsn: `sqlserver://someserver.database.windows.net?` +
+				`user id=` + url.QueryEscape("my-app-id@my-tenant-id") + "&" +
+				`fedauth=ActiveDirectoryServicePrincipal` + "&" +
+				`clientcertpath=` + nonExistentCertPath + "&" +
+				`applicationclientid=someguid`,
+			expectedErr: fs.ErrNotExist,
+		},
+		{
+			name: "ActiveDirectoryServicePrincipal_cert_malformed",
+			dsn: `sqlserver://someserver.database.windows.net?` +
+				`user id=` + url.QueryEscape("my-app-id@my-tenant-id") + "&" +
+				`fedauth=ActiveDirectoryServicePrincipal` + "&" +
+				`clientcertpath=` + malformedCertPath + "&" +
+				`applicationclientid=someguid`,
+			expectedErrContains: "error reading P12 data",
+		},
+	}
+	for _, tst := range tests {
+		t.Run(tst.name, func(t *testing.T) {
+			config, err := parse(tst.dsn)
+			if err != nil {
+				t.Errorf("Unexpected parse error: %v", err)
+				return
+			}
+			_, err = config.provideActiveDirectoryToken(context.Background(), "", "authority/tenant")
+			if err == nil {
+				t.Errorf("Expected error but got nil")
+				return
+			}
+			if tst.expectedErr != nil {
+				if !errors.Is(err, tst.expectedErr) {
+					t.Errorf("Expected error '%v' but got err = %v", tst.expectedErr, err)
+				}
+			}
+			if tst.expectedErrContains != "" {
+				if !strings.Contains(err.Error(), tst.expectedErrContains) {
+					return
+				}
+			}
+		})
 	}
 }
