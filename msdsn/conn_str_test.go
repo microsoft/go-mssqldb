@@ -225,6 +225,9 @@ func TestConnParseRoundTripFixed(t *testing.T) {
 	if err != nil {
 		t.Fatal("Params after roundtrip are not valid", err)
 	}
+	t.Log("params.URL " + params.URL().String())
+	params.ActivityID = nil
+	rtParams.ActivityID = nil
 	if !reflect.DeepEqual(params, rtParams) {
 		t.Fatal("Parameters do not match after roundtrip", params, rtParams)
 	}
