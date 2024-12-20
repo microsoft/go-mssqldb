@@ -175,6 +175,7 @@ type tdsSession struct {
 	aeSettings      *alwaysEncryptedSettings
 	connid          UniqueIdentifier
 	activityid      UniqueIdentifier
+	encoding        msdsn.EncodeParameters
 }
 
 type alwaysEncryptedSettings struct {
