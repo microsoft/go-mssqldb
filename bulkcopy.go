@@ -661,7 +661,7 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			buf[i] = ub[j]
 		}
 		res.buffer = buf
-	case typeBigVarBin, typeBigBinary:
+	case typeBigVarBin, typeBigBinary, typeImage:
 		switch val := val.(type) {
 		case []byte:
 			res.ti.Size = len(val)
