@@ -200,6 +200,8 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		{"test_int16nvarchar", int16(1234), "1234"},
 		{"test_int8nvarchar", int8(12), "12"},
 		{"test_intnvarchar", 1234, "1234"},
+		{"test_image", []byte("1"), nil},
+		{"test_imagen", nil, nil},
 	}
 
 	columns := make([]string, len(testValues))
@@ -449,6 +451,8 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 	[test_nullint32] [int] NULL,
 	[test_nullint16] [smallint] NULL,
 	[test_nulltime] [datetime] NULL,
+	[test_image] [image] NOT NULL,
+	[test_imagen] [image] NULL,
  CONSTRAINT [PK_` + tableName + `_id] PRIMARY KEY CLUSTERED
 (
 	[id] ASC

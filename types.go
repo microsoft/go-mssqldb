@@ -254,8 +254,16 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodeParam
 		if err = binary.Write(w, binary.LittleEndian, uint32(ti.Size)); err != nil {
 			return
 		}
-		if err = writeCollation(w, ti.Collation); err != nil {
-			return
+
+		// COLLATION occurs only if the type is BIGCHARTYPE, BIGVARCHARTYPE, TEXTTYPE, NTEXTTYPE,
+		// NCHARTYPE, or NVARCHARTYPE.
+		//
+		// https://learn.microsoft.com/openspecs/windows_protocols/ms-tds/cbe9c510-eae6-4b1f-9893-a098944d430a
+		switch ti.TypeId {
+		case typeText, typeNText:
+			if err = writeCollation(w, ti.Collation); err != nil {
+				return
+			}
 		}
 		ti.Writer = writeLongLenType
 	default:
@@ -1333,6 +1341,8 @@ func makeDecl(ti typeInfo) string {
 		return "ntext"
 	case typeUdt:
 		return ti.UdtInfo.TypeName
+	case typeImage:
+		return "image"
 	case typeGuid:
 		return "uniqueidentifier"
 	case typeTvp:
