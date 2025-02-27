@@ -578,6 +578,21 @@ func readLongLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} 
 	panic("shoulnd't get here")
 }
 func writeLongLenType(w io.Writer, ti typeInfo, buf []byte) (err error) {
+	if buf == nil {
+		// According to the documentation, we MUST NOT specify the text pointer and timestamp when the value is NULL.
+		//
+		// https://learn.microsoft.com/openspecs/windows_protocols/ms-tds/3840ef93-3b10-4aca-9fd1-a210b8bb6d0c
+		//
+		// However, this approach fails with the error:
+		// "Expected the text length in data stream for bulk copy of text, ntext, or image data."
+		//
+		// But we can insert NULL successfully by setting the text pointer length to zero
+		// (without writing any additional bytes).
+		// Since there's no clear way to follow the documentation exactly, let's use this solution.
+		err = binary.Write(w, binary.LittleEndian, byte(0x00))
+		return
+	}
+
 	//textptr
 	err = binary.Write(w, binary.LittleEndian, byte(0x10))
 	if err != nil {
