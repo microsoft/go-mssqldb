@@ -202,6 +202,8 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		{"test_intnvarchar", 1234, "1234"},
 		{"test_image", []byte("1"), nil},
 		{"test_imagen", nil, nil},
+		{"test_xml", "<root><child>value</child></root>", nil},
+		{"test_xmln", nil, nil},
 	}
 
 	columns := make([]string, len(testValues))
@@ -417,7 +419,8 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 	[test_intf32] [int] NULL,
 	[test_geom] [geometry] NULL,
 	[test_geog] [geography] NULL,
-	[text_xml] [xml] NULL,
+	[test_xml] [xml] NOT NULL,
+	[test_xmln] [xml] NULL,
 	[test_uniqueidentifier] [uniqueidentifier] NULL,
 	[test_nulluniqueidentifier] [uniqueidentifier] NULL,
 	[test_decimal_18_0] [decimal](18, 0) NULL,
