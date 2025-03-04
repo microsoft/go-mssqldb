@@ -82,6 +82,13 @@ func (b *Bulk) sendBulkCommand(ctx context.Context) (err error) {
 			}
 		}
 		if bulkCol != nil {
+			// Note that for INSERT BULK operations, XMLTYPE is to be sent as NVARCHAR(N) or NVARCHAR(MAX) data type.
+			// An error is produced if XMLTYPE is specified.
+			//
+			// https://learn.microsoft.com/openspecs/windows_protocols/ms-tds/ab4a7d62-cd1f-4db1-b67d-ecae58f493e3
+			if bulkCol.ti.TypeId == typeXml {
+				bulkCol.ti.TypeId = typeNVarChar
+			}
 
 			if bulkCol.ti.TypeId == typeUdt {
 				//send udt as binary
@@ -535,7 +542,74 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			err = fmt.Errorf("mssql: invalid type for time column: %T %s", val, val)
 			return
 		}
-	// case typeMoney, typeMoney4, typeMoneyN:
+	case typeMoney, typeMoney4, typeMoneyN:
+		var intvalue int64
+
+		string2Int64 := func(str string) (int64, error) {
+			// Split on decimal point
+			parts := strings.Split(str, ".")
+			if len(parts) > 2 {
+				return 0, fmt.Errorf("invalid money format")
+			}
+
+			// Handle the decimal places
+			if len(parts) == 2 {
+				// Pad or truncate decimal places to exactly 4 digits
+				decimal := parts[1]
+				if len(decimal) > 4 {
+					decimal = decimal[:4] // truncate to 4 decimal places
+				} else {
+					decimal = decimal + strings.Repeat("0", 4-len(decimal)) // pad with zeros
+				}
+				str = parts[0] + decimal
+			} else {
+				// No decimal point, append 4 zeros
+				str = str + "0000"
+			}
+
+			return strconv.ParseInt(str, 10, 64)
+		}
+
+		switch val := val.(type) {
+		case int:
+			intvalue = int64(val)
+		case int64:
+			intvalue = val
+		case []byte:
+			intvalue, err = string2Int64(string(val))
+			if err != nil {
+				return res, fmt.Errorf("mssql: invalid money string format: %s", string(val))
+			}
+		case string:
+			intvalue, err = string2Int64(val)
+			if err != nil {
+				return res, fmt.Errorf("mssql: invalid money string format: %s", val)
+			}
+		default:
+			err = fmt.Errorf("mssql: invalid type for money column: %T %s", val, val)
+			return
+		}
+
+		res.buffer = make([]byte, res.ti.Size)
+
+		// smallmoney is a 4-byte integer stored as value * 10^4.
+		// money is an 8-byte integer stored as value * 10^4.
+		//
+		// https://learn.microsoft.com/openspecs/windows_protocols/ms-tds/1266679d-cd6e-492a-b2b2-3a9ba004196d
+		switch col.ti.Size {
+		case 4:
+			binary.LittleEndian.PutUint32(res.buffer, uint32(intvalue))
+		case 8:
+			// The 8-byte signed integer is represented in the following sequence:
+			// - One 4-byte integer that represents the more significant half.
+			// - One 4-byte integer that represents the less significant half.
+			//
+			// https://learn.microsoft.com/openspecs/windows_protocols/ms-tds/1266679d-cd6e-492a-b2b2-3a9ba004196d
+			binary.LittleEndian.PutUint32(res.buffer[0:4], uint32(intvalue>>32))
+			binary.LittleEndian.PutUint32(res.buffer[4:8], uint32(intvalue&0xFFFFFFFF))
+		default:
+			err = fmt.Errorf("mssql: invalid size of column %d", col.ti.Size)
+		}
 	case typeDecimal, typeDecimalN, typeNumeric, typeNumericN:
 		prec := col.ti.Prec
 		scale := col.ti.Scale
@@ -599,7 +673,7 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			buf[i] = ub[j]
 		}
 		res.buffer = buf
-	case typeBigVarBin, typeBigBinary:
+	case typeBigVarBin, typeBigBinary, typeImage:
 		switch val := val.(type) {
 		case []byte:
 			res.ti.Size = len(val)
@@ -617,7 +691,6 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			err = fmt.Errorf("mssql: invalid type for Guid column: %T %s", val, val)
 			return
 		}
-
 	default:
 		err = fmt.Errorf("mssql: type %x not implemented", col.ti.TypeId)
 	}
