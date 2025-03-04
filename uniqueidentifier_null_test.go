@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -210,6 +211,33 @@ func TestNullableUniqueIdentifierUnmarshalJSONNull(t *testing.T) {
 	}
 }
 
-var _ fmt.Stringer = NullUniqueIdentifier{}
-var _ sql.Scanner = &NullUniqueIdentifier{}
-var _ driver.Valuer = NullUniqueIdentifier{}
+func TestNullableUniqueIdentifierMarshalUnmarshalNull(t *testing.T) {
+	t.Parallel()
+	null := NullUniqueIdentifier{
+		UUID:  [16]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+		Valid: false,
+	}
+
+	b, err := json.Marshal(null)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got NullUniqueIdentifier
+	err = json.Unmarshal(b, &got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := NullUniqueIdentifier{
+		UUID:  [16]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+		Valid: false,
+	}
+	if got != want {
+		t.Errorf("got %v; want %v", got, want)
+	}
+}
+
+var (
+	_ fmt.Stringer  = NullUniqueIdentifier{}
+	_ sql.Scanner   = &NullUniqueIdentifier{}
+	_ driver.Valuer = NullUniqueIdentifier{}
+)
