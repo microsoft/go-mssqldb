@@ -211,27 +211,36 @@ func TestNullableUniqueIdentifierUnmarshalJSONNull(t *testing.T) {
 	}
 }
 
-func TestNullableUniqueIdentifierMarshalUnmarshalNull(t *testing.T) {
+func TestNullableUniqueIdentifierMarshalJSONNull(t *testing.T) {
 	t.Parallel()
-	null := NullUniqueIdentifier{
+	nullUUID := NullUniqueIdentifier{
 		UUID:  [16]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
 		Valid: false,
 	}
 
-	b, err := json.Marshal(null)
+	got, err := nullUUID.MarshalJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got NullUniqueIdentifier
-	err = json.Unmarshal(b, &got)
-	if err != nil {
-		t.Fatal(err)
+	want := []byte{0x6e, 0x75, 0x6c, 0x6c} // null = %x6e.75.6c.6c
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v; want %v", got, want)
 	}
-	want := NullUniqueIdentifier{
+}
+
+func TestNullableUniqueIdentifierJSONMarshalNull(t *testing.T) {
+	t.Parallel()
+	nullUUID := NullUniqueIdentifier{
 		UUID:  [16]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
 		Valid: false,
 	}
-	if got != want {
+
+	got, err := json.Marshal(nullUUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{0x6e, 0x75, 0x6c, 0x6c}
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v; want %v", got, want)
 	}
 }
