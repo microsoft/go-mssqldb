@@ -25,8 +25,7 @@ jobs:
         export SQLCMDUSER=sa
         export SQLUSER=sa
         export SQLPASSWORD=$SQLCMDPASSWORD
-        export DATABASE=test
+        export DATABASE=master
         docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver -p:1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD mcr.microsoft.com/mssql/server:${{ matrix.sqlImage }}
         sleep 10
-        sqlcmd -Q "CREATE DATABASE test"
         go test -v ./...
