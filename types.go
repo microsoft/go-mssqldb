@@ -328,7 +328,7 @@ func threeHundredthsOfASecondToNanos(ths int) int {
 }
 
 func nanosToThreeHundredthsOfASecond(ns int) int {
-	return ns * 300 / 1e9
+	return int(math.Round(float64(ns) * 3 / 1e7))
 }
 
 func readFixedType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
