@@ -296,7 +296,7 @@ func encodeDateTime(t time.Time) (res []byte) {
 	basedays := gregorianDays(1900, 1)
 	// days since Jan 1st 1900 (same TZ as t)
 	days := gregorianDays(t.Year(), t.YearDay()) - basedays
-	tm := 300*(t.Second()+t.Minute()*60+t.Hour()*60*60) + t.Nanosecond()*300/1e9
+	tm := 300*(t.Second()+t.Minute()*60+t.Hour()*60*60) + nanosToThreeHundredthsOfASecond(t.Nanosecond())
 	// minimum and maximum possible
 	mindays := gregorianDays(1753, 1) - basedays
 	maxdays := gregorianDays(9999, 365) - basedays
@@ -317,10 +317,18 @@ func encodeDateTime(t time.Time) (res []byte) {
 func decodeDateTime(buf []byte) time.Time {
 	days := int32(binary.LittleEndian.Uint32(buf))
 	tm := binary.LittleEndian.Uint32(buf[4:])
-	ns := int(math.Trunc(float64(tm%300)/0.3+0.5)) * 1000000
+	ns := threeHundredthsOfASecondToNanos(int(tm % 300))
 	secs := int(tm / 300)
 	return time.Date(1900, 1, 1+int(days),
 		0, 0, secs, ns, time.UTC)
+}
+
+func threeHundredthsOfASecondToNanos(ths int) int {
+	return int(math.Trunc(float64(ths)/0.3+0.5)) * 1000000
+}
+
+func nanosToThreeHundredthsOfASecond(ns int) int {
+	return ns * 300 / 1e9
 }
 
 func readFixedType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
