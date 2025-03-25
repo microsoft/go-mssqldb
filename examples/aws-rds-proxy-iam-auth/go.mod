@@ -1,6 +1,6 @@
 module github.com/microsoft/go-mssqldb/examples/aws-rds-proxy-iam-auth
 
-go 1.23.7
+go 1.23
 
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.10

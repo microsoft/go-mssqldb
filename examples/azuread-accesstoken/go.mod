@@ -1,6 +1,6 @@
 module github.com/microsoft/go-mssqldb/examples/azuread-accesstoken
 
-go 1.23.7
+go 1.23
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.17.1
