@@ -49,7 +49,7 @@ func TestIsProc(t *testing.T) {
 		{"[proc;]", true},
 		{" proc", false},
 		{"RECONFIGURE", false},
-		{"SHUTDOWN;", false},
+		{"SHUTDOWN", false},
 		{"CHECKPOINT", false},
 	}
 
