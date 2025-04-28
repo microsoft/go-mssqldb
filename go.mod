@@ -21,7 +21,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/internal v1.0.0 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.2.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
+	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
