@@ -46,6 +46,12 @@ func hasPrefixFold(s, sep string) bool {
 	if len(s) < len(sep) {
 		return false
 	}
+
+	// Forward lookup to see if the word continues.
+	if len(s) > len(sep) && unicode.IsLetter(rune(s[len(sep)])) {
+		return false
+	}
+
 	return strings.EqualFold(s[:len(sep)], sep)
 }
 
