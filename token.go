@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"strconv"
 
@@ -586,7 +585,7 @@ func parseFeatureExtAck(r *tdsBuffer) featureExtAck {
 
 		// Skip unprocessed bytes
 		if length > 0 {
-			io.CopyN(ioutil.Discard, r, int64(length))
+			io.CopyN(io.Discard, r, int64(length))
 		}
 	}
 

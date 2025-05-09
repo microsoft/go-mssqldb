@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"sort"
@@ -280,7 +279,7 @@ func readPrelogin(r *tdsBuffer) (map[uint8][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	struct_buf, err := ioutil.ReadAll(r)
+	struct_buf, err := io.ReadAll(r)
 	if err != nil {
 		return nil, err
 	}
