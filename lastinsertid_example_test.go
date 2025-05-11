@@ -9,8 +9,7 @@ import (
 )
 
 // This example shows the usage of Connector type
-func ExampleLastInsertId() {
-
+func Example_lastinsertid() {
 	connString := makeConnURL().String()
 
 	db, err := sql.Open("sqlserver", connString)
