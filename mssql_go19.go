@@ -196,6 +196,7 @@ func (s *Stmt) makeParamExtra(val driver.Value) (res param, err error) {
 		}
 		schema, name, errGetName := getSchemeAndName(val.TypeName)
 		if errGetName != nil {
+			err = errGetName
 			return
 		}
 		res.ti.UdtInfo.TypeName = name
