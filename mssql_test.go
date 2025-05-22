@@ -51,6 +51,8 @@ func TestIsProc(t *testing.T) {
 		{"RECONFIGURE", false},
 		{"SHUTDOWN", false},
 		{"CHECKPOINT", false},
+		{"COMMIT", false},
+		{"ROLLBACK", false},
 	}
 
 	for _, item := range list {
