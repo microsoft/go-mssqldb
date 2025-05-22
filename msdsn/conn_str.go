@@ -85,6 +85,7 @@ const (
 	MultiSubnetFailover    = "multisubnetfailover"
 	NoTraceID              = "notraceid"
 	GuidConversion         = "guid conversion"
+	Timezone               = "timezone"
 )
 
 type EncodeParameters struct {
@@ -149,6 +150,9 @@ type Config struct {
 	NoTraceID bool
 	// Parameters related to type encoding
 	Encoding EncodeParameters
+
+	// Timezone is the timezone to use for encoding and decoding datetime values.
+	Timezone *time.Location
 }
 
 func readDERFile(filename string) ([]byte, error) {
@@ -323,6 +327,15 @@ func Parse(dsn string) (Config, error) {
 			return p, fmt.Errorf("invalid log parameter '%s': %s", strlog, err.Error())
 		}
 		p.LogFlags = Log(flags)
+	}
+
+	tz, ok := params[Timezone]
+	if ok {
+		location, err := time.LoadLocation(tz)
+		if err != nil {
+			return p, fmt.Errorf("invalid timezone '%s': %s", tz, err.Error())
+		}
+		p.Timezone = location
 	}
 
 	p.Database = params[Database]
