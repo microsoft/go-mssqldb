@@ -1,5 +1,5 @@
 # Changelog
-## Next Release
+## 1.8.2
 
 ### Bug fixes
 
