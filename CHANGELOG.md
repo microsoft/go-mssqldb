@@ -1,4 +1,10 @@
 # Changelog
+## Next Release
+
+### Bug fixes
+
+* Added "Pwd" as a recognized alias for "Password" in connection strings (#262)
+
 ## 1.7.0
 
 ### Changed
