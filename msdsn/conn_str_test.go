@@ -107,6 +107,7 @@ func TestValidConnectionString(t *testing.T) {
 		{"", func(p Config) bool { return p.DisableRetry == disableRetryDefault }},
 		{"MultiSubnetFailover=true;NoTraceID=true", func(p Config) bool { return p.MultiSubnetFailover && p.NoTraceID }},
 		{"MultiSubnetFailover=false", func(p Config) bool { return !p.MultiSubnetFailover }},
+		{"Pwd=placeholder", func(p Config) bool { return p.Password == "placeholder" }},
 		// those are supported currently, but maybe should not be
 		{"someparam", func(p Config) bool { return true }},
 		{";;=;", func(p Config) bool { return true }},
