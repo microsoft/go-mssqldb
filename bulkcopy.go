@@ -52,14 +52,14 @@ const (
 	sqlTimeFormat     = "15:04:05.9999999"
 )
 
-func (cn *Conn) CreateBulk(table string, columns []string) (_ *Bulk) {
-	b := Bulk{ctx: context.Background(), cn: cn, tablename: table, headerSent: false, columnsName: columns}
+func (c *Conn) CreateBulk(table string, columns []string) (_ *Bulk) {
+	b := Bulk{ctx: context.Background(), cn: c, tablename: table, headerSent: false, columnsName: columns}
 	b.Debug = false
 	return &b
 }
 
-func (cn *Conn) CreateBulkContext(ctx context.Context, table string, columns []string) (_ *Bulk) {
-	b := Bulk{ctx: ctx, cn: cn, tablename: table, headerSent: false, columnsName: columns}
+func (c *Conn) CreateBulkContext(ctx context.Context, table string, columns []string) (_ *Bulk) {
+	b := Bulk{ctx: ctx, cn: c, tablename: table, headerSent: false, columnsName: columns}
 	b.Debug = false
 	return &b
 }
@@ -487,7 +487,7 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			res.ti.Size = len(res.buffer)
 		case string:
 			var t time.Time
-			if t, err = time.ParseInLocation(sqlDateFormat, val, time.UTC); err != nil {
+			if t, err = time.ParseInLocation(sqlDateFormat, val, loc); err != nil {
 				return res, fmt.Errorf("bulk: unable to convert string to date: %v", err)
 			}
 			res.buffer = encodeDate(t)

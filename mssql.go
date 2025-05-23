@@ -22,6 +22,8 @@ import (
 	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
+var loc = time.UTC
+
 // ReturnStatus may be used to return the return value from a proc.
 //
 //	var rs mssql.ReturnStatus
@@ -37,6 +39,10 @@ func init() {
 	sql.Register("mssql", driverInstance)
 	sql.Register("sqlserver", driverInstanceNoProcess)
 	createDialer = func(p *msdsn.Config) Dialer {
+		if p.Timezone != nil {
+			loc = p.Timezone
+		}
+
 		ka := p.KeepAlive
 		if ka == 0 {
 			ka = 30 * time.Second
