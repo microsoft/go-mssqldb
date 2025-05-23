@@ -4,6 +4,7 @@
 ### Bug fixes
 
 * Added "Pwd" as a recognized alias for "Password" in connection strings (#262)
+* Updated `isProc` to detect more keywords
 
 ## 1.7.0
 
