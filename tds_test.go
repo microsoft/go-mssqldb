@@ -332,6 +332,10 @@ func GetConnParams() (*msdsn.Config, error) {
 		if os.Getenv("COLUMNENCRYPTION") != "" {
 			c.ColumnEncryption = true
 		}
+		if os.Getenv("TIME_ZONE") != "" {
+			tz, _ := time.LoadLocation(os.Getenv("TIME_ZONE"))
+			c.Timezone = tz
+		}
 		return c, nil
 	}
 	// try loading connection string from file

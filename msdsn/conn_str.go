@@ -625,6 +625,10 @@ func (p Config) URL() *url.URL {
 		q.Add(GuidConversion, strconv.FormatBool(p.Encoding.GuidConversion))
 	}
 
+	if p.Timezone != nil {
+		q.Add(Timezone, p.Timezone.String())
+	}
+
 	if len(q) > 0 {
 		res.RawQuery = q.Encode()
 	}
