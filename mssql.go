@@ -17,13 +17,10 @@ import (
 	"unicode"
 
 	"github.com/golang-sql/sqlexp"
-
 	"github.com/microsoft/go-mssqldb/aecmk"
 	"github.com/microsoft/go-mssqldb/internal/querytext"
 	"github.com/microsoft/go-mssqldb/msdsn"
 )
-
-var loc = time.UTC
 
 // ReturnStatus may be used to return the return value from a proc.
 //
@@ -40,10 +37,6 @@ func init() {
 	sql.Register("mssql", driverInstance)
 	sql.Register("sqlserver", driverInstanceNoProcess)
 	createDialer = func(p *msdsn.Config) Dialer {
-		if p.Timezone != nil {
-			loc = p.Timezone
-		}
-
 		ka := p.KeepAlive
 		if ka == 0 {
 			ka = 30 * time.Second
@@ -985,6 +978,8 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		res.ti.Size = 0
 		return
 	}
+	loc := getTimezone(s.c)
+
 	switch valuer := val.(type) {
 	// sql.Nullxxx integer types return an int64. We want the original type, to match the SQL type size.
 	case sql.NullByte:
@@ -1130,7 +1125,7 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		if s.c.sess.loginAck.TDSVersion >= verTDS73 {
 			res.ti.TypeId = typeDateTimeOffsetN
 			res.ti.Scale = 7
-			res.buffer = encodeDateTimeOffset(val, int(res.ti.Scale))
+			res.buffer = encodeDateTimeOffset(val, int(res.ti.Scale), loc)
 			res.ti.Size = len(res.buffer)
 		} else {
 			res.ti.TypeId = typeDateTimeN

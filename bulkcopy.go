@@ -207,7 +207,7 @@ func (b *Bulk) makeRowData(row []interface{}) ([]byte, error) {
 			return nil, fmt.Errorf("no writer for column: %s, TypeId: %#x",
 				col.ColName, col.ti.TypeId)
 		}
-		err = col.ti.Writer(buf, param.ti, param.buffer)
+		err = col.ti.Writer(buf, param.ti, param.buffer, b.cn.sess.encoding)
 		if err != nil {
 			return nil, fmt.Errorf("bulkcopy: %s", err.Error())
 		}
@@ -318,6 +318,7 @@ func (b *Bulk) getMetadata(ctx context.Context) (err error) {
 func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error) {
 	res.ti.Size = col.ti.Size
 	res.ti.TypeId = col.ti.TypeId
+	loc := getTimezone(b.cn)
 
 	switch valuer := val.(type) {
 	case driver.Valuer:
@@ -467,14 +468,14 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 	case typeDateTimeOffsetN:
 		switch val := val.(type) {
 		case time.Time:
-			res.buffer = encodeDateTimeOffset(val, int(col.ti.Scale))
+			res.buffer = encodeDateTimeOffset(val, int(col.ti.Scale), loc)
 			res.ti.Size = len(res.buffer)
 		case string:
 			var t time.Time
 			if t, err = time.Parse(sqlDateTimeFormat, val); err != nil {
 				return res, fmt.Errorf("bulk: unable to convert string to date: %v", err)
 			}
-			res.buffer = encodeDateTimeOffset(t, int(col.ti.Scale))
+			res.buffer = encodeDateTimeOffset(t, int(col.ti.Scale), loc)
 			res.ti.Size = len(res.buffer)
 		default:
 			err = fmt.Errorf("mssql: invalid type for datetimeoffset column: %T %s", val, val)
@@ -511,7 +512,7 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 		}
 
 		if col.ti.Size == 4 {
-			res.buffer = encodeDateTim4(t)
+			res.buffer = encodeDateTim4(t, loc)
 			res.ti.Size = len(res.buffer)
 		} else if col.ti.Size == 8 {
 			res.buffer = encodeDateTime(t)

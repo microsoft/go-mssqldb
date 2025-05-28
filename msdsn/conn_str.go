@@ -91,6 +91,15 @@ const (
 type EncodeParameters struct {
 	// Properly convert GUIDs, using correct byte endianness
 	GuidConversion bool
+	// Timezone is the timezone to use for encoding and decoding datetime values.
+	Timezone *time.Location
+}
+
+func (e EncodeParameters) GetTimezone() *time.Location {
+	if e.Timezone == nil {
+		return time.UTC
+	}
+	return e.Timezone
 }
 
 type Config struct {
@@ -150,9 +159,6 @@ type Config struct {
 	NoTraceID bool
 	// Parameters related to type encoding
 	Encoding EncodeParameters
-
-	// Timezone is the timezone to use for encoding and decoding datetime values.
-	Timezone *time.Location
 }
 
 func readDERFile(filename string) ([]byte, error) {
@@ -305,6 +311,9 @@ func Parse(dsn string) (Config, error) {
 	p := Config{
 		ProtocolParameters: map[string]interface{}{},
 		Protocols:          []string{},
+		Encoding: EncodeParameters{
+			Timezone: time.UTC,
+		},
 	}
 
 	activityid, uerr := uuid.NewRandom()
@@ -335,7 +344,7 @@ func Parse(dsn string) (Config, error) {
 		if err != nil {
 			return p, fmt.Errorf("invalid timezone '%s': %s", tz, err.Error())
 		}
-		p.Timezone = location
+		p.Encoding.Timezone = location
 	}
 
 	p.Database = params[Database]
@@ -625,8 +634,8 @@ func (p Config) URL() *url.URL {
 		q.Add(GuidConversion, strconv.FormatBool(p.Encoding.GuidConversion))
 	}
 
-	if p.Timezone != nil {
-		q.Add(Timezone, p.Timezone.String())
+	if tz := p.Encoding.Timezone; tz != nil && tz != time.UTC {
+		q.Add(Timezone, tz.String())
 	}
 
 	if len(q) > 0 {
