@@ -319,6 +319,9 @@ func GetConnParams() (*msdsn.Config, error) {
 			Password:   os.Getenv("SQLPASSWORD"),
 			LogFlags:   logFlags,
 			Parameters: make(map[string]string),
+			Encoding: msdsn.EncodeParameters{
+				Timezone: time.UTC,
+			},
 		}
 		if c.Instance == "" {
 			c.Instance = os.Getenv("SQLINSTANCE")
@@ -334,7 +337,7 @@ func GetConnParams() (*msdsn.Config, error) {
 		}
 		if os.Getenv("TIME_ZONE") != "" {
 			tz, _ := time.LoadLocation(os.Getenv("TIME_ZONE"))
-			c.Timezone = tz
+			c.Encoding.Timezone = tz
 		}
 		return c, nil
 	}

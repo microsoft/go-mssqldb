@@ -141,7 +141,9 @@ func readTypeInfo(r *tdsBuffer, typeId byte, c *cryptoMetadata, encoding msdsn.E
 		case typeMoney, typeDateTime, typeFlt8, typeInt8:
 			res.Size = 8
 		}
-		res.Reader = readFixedType
+		res.Reader = func(ti *typeInfo, r *tdsBuffer, cryptoMeta *cryptoMetadata) (res interface{}) {
+			return readFixedType(ti, r, cryptoMeta, encoding)
+		}
 		res.Buffer = make([]byte, res.Size)
 	default: // all others are VARLENTYPE
 		readVarLen(&res, r, c, encoding)
@@ -265,14 +267,14 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodeParam
 }
 
 // http://msdn.microsoft.com/en-us/library/ee780895.aspx
-func decodeDateTim4(buf []byte) time.Time {
+func decodeDateTim4(buf []byte, loc *time.Location) time.Time {
 	days := binary.LittleEndian.Uint16(buf)
 	mins := binary.LittleEndian.Uint16(buf[2:])
 	return time.Date(1900, 1, 1+int(days),
 		0, int(mins), 0, 0, loc)
 }
 
-func encodeDateTim4(val time.Time) (buf []byte) {
+func encodeDateTim4(val time.Time, loc *time.Location) (buf []byte) {
 	buf = make([]byte, 4)
 
 	ref := time.Date(1900, 1, 1, 0, 0, 0, 0, loc)
@@ -314,7 +316,7 @@ func encodeDateTime(t time.Time) (res []byte) {
 	return
 }
 
-func decodeDateTime(buf []byte) time.Time {
+func decodeDateTime(buf []byte, loc *time.Location) time.Time {
 	days := int32(binary.LittleEndian.Uint32(buf))
 	tm := binary.LittleEndian.Uint32(buf[4:])
 	ns := threeHundredthsOfASecondToNanos(int(tm % 300))
@@ -331,7 +333,7 @@ func nanosToThreeHundredthsOfASecond(ns int) int {
 	return int(math.Round(float64(ns) * 3 / 1e7))
 }
 
-func readFixedType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
+func readFixedType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) interface{} {
 	r.ReadFull(ti.Buffer)
 	buf := ti.Buffer
 	switch ti.TypeId {
@@ -346,7 +348,7 @@ func readFixedType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
 	case typeInt4:
 		return int64(int32(binary.LittleEndian.Uint32(buf)))
 	case typeDateTim4:
-		return decodeDateTim4(buf)
+		return decodeDateTim4(buf, encoding.Timezone)
 	case typeFlt4:
 		return math.Float32frombits(binary.LittleEndian.Uint32(buf))
 	case typeMoney4:
@@ -354,7 +356,7 @@ func readFixedType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
 	case typeMoney:
 		return decodeMoney(buf)
 	case typeDateTime:
-		return decodeDateTime(buf)
+		return decodeDateTime(buf, encoding.Timezone)
 	case typeFlt8:
 		return math.Float64frombits(binary.LittleEndian.Uint64(buf))
 	case typeInt8:
@@ -382,11 +384,11 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 		if len(buf) != 3 {
 			badStreamPanicf("Invalid size for DATENTYPE")
 		}
-		return decodeDate(buf)
+		return decodeDate(buf, encoding.Timezone)
 	case typeTimeN:
-		return decodeTime(ti.Scale, buf)
+		return decodeTime(ti.Scale, buf, encoding.Timezone)
 	case typeDateTime2N:
-		return decodeDateTime2(ti.Scale, buf)
+		return decodeDateTime2(ti.Scale, buf, encoding.Timezone)
 	case typeDateTimeOffsetN:
 		return decodeDateTimeOffset(ti.Scale, buf)
 	case typeGuid:
@@ -430,15 +432,15 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 			badStreamPanicf("Invalid size for MONEYNTYPE")
 		}
 	case typeDateTim4:
-		return decodeDateTim4(buf)
+		return decodeDateTim4(buf, encoding.Timezone)
 	case typeDateTime:
-		return decodeDateTime(buf)
+		return decodeDateTime(buf, encoding.Timezone)
 	case typeDateTimeN:
 		switch len(buf) {
 		case 4:
-			return decodeDateTim4(buf)
+			return decodeDateTim4(buf, encoding.Timezone)
 		case 8:
-			return decodeDateTime(buf)
+			return decodeDateTime(buf, encoding.Timezone)
 		default:
 			badStreamPanicf("Invalid size for DATETIMENTYPE")
 		}
@@ -654,11 +656,11 @@ func readVariantTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 	case typeDateTime:
 		buf := make([]byte, size-2-propbytes)
 		r.ReadFull(buf)
-		return decodeDateTime(buf)
+		return decodeDateTime(buf, encoding.Timezone)
 	case typeDateTim4:
 		buf := make([]byte, size-2-propbytes)
 		r.ReadFull(buf)
-		return decodeDateTim4(buf)
+		return decodeDateTim4(buf, encoding.Timezone)
 	case typeFlt4:
 		return float64(math.Float32frombits(r.uint32()))
 	case typeFlt8:
@@ -674,17 +676,17 @@ func readVariantTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 	case typeDateN:
 		buf := make([]byte, size-2-propbytes)
 		r.ReadFull(buf)
-		return decodeDate(buf)
+		return decodeDate(buf, encoding.Timezone)
 	case typeTimeN:
 		scale := r.byte()
 		buf := make([]byte, size-2-propbytes)
 		r.ReadFull(buf)
-		return decodeTime(scale, buf)
+		return decodeTime(scale, buf, encoding.Timezone)
 	case typeDateTime2N:
 		scale := r.byte()
 		buf := make([]byte, size-2-propbytes)
 		r.ReadFull(buf)
-		return decodeDateTime2(scale, buf)
+		return decodeDateTime2(scale, buf, encoding.Timezone)
 	case typeDateTimeOffsetN:
 		scale := r.byte()
 		buf := make([]byte, size-2-propbytes)
@@ -953,7 +955,7 @@ func decodeDateInt(buf []byte) (days int) {
 	return
 }
 
-func decodeDate(buf []byte) time.Time {
+func decodeDate(buf []byte, loc *time.Location) time.Time {
 	return time.Date(1, 1, 1+decodeDateInt(buf), 0, 0, 0, 0, loc)
 }
 
@@ -1004,7 +1006,7 @@ func encodeTimeInt(seconds, ns, scale int, buf []byte) {
 	buf[4] = byte(t >> 32)
 }
 
-func decodeTime(scale uint8, buf []byte) time.Time {
+func decodeTime(scale uint8, buf []byte, loc *time.Location) time.Time {
 	sec, ns := decodeTimeInt(scale, buf)
 	return time.Date(1, 1, 1, 0, 0, sec, ns, loc)
 }
@@ -1016,7 +1018,7 @@ func encodeTime(hour, minute, second, ns, scale int) (buf []byte) {
 	return
 }
 
-func decodeDateTime2(scale uint8, buf []byte) time.Time {
+func decodeDateTime2(scale uint8, buf []byte, loc *time.Location) time.Time {
 	timesize := len(buf) - 3
 	sec, ns := decodeTimeInt(scale, buf[:timesize])
 	days := decodeDateInt(buf[timesize:])
@@ -1045,7 +1047,7 @@ func decodeDateTimeOffset(scale uint8, buf []byte) time.Time {
 		time.FixedZone("", offset*60))
 }
 
-func encodeDateTimeOffset(val time.Time, scale int) (buf []byte) {
+func encodeDateTimeOffset(val time.Time, scale int, loc *time.Location) (buf []byte) {
 	timesize := calcTimeSize(scale)
 	buf = make([]byte, timesize+2+3)
 	days, seconds, ns := dateTime2(val.In(loc))
