@@ -780,7 +780,7 @@ func readCekTableEntry(r *tdsBuffer) cekTableEntry {
 // http://msdn.microsoft.com/en-us/library/dd357254.aspx
 func parseRow(ctx context.Context, r *tdsBuffer, s *tdsSession, columns []columnStruct, row []interface{}) error {
 	for i, column := range columns {
-		columnContent := column.ti.Reader(&column.ti, r, nil)
+		columnContent := column.ti.Reader(&column.ti, r, nil, s.encoding)
 		if columnContent == nil {
 			row[i] = columnContent
 			continue
@@ -792,7 +792,7 @@ func parseRow(ctx context.Context, r *tdsBuffer, s *tdsSession, columns []column
 				return err
 			}
 			// Decrypt
-			row[i] = column.cryptoMeta.typeInfo.Reader(&column.cryptoMeta.typeInfo, buffer, column.cryptoMeta)
+			row[i] = column.cryptoMeta.typeInfo.Reader(&column.cryptoMeta.typeInfo, buffer, column.cryptoMeta, s.encoding)
 		} else {
 			row[i] = columnContent
 		}
@@ -865,14 +865,14 @@ func parseNbcRow(ctx context.Context, r *tdsBuffer, s *tdsSession, columns []col
 			row[i] = nil
 			continue
 		}
-		columnContent := col.ti.Reader(&col.ti, r, nil)
+		columnContent := col.ti.Reader(&col.ti, r, nil, s.encoding)
 		if col.isEncrypted() {
 			buffer, err := decryptColumn(ctx, col, s, columnContent)
 			if err != nil {
 				return err
 			}
 			// Decrypt
-			row[i] = col.cryptoMeta.typeInfo.Reader(&col.cryptoMeta.typeInfo, buffer, col.cryptoMeta)
+			row[i] = col.cryptoMeta.typeInfo.Reader(&col.cryptoMeta.typeInfo, buffer, col.cryptoMeta, s.encoding)
 		} else {
 			row[i] = columnContent
 		}
@@ -933,7 +933,7 @@ func parseReturnValue(r *tdsBuffer, s *tdsSession) (nv namedValue) {
 	}
 
 	ti2 := readTypeInfo(r, ti.TypeId, cryptoMetadata, s.encoding)
-	nv.Value = ti2.Reader(&ti2, r, cryptoMetadata)
+	nv.Value = ti2.Reader(&ti2, r, cryptoMetadata, s.encoding)
 
 	return
 }
