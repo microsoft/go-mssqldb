@@ -565,7 +565,10 @@ func (s *Stmt) sendQuery(ctx context.Context, args []namedValue) (err error) {
 
 // Builtin commands are not stored procs, but rather T-SQL commands
 // those commands can be invoke without extra options
-var builtinCommands = []string{"RECONFIGURE", "SHUTDOWN", "CHECKPOINT"}
+var builtinCommands = []string{
+	"RECONFIGURE", "SHUTDOWN", "CHECKPOINT",
+	"COMMIT", "ROLLBACK",
+}
 
 // isProc takes the query text in s and determines if it is a stored proc name
 // or SQL text.

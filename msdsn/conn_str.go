@@ -654,6 +654,7 @@ var adoSynonyms = map[string]string{
 	"addr":                      Server,
 	"user":                      UserID,
 	"uid":                       UserID,
+	"pwd":                       Password,
 	"initial catalog":           Database,
 	"column encryption setting": "columnencryption",
 }
