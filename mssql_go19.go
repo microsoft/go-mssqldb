@@ -172,7 +172,7 @@ func (s *Stmt) makeParamExtra(val driver.Value) (res param, err error) {
 	case DateTimeOffset:
 		res.ti.TypeId = typeDateTimeOffsetN
 		res.ti.Scale = 7
-		res.buffer = encodeDateTimeOffset(time.Time(val), int(res.ti.Scale), loc)
+		res.buffer = encodeDateTimeOffset(time.Time(val), int(res.ti.Scale))
 		res.ti.Size = len(res.buffer)
 	case civil.Date:
 		res.ti.TypeId = typeDateN

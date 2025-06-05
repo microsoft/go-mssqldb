@@ -2869,4 +2869,32 @@ func TestCustomTimezone(t *testing.T) {
 		}
 	})
 
+	t.Run("datetimeoffset with custom timezone", func(t *testing.T) {
+		t.Setenv("TIME_ZONE", "Asia/Shanghai")
+		conn, logger := open(t)
+		defer conn.Close()
+		defer logger.StopLogging()
+		_, err := conn.Exec("create table test_offset (ts datetimeoffset)")
+		defer conn.Exec("drop table test_offset")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		inputTime := time.Date(2025, 5, 26, 15, 30, 0, 0, time.FixedZone("UTC+5", 5*60*60))
+		_, err = conn.Exec("insert into test_offset (ts) values (@ts)", sql.Named("ts", inputTime))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var resultTime time.Time
+		err = conn.QueryRow("select ts from test_offset").Scan(&resultTime)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !inputTime.Equal(resultTime) {
+			t.Errorf("expected %v, got %v", inputTime, resultTime)
+		}
+	})
+
 }

@@ -978,7 +978,6 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		res.ti.Size = 0
 		return
 	}
-	loc := getTimezone(s.c)
 
 	switch valuer := val.(type) {
 	// sql.Nullxxx integer types return an int64. We want the original type, to match the SQL type size.
@@ -1125,7 +1124,7 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		if s.c.sess.loginAck.TDSVersion >= verTDS73 {
 			res.ti.TypeId = typeDateTimeOffsetN
 			res.ti.Scale = 7
-			res.buffer = encodeDateTimeOffset(val, int(res.ti.Scale), loc)
+			res.buffer = encodeDateTimeOffset(val, int(res.ti.Scale))
 			res.ti.Size = len(res.buffer)
 		} else {
 			res.ti.TypeId = typeDateTimeN

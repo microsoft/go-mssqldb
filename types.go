@@ -1012,10 +1012,10 @@ func decodeDateTimeOffset(scale uint8, buf []byte) time.Time {
 		time.FixedZone("", offset*60))
 }
 
-func encodeDateTimeOffset(val time.Time, scale int, loc *time.Location) (buf []byte) {
+func encodeDateTimeOffset(val time.Time, scale int) (buf []byte) {
 	timesize := calcTimeSize(scale)
 	buf = make([]byte, timesize+2+3)
-	days, seconds, ns := dateTime2(val.In(loc))
+	days, seconds, ns := dateTime2(val.In(time.UTC))
 	encodeTimeInt(seconds, ns, scale, buf)
 	buf[timesize] = byte(days)
 	buf[timesize+1] = byte(days >> 8)

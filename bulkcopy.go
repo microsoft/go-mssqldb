@@ -468,14 +468,14 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 	case typeDateTimeOffsetN:
 		switch val := val.(type) {
 		case time.Time:
-			res.buffer = encodeDateTimeOffset(val, int(col.ti.Scale), loc)
+			res.buffer = encodeDateTimeOffset(val, int(col.ti.Scale))
 			res.ti.Size = len(res.buffer)
 		case string:
 			var t time.Time
 			if t, err = time.Parse(sqlDateTimeFormat, val); err != nil {
 				return res, fmt.Errorf("bulk: unable to convert string to date: %v", err)
 			}
-			res.buffer = encodeDateTimeOffset(t, int(col.ti.Scale), loc)
+			res.buffer = encodeDateTimeOffset(t, int(col.ti.Scale))
 			res.ti.Size = len(res.buffer)
 		default:
 			err = fmt.Errorf("mssql: invalid type for datetimeoffset column: %T %s", val, val)
