@@ -31,7 +31,7 @@ Other supported formats are listed below.
   * `true`/`mandatory`/`yes`/`1`/`t` - Data sent between client and server is encrypted.
 * `app name` - The application name (default is go-mssqldb)
 * `authenticator` - Can be used to specify use of a registered authentication provider. (e.g. ntlm, winsspi (on windows) or krb5 (on linux))
-* `timezone` - Sets the time zone used by the driver when parsing time types. For example: `timezone=Asia/Shanghai`. Supports IANA time zone names.
+* `timezone` - Sets the time zone used by the driver when parsing time types. For example: `timezone=Asia/Shanghai`. Supports [IANA](https://www.iana.org/time-zones) time zone names.
 
 ### Connection parameters for ODBC and ADO style connection strings
 
