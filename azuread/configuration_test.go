@@ -155,6 +155,16 @@ func TestValidateParameters(t *testing.T) {
 			},
 		},
 		{
+			name: "workload identity with user id",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryWorkloadIdentity;user id=service-principal-id@tenant-id",
+			expected: &azureFedAuthConfig{
+				clientID:        "service-principal-id",
+				tenantID:        "tenant-id", 
+				adalWorkflow:    mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow: ActiveDirectoryWorkloadIdentity,
+			},
+		},
+		{
 			name: "client assertion",
 			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryClientAssertion;user id=service-principal-id@tenant-id;clientassertion=assertion-token",
 			expected: &azureFedAuthConfig{

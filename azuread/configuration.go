@@ -178,6 +178,13 @@ func (p *azureFedAuthConfig) validateParameters(params map[string]string) error 
 		if p.clientAssertion == "" {
 			return errors.New("Must provide 'clientassertion' parameter when using ActiveDirectoryClientAssertion authentication")
 		}
+	case strings.EqualFold(fedAuthWorkflow, ActiveDirectoryWorkloadIdentity):
+		p.adalWorkflow = mssql.FedAuthADALWorkflowPassword
+		// Split the clientID@tenantID format if provided
+		// If no user id is provided, the credential will use environment variables
+		if userID := params["user id"]; userID != "" {
+			p.clientID, p.tenantID = splitTenantAndClientID(userID)
+		}
 	case strings.EqualFold(fedAuthWorkflow, ActiveDirectoryOnBehalfOf):
 		p.adalWorkflow = mssql.FedAuthADALWorkflowPassword
 		// Split the clientID@tenantID format
@@ -213,7 +220,6 @@ func isPasswordWorkflowAuth(workflow string) bool {
 		ActiveDirectoryDeviceCode,
 		ActiveDirectoryAzureDeveloperCli,
 		ActiveDirectoryEnvironment,
-		ActiveDirectoryWorkloadIdentity,
 	}
 	
 	for _, w := range passwordWorkflows {
@@ -299,7 +305,14 @@ func (p *azureFedAuthConfig) provideActiveDirectoryToken(ctx context.Context, se
 	case ActiveDirectoryEnvironment:
 		cred, err = azidentity.NewEnvironmentCredential(nil)
 	case ActiveDirectoryWorkloadIdentity:
-		cred, err = azidentity.NewWorkloadIdentityCredential(nil)
+		options := &azidentity.WorkloadIdentityCredentialOptions{}
+		if p.clientID != "" {
+			options.ClientID = p.clientID
+		}
+		if p.tenantID != "" {
+			options.TenantID = p.tenantID
+		}
+		cred, err = azidentity.NewWorkloadIdentityCredential(options)
 	case ActiveDirectoryClientAssertion:
 		assertionProvider := func(ctx context.Context) (string, error) {
 			return p.clientAssertion, nil
