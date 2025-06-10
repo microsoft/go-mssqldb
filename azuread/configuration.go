@@ -134,7 +134,7 @@ func (p *azureFedAuthConfig) validateParameters(params map[string]string) error 
 		if p.certificatePath == "" && p.clientSecret == "" {
 			return errors.New("Must provide 'password' parameter when using ActiveDirectoryApplication authentication without cert/key credentials")
 		}
-	case strings.EqualFold(fedAuthWorkflow, ActiveDirectoryDefault) || strings.EqualFold(fedAuthWorkflow, ActiveDirectoryAzCli) || strings.EqualFold(fedAuthWorkflow, ActiveDirectoryDeviceCode) || strings.EqualFold(fedAuthWorkflow, ActiveDirectoryAzureDeveloperCli) || strings.EqualFold(fedAuthWorkflow, ActiveDirectoryEnvironment) || strings.EqualFold(fedAuthWorkflow, ActiveDirectoryWorkloadIdentity):
+	case isPasswordWorkflowAuth(fedAuthWorkflow):
 		p.adalWorkflow = mssql.FedAuthADALWorkflowPassword
 	case strings.EqualFold(fedAuthWorkflow, ActiveDirectoryInteractive):
 		if p.applicationClientID == "" {
@@ -203,6 +203,25 @@ func (p *azureFedAuthConfig) validateParameters(params map[string]string) error 
 	}
 	p.fedAuthWorkflow = fedAuthWorkflow
 	return nil
+}
+
+// isPasswordWorkflowAuth checks if the federated auth workflow uses the password workflow
+func isPasswordWorkflowAuth(workflow string) bool {
+	passwordWorkflows := []string{
+		ActiveDirectoryDefault,
+		ActiveDirectoryAzCli,
+		ActiveDirectoryDeviceCode,
+		ActiveDirectoryAzureDeveloperCli,
+		ActiveDirectoryEnvironment,
+		ActiveDirectoryWorkloadIdentity,
+	}
+	
+	for _, w := range passwordWorkflows {
+		if strings.EqualFold(workflow, w) {
+			return true
+		}
+	}
+	return false
 }
 
 func splitTenantAndClientID(user string) (string, string) {
