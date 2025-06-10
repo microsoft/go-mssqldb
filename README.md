@@ -238,9 +238,10 @@ The credential type is determined by the new `fedauth` connection string paramet
 * `fedauth=ActiveDirectoryEnvironment` - authenticates using environment variables. Uses the same environment variables as [EnvironmentCredential](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/azidentity#EnvironmentCredential).
 * `fedauth=ActiveDirectoryWorkloadIdentity` - authenticates using workload identity credentials for Kubernetes and other OIDC environments.
 * `fedauth=ActiveDirectoryAzurePipelines` - authenticates using Azure Pipelines service connection.
-  * `user id=<service principal id>[@tenantid]` - The service principal client ID and tenant ID.
-  * `serviceconnectionid=<connection id>` - The service connection ID from Azure DevOps.
+  * `user id=<service principal id>[@tenantid]` - The service principal client ID and tenant ID. If not provided, uses `AZURESUBSCRIPTION_CLIENT_ID` and `AZURESUBSCRIPTION_TENANT_ID` environment variables.
+  * `serviceconnectionid=<connection id>` - The service connection ID from Azure DevOps. If not provided, uses `AZURESUBSCRIPTION_SERVICE_CONNECTION_ID` environment variable.
   * `systemtoken=<system token>` - The system access token for the pipeline.
+  * Note: Environment variables are automatically configured by Azure Pipelines in AzureCLI@2 and AzurePowerShell@5 tasks.
 * `fedauth=ActiveDirectoryClientAssertion` - authenticates using a client assertion (JWT token).
   * `user id=<client id>[@tenantid]` - The client ID and tenant ID.
   * `clientassertion=<jwt token>` - The JWT assertion token.
@@ -286,11 +287,19 @@ func ConnectWithWorkloadIdentity() (*sql.DB, error) {
 }
 
 func ConnectWithAzurePipelines() (*sql.DB, error) {
-  // For use in Azure DevOps Pipelines
+  // For use in Azure DevOps Pipelines with explicit parameters
   connStr := "sqlserver://azuresql.database.windows.net?database=yourdb&fedauth=ActiveDirectoryAzurePipelines"
   connStr += "&user+id=" + url.QueryEscape("client-id@tenant-id")
   connStr += "&serviceconnectionid=connection-id"
   connStr += "&systemtoken=access-token"
+  return sql.Open(azuread.DriverName, connStr)
+}
+
+func ConnectWithAzurePipelinesEnvVars() (*sql.DB, error) {
+  // For use in Azure DevOps Pipelines with AzureCLI@2 or AzurePowerShell@5 tasks
+  // Environment variables are automatically set by these tasks
+  connStr := "sqlserver://azuresql.database.windows.net?database=yourdb&fedauth=ActiveDirectoryAzurePipelines"
+  connStr += "&systemtoken=access-token"  // Only systemtoken needs to be provided
   return sql.Open(azuread.DriverName, connStr)
 }
 

@@ -160,16 +160,30 @@ func (p *azureFedAuthConfig) validateParameters(params map[string]string) error 
 		}
 	case strings.EqualFold(fedAuthWorkflow, ActiveDirectoryAzurePipelines):
 		p.adalWorkflow = mssql.FedAuthADALWorkflowPassword
-		// Split the clientID@tenantID format
+		// Split the clientID@tenantID format from connection string
 		p.clientID, p.tenantID = splitTenantAndClientID(params["user id"])
+		
+		// If not provided in connection string, check environment variables
 		if p.clientID == "" {
-			return errors.New("Must provide 'client id[@tenant id]' as username parameter when using ActiveDirectoryAzurePipelines authentication")
+			p.clientID = os.Getenv("AZURESUBSCRIPTION_CLIENT_ID")
 		}
+		if p.tenantID == "" {
+			p.tenantID = os.Getenv("AZURESUBSCRIPTION_TENANT_ID")
+		}
+		
+		if p.clientID == "" {
+			return errors.New("Must provide 'client id[@tenant id]' as username parameter or set AZURESUBSCRIPTION_CLIENT_ID environment variable when using ActiveDirectoryAzurePipelines authentication")
+		}
+		
 		p.serviceConnectionID = params["serviceconnectionid"]
-		p.systemAccessToken = params["systemtoken"]
 		if p.serviceConnectionID == "" {
-			return errors.New("Must provide 'serviceconnectionid' parameter when using ActiveDirectoryAzurePipelines authentication")
+			p.serviceConnectionID = os.Getenv("AZURESUBSCRIPTION_SERVICE_CONNECTION_ID")
 		}
+		if p.serviceConnectionID == "" {
+			return errors.New("Must provide 'serviceconnectionid' parameter or set AZURESUBSCRIPTION_SERVICE_CONNECTION_ID environment variable when using ActiveDirectoryAzurePipelines authentication")
+		}
+		
+		p.systemAccessToken = params["systemtoken"]
 		if p.systemAccessToken == "" {
 			return errors.New("Must provide 'systemtoken' parameter when using ActiveDirectoryAzurePipelines authentication")
 		}

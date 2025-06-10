@@ -315,7 +315,15 @@ func TestValidateParametersErrors(t *testing.T) {
 				`user id=` + url.QueryEscape("my-app-id@my-tenant-id") + "&" +
 				`fedauth=ActiveDirectoryAzurePipelines` + "&" +
 				`systemtoken=token`,
-			expectedErrContains: "Must provide 'serviceconnectionid' parameter",
+			expectedErrContains: "Must provide 'serviceconnectionid' parameter or set AZURESUBSCRIPTION_SERVICE_CONNECTION_ID environment variable",
+		},
+		{
+			name: "ActiveDirectoryAzurePipelines_missing_user_id",
+			dsn: `sqlserver://someserver.database.windows.net?` +
+				`fedauth=ActiveDirectoryAzurePipelines` + "&" +
+				`serviceconnectionid=conn-id` + "&" +
+				`systemtoken=token`,
+			expectedErrContains: "Must provide 'client id[@tenant id]' as username parameter or set AZURESUBSCRIPTION_CLIENT_ID environment variable",
 		},
 		{
 			name: "ActiveDirectoryAzurePipelines_missing_systemtoken",
@@ -358,6 +366,110 @@ func TestValidateParametersErrors(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tst.expectedErrContains) {
 				t.Errorf("Expected error to contain '%s' but got '%s'", tst.expectedErrContains, err.Error())
+			}
+		})
+	}
+}
+func TestAzurePipelinesEnvironmentVariables(t *testing.T) {
+	// Test Azure Pipelines with environment variables
+	tests := []struct {
+		name          string
+		dsn           string
+		envVars       map[string]string
+		expected      *azureFedAuthConfig
+		shouldError   bool
+		errorContains string
+	}{
+		{
+			name: "azure pipelines with env vars only",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;systemtoken=system-token",
+			envVars: map[string]string{
+				"AZURESUBSCRIPTION_CLIENT_ID":             "env-client-id",
+				"AZURESUBSCRIPTION_TENANT_ID":             "env-tenant-id",
+				"AZURESUBSCRIPTION_SERVICE_CONNECTION_ID": "env-connection-id",
+			},
+			expected: &azureFedAuthConfig{
+				clientID:            "env-client-id",
+				tenantID:            "env-tenant-id",
+				serviceConnectionID: "env-connection-id",
+				systemAccessToken:   "system-token",
+				adalWorkflow:        mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow:     ActiveDirectoryAzurePipelines,
+				fedAuthLibrary:      mssql.FedAuthLibraryADAL,
+			},
+		},
+		{
+			name: "azure pipelines connection string overrides env vars",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;user id=conn-client-id@conn-tenant-id;serviceconnectionid=conn-connection-id;systemtoken=system-token",
+			envVars: map[string]string{
+				"AZURESUBSCRIPTION_CLIENT_ID":             "env-client-id",
+				"AZURESUBSCRIPTION_TENANT_ID":             "env-tenant-id",
+				"AZURESUBSCRIPTION_SERVICE_CONNECTION_ID": "env-connection-id",
+			},
+			expected: &azureFedAuthConfig{
+				clientID:            "conn-client-id",
+				tenantID:            "conn-tenant-id",
+				serviceConnectionID: "conn-connection-id",
+				systemAccessToken:   "system-token",
+				adalWorkflow:        mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow:     ActiveDirectoryAzurePipelines,
+				fedAuthLibrary:      mssql.FedAuthLibraryADAL,
+			},
+		},
+		{
+			name: "azure pipelines missing client id in both",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;systemtoken=system-token",
+			envVars: map[string]string{
+				"AZURESUBSCRIPTION_SERVICE_CONNECTION_ID": "env-connection-id",
+			},
+			shouldError:   true,
+			errorContains: "Must provide 'client id[@tenant id]' as username parameter or set AZURESUBSCRIPTION_CLIENT_ID environment variable",
+		},
+		{
+			name: "azure pipelines missing service connection id in both",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;user id=conn-client-id;systemtoken=system-token",
+			envVars: map[string]string{
+				"AZURESUBSCRIPTION_CLIENT_ID": "env-client-id",
+			},
+			shouldError:   true,
+			errorContains: "Must provide 'serviceconnectionid' parameter or set AZURESUBSCRIPTION_SERVICE_CONNECTION_ID environment variable",
+		},
+	}
+
+	for _, tst := range tests {
+		t.Run(tst.name, func(t *testing.T) {
+			// Set environment variables
+			for key, value := range tst.envVars {
+				os.Setenv(key, value)
+			}
+			// Clean up environment variables after test
+			defer func() {
+				for key := range tst.envVars {
+					os.Unsetenv(key)
+				}
+			}()
+
+			config, err := parse(tst.dsn)
+			if tst.shouldError {
+				if err == nil {
+					t.Errorf("Expected error but got nil")
+					return
+				}
+				if !strings.Contains(err.Error(), tst.errorContains) {
+					t.Errorf("Expected error to contain '%s' but got '%s'", tst.errorContains, err.Error())
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			// mssqlConfig is not idempotent due to pointers in it, plus we are not testing its correctness here
+			config.mssqlConfig = msdsn.Config{}
+			if !reflect.DeepEqual(config, tst.expected) {
+				t.Errorf("Captured parameters do not match. Expected:%+v, Actual:%+v", tst.expected, config)
 			}
 		})
 	}
