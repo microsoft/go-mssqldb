@@ -165,6 +165,26 @@ func TestValidateParameters(t *testing.T) {
 			},
 		},
 		{
+			name: "workload identity with credential options",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryWorkloadIdentity;additionallyallowedtenants=tenant1,tenant2;disableinstancediscovery=true;tokenfilepath=/tmp/token",
+			expected: &azureFedAuthConfig{
+				adalWorkflow:               mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow:            ActiveDirectoryWorkloadIdentity,
+				additionallyAllowedTenants: []string{"tenant1", "tenant2"},
+				disableInstanceDiscovery:   true,
+				tokenFilePath:              "/tmp/token",
+			},
+		},
+		{
+			name: "environment credential with options",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryEnvironment;disableinstancediscovery=true",
+			expected: &azureFedAuthConfig{
+				adalWorkflow:             mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow:          ActiveDirectoryEnvironment,
+				disableInstanceDiscovery: true,
+			},
+		},
+		{
 			name: "client assertion",
 			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryClientAssertion;user id=service-principal-id@tenant-id;clientassertion=assertion-token",
 			expected: &azureFedAuthConfig{

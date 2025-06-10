@@ -252,6 +252,15 @@ The credential type is determined by the new `fedauth` connection string paramet
     * `clientcertpath=<path to certificate file>;password=<certificate password>` - Client certificate
     * `clientassertion=<jwt token>` - Client assertion JWT
 
+#### Common Credential Options
+
+The following connection string parameters can be used with most Azure credential types to provide additional configuration:
+
+* `additionallyallowedtenants=<tenant1,tenant2>` - Comma or semicolon-separated list of additional tenant IDs that the credential may authenticate to. Use "*" to allow any tenant.
+* `disableinstancediscovery=true` - Disables Microsoft Entra instance discovery. Set to `true` only for disconnected or private clouds like Azure Stack.
+* `tokenfilepath=<path>` - For `ActiveDirectoryWorkloadIdentity`, specifies the path to the Kubernetes service account token file.
+* `sendcertificatechain=true` - For certificate-based authentication, controls whether to send the full certificate chain in token requests. Required for Subject Name/Issuer (SNI) authentication.
+
 ```go
 
 import (

@@ -67,6 +67,12 @@ type azureFedAuthConfig struct {
 	systemAccessToken   string // For Azure Pipelines
 	userAssertion       string // For On-Behalf-Of flow
 	clientAssertion     string // For Client Assertion
+	
+	// Common credential options
+	additionallyAllowedTenants []string // For most credential types
+	disableInstanceDiscovery   bool     // For most credential types
+	tokenFilePath              string   // For WorkloadIdentity
+	sendCertificateChain       bool     // For ClientCertificate
 }
 
 // parse returns a config based on an msdsn-style connection string
@@ -208,8 +214,50 @@ func (p *azureFedAuthConfig) validateParameters(params map[string]string) error 
 			fedAuthWorkflow,
 			[]string{ActiveDirectoryApplication, ActiveDirectoryServicePrincipal, ActiveDirectoryDefault, ActiveDirectoryIntegrated, ActiveDirectoryInteractive, ActiveDirectoryManagedIdentity, ActiveDirectoryMSI, ActiveDirectoryPassword, ActiveDirectoryAzCli, ActiveDirectoryDeviceCode, ActiveDirectoryAzureDeveloperCli, ActiveDirectoryAzurePipelines, ActiveDirectoryEnvironment, ActiveDirectoryWorkloadIdentity, ActiveDirectoryClientAssertion, ActiveDirectoryOnBehalfOf})
 	}
+	
+	// Parse common credential options that apply to multiple auth types
+	p.parseCommonCredentialOptions(params)
+	
 	p.fedAuthWorkflow = fedAuthWorkflow
 	return nil
+}
+
+// parseCommonCredentialOptions parses connection string parameters that are common across multiple credential types
+func (p *azureFedAuthConfig) parseCommonCredentialOptions(params map[string]string) {
+	// AdditionallyAllowedTenants - comma or semicolon separated list of tenant IDs
+	if allowedTenants := params["additionallyallowedtenants"]; allowedTenants != "" {
+		// Support both comma and semicolon as separators (following Azure SDK convention)
+		separators := []string{",", ";"}
+		for _, sep := range separators {
+			if strings.Contains(allowedTenants, sep) {
+				p.additionallyAllowedTenants = strings.Split(allowedTenants, sep)
+				// Trim whitespace from each tenant
+				for i, tenant := range p.additionallyAllowedTenants {
+					p.additionallyAllowedTenants[i] = strings.TrimSpace(tenant)
+				}
+				break
+			}
+		}
+		// If no separators found, treat as single tenant
+		if len(p.additionallyAllowedTenants) == 0 {
+			p.additionallyAllowedTenants = []string{strings.TrimSpace(allowedTenants)}
+		}
+	}
+	
+	// DisableInstanceDiscovery - boolean flag for disconnected/private clouds
+	if disableDiscovery := params["disableinstancediscovery"]; disableDiscovery != "" {
+		p.disableInstanceDiscovery = strings.EqualFold(disableDiscovery, "true") || disableDiscovery == "1"
+	}
+	
+	// TokenFilePath - for WorkloadIdentity specifically
+	if tokenFilePath := params["tokenfilepath"]; tokenFilePath != "" {
+		p.tokenFilePath = tokenFilePath
+	}
+	
+	// SendCertificateChain - for ClientCertificate specifically  
+	if sendCertChain := params["sendcertificatechain"]; sendCertChain != "" {
+		p.sendCertificateChain = strings.EqualFold(sendCertChain, "true") || sendCertChain == "1"
+	}
 }
 
 // isPasswordWorkflowAuth checks if the federated auth workflow uses the password workflow
@@ -271,16 +319,29 @@ func (p *azureFedAuthConfig) provideActiveDirectoryToken(ctx context.Context, se
 				var key crypto.PrivateKey
 				certs, key, err = azidentity.ParseCertificates(certData, []byte(p.clientSecret))
 				if err == nil {
-					cred, err = azidentity.NewClientCertificateCredential(tenant, p.clientID, certs, key, nil)
+					options := &azidentity.ClientCertificateCredentialOptions{
+						AdditionallyAllowedTenants: p.additionallyAllowedTenants,
+						DisableInstanceDiscovery:   p.disableInstanceDiscovery,
+						SendCertificateChain:       p.sendCertificateChain,
+					}
+					cred, err = azidentity.NewClientCertificateCredential(tenant, p.clientID, certs, key, options)
 				}
 			}
 		default:
-			cred, err = azidentity.NewClientSecretCredential(tenant, p.clientID, p.clientSecret, nil)
+			options := &azidentity.ClientSecretCredentialOptions{
+				AdditionallyAllowedTenants: p.additionallyAllowedTenants,
+				DisableInstanceDiscovery:   p.disableInstanceDiscovery,
+			}
+			cred, err = azidentity.NewClientSecretCredential(tenant, p.clientID, p.clientSecret, options)
 		}
 	case ActiveDirectoryServicePrincipalAccessToken:
 		return p.password, nil
 	case ActiveDirectoryPassword:
-		cred, err = azidentity.NewUsernamePasswordCredential(tenant, p.applicationClientID, p.user, p.password, nil)
+		options := &azidentity.UsernamePasswordCredentialOptions{
+			AdditionallyAllowedTenants: p.additionallyAllowedTenants,
+			DisableInstanceDiscovery:   p.disableInstanceDiscovery,
+		}
+		cred, err = azidentity.NewUsernamePasswordCredential(tenant, p.applicationClientID, p.user, p.password, options)
 	case ActiveDirectoryMSI, ActiveDirectoryManagedIdentity:
 		if p.resourceID != "" {
 			cred, err = azidentity.NewManagedIdentityCredential(&azidentity.ManagedIdentityCredentialOptions{ID: azidentity.ResourceID(p.resourceID)})
@@ -292,32 +353,64 @@ func (p *azureFedAuthConfig) provideActiveDirectoryToken(ctx context.Context, se
 	case ActiveDirectoryInteractive:
 		c := cloud.Configuration{ActiveDirectoryAuthorityHost: authority}
 		config := azcore.ClientOptions{Cloud: c}
-		cred, err = azidentity.NewInteractiveBrowserCredential(&azidentity.InteractiveBrowserCredentialOptions{ClientOptions: config, ClientID: p.applicationClientID})
+		options := &azidentity.InteractiveBrowserCredentialOptions{
+			ClientOptions:              config,
+			ClientID:                   p.applicationClientID,
+			AdditionallyAllowedTenants: p.additionallyAllowedTenants,
+			DisableInstanceDiscovery:   p.disableInstanceDiscovery,
+		}
+		cred, err = azidentity.NewInteractiveBrowserCredential(options)
 
 	case ActiveDirectoryDeviceCode:
-		cred, err = azidentity.NewDeviceCodeCredential(&azidentity.DeviceCodeCredentialOptions{ClientID: p.applicationClientID})
+		options := &azidentity.DeviceCodeCredentialOptions{
+			ClientID:                   p.applicationClientID,
+			AdditionallyAllowedTenants: p.additionallyAllowedTenants,
+			DisableInstanceDiscovery:   p.disableInstanceDiscovery,
+		}
+		cred, err = azidentity.NewDeviceCodeCredential(options)
 	case ActiveDirectoryAzCli:
-		cred, err = azidentity.NewAzureCLICredential(&azidentity.AzureCLICredentialOptions{TenantID: p.tenantID})
+		options := &azidentity.AzureCLICredentialOptions{
+			TenantID:                   p.tenantID,
+			AdditionallyAllowedTenants: p.additionallyAllowedTenants,
+		}
+		cred, err = azidentity.NewAzureCLICredential(options)
 	case ActiveDirectoryAzureDeveloperCli:
-		cred, err = azidentity.NewAzureDeveloperCLICredential(&azidentity.AzureDeveloperCLICredentialOptions{TenantID: p.tenantID})
+		options := &azidentity.AzureDeveloperCLICredentialOptions{
+			TenantID:                   p.tenantID,
+			AdditionallyAllowedTenants: p.additionallyAllowedTenants,
+		}
+		cred, err = azidentity.NewAzureDeveloperCLICredential(options)
 	case ActiveDirectoryAzurePipelines:
 		cred, err = azidentity.NewAzurePipelinesCredential(tenant, p.clientID, p.serviceConnectionID, p.systemAccessToken, nil)
 	case ActiveDirectoryEnvironment:
-		cred, err = azidentity.NewEnvironmentCredential(nil)
+		options := &azidentity.EnvironmentCredentialOptions{
+			DisableInstanceDiscovery: p.disableInstanceDiscovery,
+		}
+		cred, err = azidentity.NewEnvironmentCredential(options)
 	case ActiveDirectoryWorkloadIdentity:
-		options := &azidentity.WorkloadIdentityCredentialOptions{}
+		options := &azidentity.WorkloadIdentityCredentialOptions{
+			AdditionallyAllowedTenants: p.additionallyAllowedTenants,
+			DisableInstanceDiscovery:   p.disableInstanceDiscovery,
+		}
 		if p.clientID != "" {
 			options.ClientID = p.clientID
 		}
 		if p.tenantID != "" {
 			options.TenantID = p.tenantID
 		}
+		if p.tokenFilePath != "" {
+			options.TokenFilePath = p.tokenFilePath
+		}
 		cred, err = azidentity.NewWorkloadIdentityCredential(options)
 	case ActiveDirectoryClientAssertion:
 		assertionProvider := func(ctx context.Context) (string, error) {
 			return p.clientAssertion, nil
 		}
-		cred, err = azidentity.NewClientAssertionCredential(tenant, p.clientID, assertionProvider, nil)
+		options := &azidentity.ClientAssertionCredentialOptions{
+			AdditionallyAllowedTenants: p.additionallyAllowedTenants,
+			DisableInstanceDiscovery:   p.disableInstanceDiscovery,
+		}
+		cred, err = azidentity.NewClientAssertionCredential(tenant, p.clientID, assertionProvider, options)
 	case ActiveDirectoryOnBehalfOf:
 		switch {
 		case p.certificatePath != "":
@@ -328,20 +421,37 @@ func (p *azureFedAuthConfig) provideActiveDirectoryToken(ctx context.Context, se
 				var key crypto.PrivateKey
 				certs, key, err = azidentity.ParseCertificates(certData, []byte(p.clientSecret))
 				if err == nil {
-					cred, err = azidentity.NewOnBehalfOfCredentialWithCertificate(tenant, p.clientID, p.userAssertion, certs, key, nil)
+					options := &azidentity.OnBehalfOfCredentialOptions{
+						AdditionallyAllowedTenants: p.additionallyAllowedTenants,
+						DisableInstanceDiscovery:   p.disableInstanceDiscovery,
+						SendCertificateChain:       p.sendCertificateChain,
+					}
+					cred, err = azidentity.NewOnBehalfOfCredentialWithCertificate(tenant, p.clientID, p.userAssertion, certs, key, options)
 				}
 			}
 		case p.clientAssertion != "":
 			assertionProvider := func(ctx context.Context) (string, error) {
 				return p.clientAssertion, nil
 			}
-			cred, err = azidentity.NewOnBehalfOfCredentialWithClientAssertions(tenant, p.clientID, p.userAssertion, assertionProvider, nil)
+			options := &azidentity.OnBehalfOfCredentialOptions{
+				AdditionallyAllowedTenants: p.additionallyAllowedTenants,
+				DisableInstanceDiscovery:   p.disableInstanceDiscovery,
+			}
+			cred, err = azidentity.NewOnBehalfOfCredentialWithClientAssertions(tenant, p.clientID, p.userAssertion, assertionProvider, options)
 		default:
-			cred, err = azidentity.NewOnBehalfOfCredentialWithSecret(tenant, p.clientID, p.userAssertion, p.clientSecret, nil)
+			options := &azidentity.OnBehalfOfCredentialOptions{
+				AdditionallyAllowedTenants: p.additionallyAllowedTenants,
+				DisableInstanceDiscovery:   p.disableInstanceDiscovery,
+			}
+			cred, err = azidentity.NewOnBehalfOfCredentialWithSecret(tenant, p.clientID, p.userAssertion, p.clientSecret, options)
 		}
 	default:
 		// Integrated just uses Default until azidentity adds Windows-specific authentication
-		cred, err = azidentity.NewDefaultAzureCredential(nil)
+		options := &azidentity.DefaultAzureCredentialOptions{
+			AdditionallyAllowedTenants: p.additionallyAllowedTenants,
+			DisableInstanceDiscovery:   p.disableInstanceDiscovery,
+		}
+		cred, err = azidentity.NewDefaultAzureCredential(options)
 	}
 
 	if err != nil {
