@@ -118,6 +118,65 @@ func TestValidateParameters(t *testing.T) {
 				fedAuthLibrary:  mssql.FedAuthLibrarySecurityToken,
 			},
 		},
+		{
+			name: "azure developer cli",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzureDeveloperCli",
+			expected: &azureFedAuthConfig{
+				adalWorkflow:    mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow: ActiveDirectoryAzureDeveloperCli,
+			},
+		},
+		{
+			name: "azure pipelines",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;user id=service-principal-id@tenant-id;serviceconnectionid=connection-id;systemtoken=system-token",
+			expected: &azureFedAuthConfig{
+				clientID:            "service-principal-id",
+				tenantID:            "tenant-id",
+				serviceConnectionID: "connection-id",
+				systemAccessToken:   "system-token",
+				adalWorkflow:        mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow:     ActiveDirectoryAzurePipelines,
+			},
+		},
+		{
+			name: "environment credential",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryEnvironment",
+			expected: &azureFedAuthConfig{
+				adalWorkflow:    mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow: ActiveDirectoryEnvironment,
+			},
+		},
+		{
+			name: "workload identity",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryWorkloadIdentity",
+			expected: &azureFedAuthConfig{
+				adalWorkflow:    mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow: ActiveDirectoryWorkloadIdentity,
+			},
+		},
+		{
+			name: "client assertion",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryClientAssertion;user id=service-principal-id@tenant-id;clientassertion=assertion-token",
+			expected: &azureFedAuthConfig{
+				clientID:        "service-principal-id",
+				tenantID:        "tenant-id",
+				clientAssertion: "assertion-token",
+				adalWorkflow:    mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow: ActiveDirectoryClientAssertion,
+			},
+		},
+		{
+			name: "on behalf of with secret",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryOnBehalfOf;user id=service-principal-id@tenant-id;password=somesecret;userassertion=user-token",
+			expected: &azureFedAuthConfig{
+				clientID:      "service-principal-id",
+				tenantID:      "tenant-id",
+				clientSecret:  passphrase,
+				userAssertion: "user-token",
+				adalWorkflow:  mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow: ActiveDirectoryOnBehalfOf,
+			},
+		},
 	}
 	for _, tst := range tests {
 		config, err := parse(tst.dsn)
@@ -209,6 +268,66 @@ func TestProvideActiveDirectoryTokenValidations(t *testing.T) {
 				if !strings.Contains(err.Error(), tst.expectedErrContains) {
 					return
 				}
+			}
+		})
+	}
+}
+
+func TestValidateParametersErrors(t *testing.T) {
+	tests := []struct {
+		name                string
+		dsn                 string
+		expectedErrContains string
+	}{
+		{
+			name: "ActiveDirectoryAzurePipelines_missing_serviceconnectionid",
+			dsn: `sqlserver://someserver.database.windows.net?` +
+				`user id=` + url.QueryEscape("my-app-id@my-tenant-id") + "&" +
+				`fedauth=ActiveDirectoryAzurePipelines` + "&" +
+				`systemtoken=token`,
+			expectedErrContains: "Must provide 'serviceconnectionid' parameter",
+		},
+		{
+			name: "ActiveDirectoryAzurePipelines_missing_systemtoken",
+			dsn: `sqlserver://someserver.database.windows.net?` +
+				`user id=` + url.QueryEscape("my-app-id@my-tenant-id") + "&" +
+				`fedauth=ActiveDirectoryAzurePipelines` + "&" +
+				`serviceconnectionid=conn-id`,
+			expectedErrContains: "Must provide 'systemtoken' parameter",
+		},
+		{
+			name: "ActiveDirectoryClientAssertion_missing_clientassertion",
+			dsn: `sqlserver://someserver.database.windows.net?` +
+				`user id=` + url.QueryEscape("my-app-id@my-tenant-id") + "&" +
+				`fedauth=ActiveDirectoryClientAssertion`,
+			expectedErrContains: "Must provide 'clientassertion' parameter",
+		},
+		{
+			name: "ActiveDirectoryOnBehalfOf_missing_userassertion",
+			dsn: `sqlserver://someserver.database.windows.net?` +
+				`user id=` + url.QueryEscape("my-app-id@my-tenant-id") + "&" +
+				`fedauth=ActiveDirectoryOnBehalfOf` + "&" +
+				`password=secret`,
+			expectedErrContains: "Must provide 'userassertion' parameter",
+		},
+		{
+			name: "ActiveDirectoryOnBehalfOf_missing_client_auth",
+			dsn: `sqlserver://someserver.database.windows.net?` +
+				`user id=` + url.QueryEscape("my-app-id@my-tenant-id") + "&" +
+				`fedauth=ActiveDirectoryOnBehalfOf` + "&" +
+				`userassertion=user-token`,
+			expectedErrContains: "Must provide one of 'password', 'clientcertpath', or 'clientassertion'",
+		},
+	}
+	for _, tst := range tests {
+		t.Run(tst.name, func(t *testing.T) {
+			_, err := parse(tst.dsn)
+			if err == nil {
+				t.Errorf("Expected parse error but got nil")
+				return
+			}
+			if !strings.Contains(err.Error(), tst.expectedErrContains) {
+				t.Errorf("Expected error to contain '%s' but got '%s'", tst.expectedErrContains, err.Error())
 			}
 		})
 	}
