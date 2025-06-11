@@ -331,7 +331,7 @@ func TestValidateParametersErrors(t *testing.T) {
 				`user id=` + url.QueryEscape("my-app-id@my-tenant-id") + "&" +
 				`fedauth=ActiveDirectoryAzurePipelines` + "&" +
 				`serviceconnectionid=conn-id`,
-			expectedErrContains: "Must provide 'systemtoken' parameter",
+			expectedErrContains: "Must provide 'systemtoken' parameter or set SYSTEM_ACCESSTOKEN environment variable",
 		},
 		{
 			name: "ActiveDirectoryClientAssertion_missing_clientassertion",
@@ -433,6 +433,47 @@ func TestAzurePipelinesEnvironmentVariables(t *testing.T) {
 			},
 			shouldError:   true,
 			errorContains: "Must provide 'serviceconnectionid' parameter or set AZURESUBSCRIPTION_SERVICE_CONNECTION_ID environment variable",
+		},
+		{
+			name: "azure pipelines with SYSTEM_ACCESSTOKEN env var",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;user id=client-id@tenant-id;serviceconnectionid=connection-id",
+			envVars: map[string]string{
+				"SYSTEM_ACCESSTOKEN": "env-system-token",
+			},
+			expected: &azureFedAuthConfig{
+				clientID:            "client-id",
+				tenantID:            "tenant-id",
+				serviceConnectionID: "connection-id",
+				systemAccessToken:   "env-system-token",
+				adalWorkflow:        mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow:     ActiveDirectoryAzurePipelines,
+				fedAuthLibrary:      mssql.FedAuthLibraryADAL,
+			},
+		},
+		{
+			name: "azure pipelines systemtoken parameter overrides SYSTEM_ACCESSTOKEN env var",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;user id=client-id@tenant-id;serviceconnectionid=connection-id;systemtoken=param-token",
+			envVars: map[string]string{
+				"SYSTEM_ACCESSTOKEN": "env-system-token",
+			},
+			expected: &azureFedAuthConfig{
+				clientID:            "client-id",
+				tenantID:            "tenant-id",
+				serviceConnectionID: "connection-id",
+				systemAccessToken:   "param-token",
+				adalWorkflow:        mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow:     ActiveDirectoryAzurePipelines,
+				fedAuthLibrary:      mssql.FedAuthLibraryADAL,
+			},
+		},
+		{
+			name: "azure pipelines missing systemtoken in both",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;user id=client-id@tenant-id;serviceconnectionid=connection-id",
+			envVars: map[string]string{
+				"AZURESUBSCRIPTION_CLIENT_ID": "env-client-id",
+			},
+			shouldError:   true,
+			errorContains: "Must provide 'systemtoken' parameter or set SYSTEM_ACCESSTOKEN environment variable",
 		},
 	}
 

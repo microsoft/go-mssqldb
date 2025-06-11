@@ -185,7 +185,10 @@ func (p *azureFedAuthConfig) validateParameters(params map[string]string) error 
 		
 		p.systemAccessToken = params["systemtoken"]
 		if p.systemAccessToken == "" {
-			return errors.New("Must provide 'systemtoken' parameter when using ActiveDirectoryAzurePipelines authentication")
+			p.systemAccessToken = os.Getenv("SYSTEM_ACCESSTOKEN")
+		}
+		if p.systemAccessToken == "" {
+			return errors.New("Must provide 'systemtoken' parameter or set SYSTEM_ACCESSTOKEN environment variable when using ActiveDirectoryAzurePipelines authentication")
 		}
 	case strings.EqualFold(fedAuthWorkflow, ActiveDirectoryClientAssertion):
 		p.adalWorkflow = mssql.FedAuthADALWorkflowPassword

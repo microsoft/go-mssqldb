@@ -240,7 +240,7 @@ The credential type is determined by the new `fedauth` connection string paramet
 * `fedauth=ActiveDirectoryAzurePipelines` - authenticates using Azure Pipelines service connection.
   * `user id=<service principal id>[@tenantid]` - The service principal client ID and tenant ID. If not provided, uses `AZURESUBSCRIPTION_CLIENT_ID` and `AZURESUBSCRIPTION_TENANT_ID` environment variables.
   * `serviceconnectionid=<connection id>` - The service connection ID from Azure DevOps. If not provided, uses `AZURESUBSCRIPTION_SERVICE_CONNECTION_ID` environment variable.
-  * `systemtoken=<system token>` - The system access token for the pipeline.
+  * `systemtoken=<system token>` - The system access token for the pipeline. If not provided, uses `SYSTEM_ACCESSTOKEN` environment variable.
   * Note: Environment variables are automatically configured by Azure Pipelines in AzureCLI@2 and AzurePowerShell@5 tasks.
 * `fedauth=ActiveDirectoryClientAssertion` - authenticates using a client assertion (JWT token).
   * `user id=<client id>[@tenantid]` - The client ID and tenant ID.
