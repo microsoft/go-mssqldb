@@ -234,6 +234,33 @@ The credential type is determined by the new `fedauth` connection string paramet
   * `applicationclientid=<application id>` - This guid identifies an Azure Active Directory enterprise application that the AAD admin has approved for accessing Azure SQL database resources in the tenant. This driver does not have an associated application id of its own.
 * `fedauth=ActiveDirectoryDeviceCode` - prints a message to stdout giving the user a URL and code to authenticate. Connection continues after user completes the login separately.
 * `fedauth=ActiveDirectoryAzCli` - reuses local authentication the user already performed using Azure CLI.
+* `fedauth=ActiveDirectoryAzureDeveloperCli` - reuses local authentication the user already performed using Azure Developer CLI.
+* `fedauth=ActiveDirectoryEnvironment` - authenticates using environment variables. Uses the same environment variables as [EnvironmentCredential](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/azidentity#EnvironmentCredential).
+* `fedauth=ActiveDirectoryWorkloadIdentity` - authenticates using workload identity credentials for Kubernetes and other OIDC environments.
+* `fedauth=ActiveDirectoryAzurePipelines` - authenticates using Azure Pipelines service connection.
+  * `user id=<service principal id>[@tenantid]` - The service principal client ID and tenant ID. If not provided, uses `AZURESUBSCRIPTION_CLIENT_ID` and `AZURESUBSCRIPTION_TENANT_ID` environment variables.
+  * `serviceconnectionid=<connection id>` - The service connection ID from Azure DevOps. If not provided, uses `AZURESUBSCRIPTION_SERVICE_CONNECTION_ID` environment variable.
+  * `systemtoken=<system token>` - The system access token for the pipeline. If not provided, uses `SYSTEM_ACCESSTOKEN` environment variable.
+  * Note: Environment variables are automatically configured by Azure Pipelines in AzureCLI@2 and AzurePowerShell@5 tasks.
+* `fedauth=ActiveDirectoryClientAssertion` - authenticates using a client assertion (JWT token).
+  * `user id=<client id>[@tenantid]` - The client ID and tenant ID.
+  * `clientassertion=<jwt token>` - The JWT assertion token.
+* `fedauth=ActiveDirectoryOnBehalfOf` - authenticates using the on-behalf-of flow for delegated access.
+  * `user id=<client id>[@tenantid]` - The client ID and tenant ID.
+  * `userassertion=<user token>` - The user assertion token.
+  * Use one of the following for client authentication:
+    * `password=<client secret>` - Client secret
+    * `clientcertpath=<path to certificate file>;password=<certificate password>` - Client certificate
+    * `clientassertion=<jwt token>` - Client assertion JWT
+
+#### Common Credential Options
+
+The following connection string parameters can be used with most Azure credential types to provide additional configuration:
+
+* `additionallyallowedtenants=<tenant1,tenant2>` - Comma or semicolon-separated list of additional tenant IDs that the credential may authenticate to. Use "*" to allow any tenant.
+* `disableinstancediscovery=true` - Disables Microsoft Entra instance discovery. Set to `true` only for disconnected or private clouds like Azure Stack.
+* `tokenfilepath=<path>` - For `ActiveDirectoryWorkloadIdentity`, specifies the path to the Kubernetes service account token file.
+* `sendcertificatechain=true` - For certificate-based authentication, controls whether to send the full certificate chain in token requests. Required for Subject Name/Issuer (SNI) authentication.
 
 ```go
 
@@ -247,6 +274,33 @@ import (
 
 func ConnectWithMSI() (*sql.DB, error) {
   return sql.Open(azuread.DriverName, "sqlserver://azuresql.database.windows.net?database=yourdb&fedauth=ActiveDirectoryMSI")
+}
+
+func ConnectWithEnvironmentCredential() (*sql.DB, error) {
+  // Requires AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET environment variables
+  return sql.Open(azuread.DriverName, "sqlserver://azuresql.database.windows.net?database=yourdb&fedauth=ActiveDirectoryEnvironment")
+}
+
+func ConnectWithWorkloadIdentity() (*sql.DB, error) {
+  // For use in Kubernetes environments with workload identity
+  return sql.Open(azuread.DriverName, "sqlserver://azuresql.database.windows.net?database=yourdb&fedauth=ActiveDirectoryWorkloadIdentity")
+}
+
+func ConnectWithAzurePipelines() (*sql.DB, error) {
+  // For use in Azure DevOps Pipelines with explicit parameters
+  connStr := "sqlserver://azuresql.database.windows.net?database=yourdb&fedauth=ActiveDirectoryAzurePipelines"
+  connStr += "&user+id=" + url.QueryEscape("client-id@tenant-id")
+  connStr += "&serviceconnectionid=connection-id"
+  connStr += "&systemtoken=access-token"
+  return sql.Open(azuread.DriverName, connStr)
+}
+
+func ConnectWithAzurePipelinesEnvVars() (*sql.DB, error) {
+  // For use in Azure DevOps Pipelines with AzureCLI@2 or AzurePowerShell@5 tasks
+  // Environment variables are automatically set by these tasks
+  connStr := "sqlserver://azuresql.database.windows.net?database=yourdb&fedauth=ActiveDirectoryAzurePipelines"
+  connStr += "&systemtoken=access-token"  // Only systemtoken needs to be provided
+  return sql.Open(azuread.DriverName, connStr)
 }
 
 ```

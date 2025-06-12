@@ -118,6 +118,95 @@ func TestValidateParameters(t *testing.T) {
 				fedAuthLibrary:  mssql.FedAuthLibrarySecurityToken,
 			},
 		},
+		{
+			name: "azure developer cli",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzureDeveloperCli",
+			expected: &azureFedAuthConfig{
+				adalWorkflow:    mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow: ActiveDirectoryAzureDeveloperCli,
+			},
+		},
+		{
+			name: "azure pipelines",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;user id=service-principal-id@tenant-id;serviceconnectionid=connection-id;systemtoken=system-token",
+			expected: &azureFedAuthConfig{
+				clientID:            "service-principal-id",
+				tenantID:            "tenant-id",
+				serviceConnectionID: "connection-id",
+				systemAccessToken:   "system-token",
+				adalWorkflow:        mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow:     ActiveDirectoryAzurePipelines,
+			},
+		},
+		{
+			name: "environment credential",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryEnvironment",
+			expected: &azureFedAuthConfig{
+				adalWorkflow:    mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow: ActiveDirectoryEnvironment,
+			},
+		},
+		{
+			name: "workload identity",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryWorkloadIdentity",
+			expected: &azureFedAuthConfig{
+				adalWorkflow:    mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow: ActiveDirectoryWorkloadIdentity,
+			},
+		},
+		{
+			name: "workload identity with user id",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryWorkloadIdentity;user id=service-principal-id@tenant-id",
+			expected: &azureFedAuthConfig{
+				clientID:        "service-principal-id",
+				tenantID:        "tenant-id", 
+				adalWorkflow:    mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow: ActiveDirectoryWorkloadIdentity,
+			},
+		},
+		{
+			name: "workload identity with credential options",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryWorkloadIdentity;additionallyallowedtenants=tenant1,tenant2;disableinstancediscovery=true;tokenfilepath=/tmp/token",
+			expected: &azureFedAuthConfig{
+				adalWorkflow:               mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow:            ActiveDirectoryWorkloadIdentity,
+				additionallyAllowedTenants: []string{"tenant1", "tenant2"},
+				disableInstanceDiscovery:   true,
+				tokenFilePath:              "/tmp/token",
+			},
+		},
+		{
+			name: "environment credential with options",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryEnvironment;disableinstancediscovery=true",
+			expected: &azureFedAuthConfig{
+				adalWorkflow:             mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow:          ActiveDirectoryEnvironment,
+				disableInstanceDiscovery: true,
+			},
+		},
+		{
+			name: "client assertion",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryClientAssertion;user id=service-principal-id@tenant-id;clientassertion=assertion-token",
+			expected: &azureFedAuthConfig{
+				clientID:        "service-principal-id",
+				tenantID:        "tenant-id",
+				clientAssertion: "assertion-token",
+				adalWorkflow:    mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow: ActiveDirectoryClientAssertion,
+			},
+		},
+		{
+			name: "on behalf of with secret",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryOnBehalfOf;user id=service-principal-id@tenant-id;password=somesecret;userassertion=user-token",
+			expected: &azureFedAuthConfig{
+				clientID:      "service-principal-id",
+				tenantID:      "tenant-id",
+				clientSecret:  passphrase,
+				userAssertion: "user-token",
+				adalWorkflow:  mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow: ActiveDirectoryOnBehalfOf,
+			},
+		},
 	}
 	for _, tst := range tests {
 		config, err := parse(tst.dsn)
@@ -209,6 +298,219 @@ func TestProvideActiveDirectoryTokenValidations(t *testing.T) {
 				if !strings.Contains(err.Error(), tst.expectedErrContains) {
 					return
 				}
+			}
+		})
+	}
+}
+
+func TestValidateParametersErrors(t *testing.T) {
+	tests := []struct {
+		name                string
+		dsn                 string
+		expectedErrContains string
+	}{
+		{
+			name: "ActiveDirectoryAzurePipelines_missing_serviceconnectionid",
+			dsn: `sqlserver://someserver.database.windows.net?` +
+				`user id=` + url.QueryEscape("my-app-id@my-tenant-id") + "&" +
+				`fedauth=ActiveDirectoryAzurePipelines` + "&" +
+				`systemtoken=token`,
+			expectedErrContains: "Must provide 'serviceconnectionid' parameter or set AZURESUBSCRIPTION_SERVICE_CONNECTION_ID environment variable",
+		},
+		{
+			name: "ActiveDirectoryAzurePipelines_missing_user_id",
+			dsn: `sqlserver://someserver.database.windows.net?` +
+				`fedauth=ActiveDirectoryAzurePipelines` + "&" +
+				`serviceconnectionid=conn-id` + "&" +
+				`systemtoken=token`,
+			expectedErrContains: "Must provide 'client id[@tenant id]' as username parameter or set AZURESUBSCRIPTION_CLIENT_ID environment variable",
+		},
+		{
+			name: "ActiveDirectoryAzurePipelines_missing_systemtoken",
+			dsn: `sqlserver://someserver.database.windows.net?` +
+				`user id=` + url.QueryEscape("my-app-id@my-tenant-id") + "&" +
+				`fedauth=ActiveDirectoryAzurePipelines` + "&" +
+				`serviceconnectionid=conn-id`,
+			expectedErrContains: "Must provide 'systemtoken' parameter or set SYSTEM_ACCESSTOKEN environment variable",
+		},
+		{
+			name: "ActiveDirectoryClientAssertion_missing_clientassertion",
+			dsn: `sqlserver://someserver.database.windows.net?` +
+				`user id=` + url.QueryEscape("my-app-id@my-tenant-id") + "&" +
+				`fedauth=ActiveDirectoryClientAssertion`,
+			expectedErrContains: "Must provide 'clientassertion' parameter",
+		},
+		{
+			name: "ActiveDirectoryOnBehalfOf_missing_userassertion",
+			dsn: `sqlserver://someserver.database.windows.net?` +
+				`user id=` + url.QueryEscape("my-app-id@my-tenant-id") + "&" +
+				`fedauth=ActiveDirectoryOnBehalfOf` + "&" +
+				`password=secret`,
+			expectedErrContains: "Must provide 'userassertion' parameter",
+		},
+		{
+			name: "ActiveDirectoryOnBehalfOf_missing_client_auth",
+			dsn: `sqlserver://someserver.database.windows.net?` +
+				`user id=` + url.QueryEscape("my-app-id@my-tenant-id") + "&" +
+				`fedauth=ActiveDirectoryOnBehalfOf` + "&" +
+				`userassertion=user-token`,
+			expectedErrContains: "Must provide one of 'password', 'clientcertpath', or 'clientassertion'",
+		},
+	}
+	for _, tst := range tests {
+		t.Run(tst.name, func(t *testing.T) {
+			_, err := parse(tst.dsn)
+			if err == nil {
+				t.Errorf("Expected parse error but got nil")
+				return
+			}
+			if !strings.Contains(err.Error(), tst.expectedErrContains) {
+				t.Errorf("Expected error to contain '%s' but got '%s'", tst.expectedErrContains, err.Error())
+			}
+		})
+	}
+}
+func TestAzurePipelinesEnvironmentVariables(t *testing.T) {
+	// Test Azure Pipelines with environment variables
+	tests := []struct {
+		name          string
+		dsn           string
+		envVars       map[string]string
+		expected      *azureFedAuthConfig
+		shouldError   bool
+		errorContains string
+	}{
+		{
+			name: "azure pipelines with env vars only",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;systemtoken=system-token",
+			envVars: map[string]string{
+				"AZURESUBSCRIPTION_CLIENT_ID":             "env-client-id",
+				"AZURESUBSCRIPTION_TENANT_ID":             "env-tenant-id",
+				"AZURESUBSCRIPTION_SERVICE_CONNECTION_ID": "env-connection-id",
+			},
+			expected: &azureFedAuthConfig{
+				clientID:            "env-client-id",
+				tenantID:            "env-tenant-id",
+				serviceConnectionID: "env-connection-id",
+				systemAccessToken:   "system-token",
+				adalWorkflow:        mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow:     ActiveDirectoryAzurePipelines,
+				fedAuthLibrary:      mssql.FedAuthLibraryADAL,
+			},
+		},
+		{
+			name: "azure pipelines connection string overrides env vars",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;user id=conn-client-id@conn-tenant-id;serviceconnectionid=conn-connection-id;systemtoken=system-token",
+			envVars: map[string]string{
+				"AZURESUBSCRIPTION_CLIENT_ID":             "env-client-id",
+				"AZURESUBSCRIPTION_TENANT_ID":             "env-tenant-id",
+				"AZURESUBSCRIPTION_SERVICE_CONNECTION_ID": "env-connection-id",
+			},
+			expected: &azureFedAuthConfig{
+				clientID:            "conn-client-id",
+				tenantID:            "conn-tenant-id",
+				serviceConnectionID: "conn-connection-id",
+				systemAccessToken:   "system-token",
+				adalWorkflow:        mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow:     ActiveDirectoryAzurePipelines,
+				fedAuthLibrary:      mssql.FedAuthLibraryADAL,
+			},
+		},
+		{
+			name: "azure pipelines missing client id in both",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;systemtoken=system-token",
+			envVars: map[string]string{
+				"AZURESUBSCRIPTION_SERVICE_CONNECTION_ID": "env-connection-id",
+			},
+			shouldError:   true,
+			errorContains: "Must provide 'client id[@tenant id]' as username parameter or set AZURESUBSCRIPTION_CLIENT_ID environment variable",
+		},
+		{
+			name: "azure pipelines missing service connection id in both",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;user id=conn-client-id;systemtoken=system-token",
+			envVars: map[string]string{
+				"AZURESUBSCRIPTION_CLIENT_ID": "env-client-id",
+			},
+			shouldError:   true,
+			errorContains: "Must provide 'serviceconnectionid' parameter or set AZURESUBSCRIPTION_SERVICE_CONNECTION_ID environment variable",
+		},
+		{
+			name: "azure pipelines with SYSTEM_ACCESSTOKEN env var",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;user id=client-id@tenant-id;serviceconnectionid=connection-id",
+			envVars: map[string]string{
+				"SYSTEM_ACCESSTOKEN": "env-system-token",
+			},
+			expected: &azureFedAuthConfig{
+				clientID:            "client-id",
+				tenantID:            "tenant-id",
+				serviceConnectionID: "connection-id",
+				systemAccessToken:   "env-system-token",
+				adalWorkflow:        mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow:     ActiveDirectoryAzurePipelines,
+				fedAuthLibrary:      mssql.FedAuthLibraryADAL,
+			},
+		},
+		{
+			name: "azure pipelines systemtoken parameter overrides SYSTEM_ACCESSTOKEN env var",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;user id=client-id@tenant-id;serviceconnectionid=connection-id;systemtoken=param-token",
+			envVars: map[string]string{
+				"SYSTEM_ACCESSTOKEN": "env-system-token",
+			},
+			expected: &azureFedAuthConfig{
+				clientID:            "client-id",
+				tenantID:            "tenant-id",
+				serviceConnectionID: "connection-id",
+				systemAccessToken:   "param-token",
+				adalWorkflow:        mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow:     ActiveDirectoryAzurePipelines,
+				fedAuthLibrary:      mssql.FedAuthLibraryADAL,
+			},
+		},
+		{
+			name: "azure pipelines missing systemtoken in both",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;user id=client-id@tenant-id;serviceconnectionid=connection-id",
+			envVars: map[string]string{
+				"AZURESUBSCRIPTION_CLIENT_ID": "env-client-id",
+			},
+			shouldError:   true,
+			errorContains: "Must provide 'systemtoken' parameter or set SYSTEM_ACCESSTOKEN environment variable",
+		},
+	}
+
+	for _, tst := range tests {
+		t.Run(tst.name, func(t *testing.T) {
+			// Set environment variables
+			for key, value := range tst.envVars {
+				os.Setenv(key, value)
+			}
+			// Clean up environment variables after test
+			defer func() {
+				for key := range tst.envVars {
+					os.Unsetenv(key)
+				}
+			}()
+
+			config, err := parse(tst.dsn)
+			if tst.shouldError {
+				if err == nil {
+					t.Errorf("Expected error but got nil")
+					return
+				}
+				if !strings.Contains(err.Error(), tst.errorContains) {
+					t.Errorf("Expected error to contain '%s' but got '%s'", tst.errorContains, err.Error())
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			// mssqlConfig is not idempotent due to pointers in it, plus we are not testing its correctness here
+			config.mssqlConfig = msdsn.Config{}
+			if !reflect.DeepEqual(config, tst.expected) {
+				t.Errorf("Captured parameters do not match. Expected:%+v, Actual:%+v", tst.expected, config)
 			}
 		})
 	}
