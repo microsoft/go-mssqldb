@@ -174,6 +174,7 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		{"test_nullint32", sql.NullInt32{2147483647, true}, 2147483647},
 		{"test_nullint16", sql.NullInt16{32767, true}, 32767},
 		{"test_nulltime", sql.NullTime{time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC), true}, time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC)},
+		{"test_datetimen_midnight", time.Date(2025, 1, 1, 23, 59, 59, 998_350_000, time.UTC), time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)},
 		// {"test_smallmoney", 1234.56, nil},
 		// {"test_money", 1234.56, nil},
 		{"test_decimal_18_0", 1234.0001, "1234"},
@@ -435,6 +436,7 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 	[test_nullint32] [int] NULL,
 	[test_nullint16] [smallint] NULL,
 	[test_nulltime] [datetime] NULL,
+	[test_datetimen_midnight] [datetime] NULL,
  CONSTRAINT [PK_` + tableName + `_id] PRIMARY KEY CLUSTERED
 (
 	[id] ASC
