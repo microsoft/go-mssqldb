@@ -21,6 +21,11 @@ func TestEncodeDateTimeOverflow(t *testing.T) {
 			expected: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC),
 		},
 		{
+			name:     "998.35ms rounds to the next second",
+			input:    time.Date(2025, 1, 1, 23, 59, 58, 998_350_000, time.UTC),
+			expected: time.Date(2025, 1, 1, 23, 59, 59, 0, time.UTC),
+		},
+		{
 			name:     "999.999ms rounds to next day",
 			input:    time.Date(2025, 1, 1, 23, 59, 59, 999_999_999, time.UTC),
 			expected: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC),
