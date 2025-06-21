@@ -1207,14 +1207,11 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		if more {
 			err, ok := tok.(error)
 			if ok {
-				// this is an error and not a token
-				t.sess.LogF(t.ctx, msdsn.LogDebug, "nextToken returned an error:"+err.Error())
 				return nil, err
 			} else {
 				return tok, nil
 			}
 		} else {
-			t.sess.LogF(t.ctx, msdsn.LogDebug, "nextToken channel closed, no more tokens available")
 			// completed reading response
 			return nil, nil
 		}
