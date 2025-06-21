@@ -1411,5 +1411,4 @@ func getClientId(mac *[6]byte) {
 			}
 		}
 	}
-	return
 }
