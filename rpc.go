@@ -27,6 +27,7 @@ type param struct {
 	cipherInfo []byte
 }
 
+// Most of these are not used, but are left here for reference.
 var (
 	//	sp_Cursor          = procId{1, ""}
 	//	sp_CursorOpen      = procId{2, ""}
