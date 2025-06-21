@@ -941,14 +941,14 @@ func parseReturnValue(r *tdsBuffer, s *tdsSession) (nv namedValue) {
 func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenStruct, outs outputs) {
 	defer func() {
 		if err := recover(); err != nil {
-			sess.LogF(ctx, msdsn.LogErrors, "Intercepted panic %v", err)
+			sess.LogF(ctx, msdsn.LogErrors, "intercepted panic: %v", err)
 			if outs.msgq != nil {
 				var derr error
 				switch e := err.(type) {
 				case error:
 					derr = e
 				default:
-					derr = fmt.Errorf("Unhandled session error %v", e)
+					derr = fmt.Errorf("unhandled session error: %v", e)
 				}
 				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgError{Error: derr})
 
@@ -1013,6 +1013,7 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				// For now we ignore ctx->Done errors that ReturnMessageEnqueue might return
 				// It's not clear how to handle them correctly here, and data/sql seems
 				// to set Rows.Err correctly when ctx expires already
+				sess.LogF(ctx, msdsn.LogDebug, "queueing MsgNextResultSet after tokenDoneInProc")
 				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNextResultSet{})
 			}
 			colsReceived = false
@@ -1020,6 +1021,7 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				// Rows marks the request as done when seeing this done token. We queue another result set message
 				// so the app calls NextResultSet again which will return false.
 				if outs.msgq != nil {
+					sess.LogF(ctx, msdsn.LogDebug, "queueing MsgNextResultSet after tokenDoneInProc with doneMore=0")
 					_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNextResultSet{})
 				}
 				return
@@ -1034,6 +1036,7 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 			if done.Status&doneSrvError != 0 {
 				ch <- ServerError{done.getError()}
 				if outs.msgq != nil {
+					sess.LogF(ctx, msdsn.LogDebug, "queueing MsgNextResultSet after tokenDone with doneSrvError")
 					_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNextResultSet{})
 				}
 				return
@@ -1049,12 +1052,14 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 			}
 			colsReceived = false
 			if outs.msgq != nil {
+				sess.LogF(ctx, msdsn.LogDebug, "queueing MsgNextResultSet after tokenDone or tokenDoneProc")
 				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNextResultSet{})
 			}
 			if done.Status&doneMore == 0 {
 				// Rows marks the request as done when seeing this done token. We queue another result set message
 				// so the app calls NextResultSet again which will return false.
 				if outs.msgq != nil {
+					sess.LogF(ctx, msdsn.LogDebug, "queueing MsgNextResultSet after tokenDone or tokenDoneProc with doneMore=0")
 					_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNextResultSet{})
 				}
 				return
@@ -1187,6 +1192,7 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 	case tok, more := <-t.tokChan:
 		err, more := tok.(error)
 		if more {
+			t.sess.LogF(t.ctx, msdsn.LogDebug, "nextToken returned an error:"+err.Error())
 			// this is an error and not a token
 			return nil, err
 		} else {
@@ -1202,22 +1208,21 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 			err, ok := tok.(error)
 			if ok {
 				// this is an error and not a token
+				t.sess.LogF(t.ctx, msdsn.LogDebug, "nextToken returned an error:"+err.Error())
 				return nil, err
 			} else {
 				return tok, nil
 			}
 		} else {
+			t.sess.LogF(t.ctx, msdsn.LogDebug, "nextToken channel closed, no more tokens available")
 			// completed reading response
 			return nil, nil
 		}
 	case <-t.ctx.Done():
-		// It seems the Message function on t.outs.msgq doesn't get the Done if it comes here instead
-		if t.outs.msgq != nil {
-			_ = sqlexp.ReturnMessageEnqueue(t.ctx, t.outs.msgq, sqlexp.MsgNextResultSet{})
-		}
 		if t.noAttn {
 			return nil, t.ctx.Err()
 		}
+		t.sess.LogF(t.ctx, msdsn.LogDebug, "Sending attention to the server")
 		if err := sendAttention(t.sess.buf); err != nil {
 			// unable to send attention, current connection is bad
 			// notify caller and close channel
