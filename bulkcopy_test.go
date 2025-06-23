@@ -113,7 +113,7 @@ func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 
 func testBulkcopy(t *testing.T, guidConversion bool) {
 	// TDS level Bulk Insert is not supported on Azure SQL Server.
-	if dsn := makeConnStrSettingGuidConversion(t, guidConversion); strings.HasSuffix(strings.Split(dsn.Host, ":")[0], ".database.windows.net") {
+	if dsn := makeConnStr(t); strings.HasSuffix(strings.Split(dsn.Host, ":")[0], ".database.windows.net") {
 		t.Skip("TDS level bulk copy is not supported on Azure SQL Server")
 	}
 	type testValue struct {
@@ -205,7 +205,7 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		values[i] = val.in
 	}
 
-	pool, logger := open(t)
+	pool, logger := openSettingGuidConversion(t, guidConversion)
 	defer pool.Close()
 	defer logger.StopLogging()
 
