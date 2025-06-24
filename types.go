@@ -100,8 +100,8 @@ type typeInfo struct {
 	Collation cp.Collation
 	UdtInfo   udtInfo
 	XmlInfo   xmlInfo
-	Reader    func(ti *typeInfo, r *tdsBuffer, cryptoMeta *cryptoMetadata) (res interface{})
-	Writer    func(w io.Writer, ti typeInfo, buf []byte) (err error)
+	Reader    func(ti *typeInfo, r *tdsBuffer, cryptoMeta *cryptoMetadata, encoding msdsn.EncodeParameters) (res interface{})
+	Writer    func(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error)
 }
 
 // Common Language Runtime (CLR) Instances
@@ -172,7 +172,7 @@ func writeTypeInfo(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodePar
 	return
 }
 
-func writeFixedType(w io.Writer, ti typeInfo, buf []byte) (err error) {
+func writeFixedType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error) {
 	_, err = w.Write(buf)
 	return
 }
@@ -219,11 +219,7 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodeParam
 		if err = binary.Write(w, binary.LittleEndian, uint8(ti.Size)); err != nil {
 			return
 		}
-		if encoding.GuidConversion {
-			ti.Writer = writeGuidTypeWithConversion
-		} else {
-			ti.Writer = writeGuidTypeWithoutConversion
-		}
+		ti.Writer = writeGuidType
 	case typeBigVarBin, typeBigVarChar, typeBigBinary, typeBigChar,
 		typeNVarChar, typeNChar, typeXml, typeUdt:
 
@@ -265,17 +261,17 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodeParam
 }
 
 // http://msdn.microsoft.com/en-us/library/ee780895.aspx
-func decodeDateTim4(buf []byte) time.Time {
+func decodeDateTim4(buf []byte, loc *time.Location) time.Time {
 	days := binary.LittleEndian.Uint16(buf)
 	mins := binary.LittleEndian.Uint16(buf[2:])
 	return time.Date(1900, 1, 1+int(days),
-		0, int(mins), 0, 0, time.UTC)
+		0, int(mins), 0, 0, loc)
 }
 
-func encodeDateTim4(val time.Time) (buf []byte) {
+func encodeDateTim4(val time.Time, loc *time.Location) (buf []byte) {
 	buf = make([]byte, 4)
 
-	ref := time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
+	ref := time.Date(1900, 1, 1, 0, 0, 0, 0, loc)
 	dur := val.Sub(ref)
 	days := dur / (24 * time.Hour)
 	mins := val.Hour()*60 + val.Minute()
@@ -322,13 +318,13 @@ func encodeDateTime(t time.Time) (res []byte) {
 	return
 }
 
-func decodeDateTime(buf []byte) time.Time {
+func decodeDateTime(buf []byte, loc *time.Location) time.Time {
 	days := int32(binary.LittleEndian.Uint32(buf))
 	tm := binary.LittleEndian.Uint32(buf[4:])
 	ns := threeHundredthsOfASecondToNanos(int(tm % 300))
 	secs := int(tm / 300)
 	return time.Date(1900, 1, 1+int(days),
-		0, 0, secs, ns, time.UTC)
+		0, 0, secs, ns, loc)
 }
 
 func threeHundredthsOfASecondToNanos(ths int) int {
@@ -339,9 +335,10 @@ func nanosToThreeHundredthsOfASecond(ns int) int {
 	return int(math.Round(float64(ns) * 3 / 1e7))
 }
 
-func readFixedType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
+func readFixedType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) interface{} {
 	r.ReadFull(ti.Buffer)
 	buf := ti.Buffer
+	loc := encoding.GetTimezone()
 	switch ti.TypeId {
 	case typeNull:
 		return nil
@@ -354,7 +351,7 @@ func readFixedType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
 	case typeInt4:
 		return int64(int32(binary.LittleEndian.Uint32(buf)))
 	case typeDateTim4:
-		return decodeDateTim4(buf)
+		return decodeDateTim4(buf, loc)
 	case typeFlt4:
 		return math.Float32frombits(binary.LittleEndian.Uint32(buf))
 	case typeMoney4:
@@ -362,7 +359,7 @@ func readFixedType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
 	case typeMoney:
 		return decodeMoney(buf)
 	case typeDateTime:
-		return decodeDateTime(buf)
+		return decodeDateTime(buf, loc)
 	case typeFlt8:
 		return math.Float64frombits(binary.LittleEndian.Uint64(buf))
 	case typeInt8:
@@ -383,6 +380,7 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 	if size == 0 {
 		return nil
 	}
+	loc := encoding.GetTimezone()
 	r.ReadFull(ti.Buffer[:size])
 	buf := ti.Buffer[:size]
 	switch ti.TypeId {
@@ -390,11 +388,11 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 		if len(buf) != 3 {
 			badStreamPanicf("Invalid size for DATENTYPE")
 		}
-		return decodeDate(buf)
+		return decodeDate(buf, loc)
 	case typeTimeN:
-		return decodeTime(ti.Scale, buf)
+		return decodeTime(ti.Scale, buf, loc)
 	case typeDateTime2N:
-		return decodeDateTime2(ti.Scale, buf)
+		return decodeDateTime2(ti.Scale, buf, loc)
 	case typeDateTimeOffsetN:
 		return decodeDateTimeOffset(ti.Scale, buf)
 	case typeGuid:
@@ -438,15 +436,15 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 			badStreamPanicf("Invalid size for MONEYNTYPE")
 		}
 	case typeDateTim4:
-		return decodeDateTim4(buf)
+		return decodeDateTim4(buf, loc)
 	case typeDateTime:
-		return decodeDateTime(buf)
+		return decodeDateTime(buf, loc)
 	case typeDateTimeN:
 		switch len(buf) {
 		case 4:
-			return decodeDateTim4(buf)
+			return decodeDateTim4(buf, loc)
 		case 8:
-			return decodeDateTime(buf)
+			return decodeDateTime(buf, loc)
 		default:
 			badStreamPanicf("Invalid size for DATETIMENTYPE")
 		}
@@ -465,15 +463,7 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 	panic("shouldn't get here")
 }
 
-func readByteLenTypeWithGuidConversion(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
-	return readByteLenTypeWithEncoding(ti, r, c, msdsn.EncodeParameters{GuidConversion: true})
-}
-
-func readByteLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
-	return readByteLenTypeWithEncoding(ti, r, c, msdsn.EncodeParameters{GuidConversion: false})
-}
-
-func writeByteLenType(w io.Writer, ti typeInfo, buf []byte) (err error) {
+func writeByteLenType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error) {
 	if ti.Size > 0xff {
 		panic("Invalid size for BYTELEN_TYPE")
 	}
@@ -506,15 +496,7 @@ func writeGuidType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodePa
 	return
 }
 
-func writeGuidTypeWithConversion(w io.Writer, ti typeInfo, buf []byte) (err error) {
-	return writeGuidType(w, ti, buf, msdsn.EncodeParameters{GuidConversion: true})
-}
-
-func writeGuidTypeWithoutConversion(w io.Writer, ti typeInfo, buf []byte) (err error) {
-	return writeGuidType(w, ti, buf, msdsn.EncodeParameters{GuidConversion: false})
-}
-
-func readShortLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
+func readShortLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) interface{} {
 	var size uint16
 	if c != nil {
 		size = uint16(r.rsize)
@@ -546,7 +528,7 @@ func readShortLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{}
 	panic("shoulnd't get here")
 }
 
-func writeShortLenType(w io.Writer, ti typeInfo, buf []byte) (err error) {
+func writeShortLenType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error) {
 	if buf == nil {
 		err = binary.Write(w, binary.LittleEndian, uint16(0xffff))
 		return
@@ -562,7 +544,7 @@ func writeShortLenType(w io.Writer, ti typeInfo, buf []byte) (err error) {
 	return
 }
 
-func readLongLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
+func readLongLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) interface{} {
 	// information about this format can be found here:
 	// http://msdn.microsoft.com/en-us/library/dd304783.aspx
 	// and here:
@@ -593,7 +575,7 @@ func readLongLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} 
 	}
 	panic("shoulnd't get here")
 }
-func writeLongLenType(w io.Writer, ti typeInfo, buf []byte) (err error) {
+func writeLongLenType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error) {
 	//textptr
 	err = binary.Write(w, binary.LittleEndian, byte(0x10))
 	if err != nil {
@@ -639,6 +621,7 @@ func writeCollation(w io.Writer, col cp.Collation) (err error) {
 // http://msdn.microsoft.com/en-us/library/dd303302.aspx
 func readVariantTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) interface{} {
 	size := r.int32()
+	loc := encoding.GetTimezone()
 	if size == 0 {
 		return nil
 	}
@@ -662,11 +645,11 @@ func readVariantTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 	case typeDateTime:
 		buf := make([]byte, size-2-propbytes)
 		r.ReadFull(buf)
-		return decodeDateTime(buf)
+		return decodeDateTime(buf, loc)
 	case typeDateTim4:
 		buf := make([]byte, size-2-propbytes)
 		r.ReadFull(buf)
-		return decodeDateTim4(buf)
+		return decodeDateTim4(buf, loc)
 	case typeFlt4:
 		return float64(math.Float32frombits(r.uint32()))
 	case typeFlt8:
@@ -682,17 +665,17 @@ func readVariantTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 	case typeDateN:
 		buf := make([]byte, size-2-propbytes)
 		r.ReadFull(buf)
-		return decodeDate(buf)
+		return decodeDate(buf, loc)
 	case typeTimeN:
 		scale := r.byte()
 		buf := make([]byte, size-2-propbytes)
 		r.ReadFull(buf)
-		return decodeTime(scale, buf)
+		return decodeTime(scale, buf, loc)
 	case typeDateTime2N:
 		scale := r.byte()
 		buf := make([]byte, size-2-propbytes)
 		r.ReadFull(buf)
-		return decodeDateTime2(scale, buf)
+		return decodeDateTime2(scale, buf, loc)
 	case typeDateTimeOffsetN:
 		scale := r.byte()
 		buf := make([]byte, size-2-propbytes)
@@ -727,17 +710,9 @@ func readVariantTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 	panic("shoulnd't get here")
 }
 
-func readVariantTypeWithGuidConversion(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
-	return readVariantTypeWithEncoding(ti, r, c, msdsn.EncodeParameters{GuidConversion: true})
-}
-
-func readVariantType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
-	return readVariantTypeWithEncoding(ti, r, c, msdsn.EncodeParameters{GuidConversion: false})
-}
-
 // partially length prefixed stream
 // http://msdn.microsoft.com/en-us/library/dd340469.aspx
-func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
+func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) interface{} {
 	var bytesToDecode []byte
 	if c == nil {
 		size := r.uint64()
@@ -780,7 +755,7 @@ func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata) interface{} {
 	panic("shouldn't get here")
 }
 
-func writePLPType(w io.Writer, ti typeInfo, buf []byte) (err error) {
+func writePLPType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error) {
 	if buf == nil {
 		err = binary.Write(w, binary.LittleEndian, uint64(_PLP_NULL))
 		return
@@ -808,7 +783,7 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 	switch ti.TypeId {
 	case typeDateN:
 		ti.Size = 3
-		ti.Reader = readByteLenType
+		ti.Reader = readByteLenTypeWithEncoding
 		ti.Buffer = make([]byte, ti.Size)
 	case typeTimeN, typeDateTime2N, typeDateTimeOffsetN:
 		ti.Scale = r.byte()
@@ -828,7 +803,7 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		case typeDateTimeOffsetN:
 			ti.Size += 5
 		}
-		ti.Reader = readByteLenType
+		ti.Reader = readByteLenTypeWithEncoding
 		ti.Buffer = make([]byte, ti.Size)
 	case typeGuid, typeIntN, typeDecimal, typeNumeric,
 		typeBitN, typeDecimalN, typeNumericN, typeFltN,
@@ -842,11 +817,7 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 			ti.Prec = r.byte()
 			ti.Scale = r.byte()
 		}
-		if encoding.GuidConversion {
-			ti.Reader = readByteLenTypeWithGuidConversion
-		} else {
-			ti.Reader = readByteLenType
-		}
+		ti.Reader = readByteLenTypeWithEncoding
 	case typeXml:
 		ti.XmlInfo.SchemaPresent = r.byte()
 		if ti.XmlInfo.SchemaPresent != 0 {
@@ -901,11 +872,7 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 			}
 			ti.Reader = readLongLenType
 		case typeVariant:
-			if encoding.GuidConversion {
-				ti.Reader = readVariantTypeWithGuidConversion
-			} else {
-				ti.Reader = readVariantType
-			}
+			ti.Reader = readVariantTypeWithEncoding
 		}
 	default:
 		badStreamPanicf("Invalid type %d", ti.TypeId)
@@ -961,8 +928,8 @@ func decodeDateInt(buf []byte) (days int) {
 	return
 }
 
-func decodeDate(buf []byte) time.Time {
-	return time.Date(1, 1, 1+decodeDateInt(buf), 0, 0, 0, 0, time.UTC)
+func decodeDate(buf []byte, loc *time.Location) time.Time {
+	return time.Date(1, 1, 1+decodeDateInt(buf), 0, 0, 0, 0, loc)
 }
 
 func encodeDate(val time.Time) (buf []byte) {
@@ -1012,9 +979,9 @@ func encodeTimeInt(seconds, ns, scale int, buf []byte) {
 	buf[4] = byte(t >> 32)
 }
 
-func decodeTime(scale uint8, buf []byte) time.Time {
+func decodeTime(scale uint8, buf []byte, loc *time.Location) time.Time {
 	sec, ns := decodeTimeInt(scale, buf)
-	return time.Date(1, 1, 1, 0, 0, sec, ns, time.UTC)
+	return time.Date(1, 1, 1, 0, 0, sec, ns, loc)
 }
 
 func encodeTime(hour, minute, second, ns, scale int) (buf []byte) {
@@ -1024,11 +991,11 @@ func encodeTime(hour, minute, second, ns, scale int) (buf []byte) {
 	return
 }
 
-func decodeDateTime2(scale uint8, buf []byte) time.Time {
+func decodeDateTime2(scale uint8, buf []byte, loc *time.Location) time.Time {
 	timesize := len(buf) - 3
 	sec, ns := decodeTimeInt(scale, buf[:timesize])
 	days := decodeDateInt(buf[timesize:])
-	return time.Date(1, 1, 1+days, 0, 0, sec, ns, time.UTC)
+	return time.Date(1, 1, 1+days, 0, 0, sec, ns, loc)
 }
 
 func encodeDateTime2(val time.Time, scale int) (buf []byte) {

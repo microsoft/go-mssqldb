@@ -26,6 +26,7 @@ func TestInvalidConnectionString(t *testing.T) {
 		"applicationintent=ReadOnly",
 		"disableretry=invalid",
 		"multisubnetfailover=invalid",
+		"timezone=invalid",
 
 		// ODBC mode
 		"odbc:password={",
@@ -35,6 +36,7 @@ func TestInvalidConnectionString(t *testing.T) {
 		"odbc:=", // unexpected =
 		"odbc: =",
 		"odbc:password={some} a",
+		"odbc:timezone=invalid",
 
 		// URL mode
 		"sqlserver://\x00",
@@ -107,6 +109,7 @@ func TestValidConnectionString(t *testing.T) {
 		{"", func(p Config) bool { return p.DisableRetry == disableRetryDefault }},
 		{"MultiSubnetFailover=true;NoTraceID=true", func(p Config) bool { return p.MultiSubnetFailover && p.NoTraceID }},
 		{"MultiSubnetFailover=false", func(p Config) bool { return !p.MultiSubnetFailover }},
+		{"timezone=Asia/Shanghai", func(p Config) bool { return p.Encoding.Timezone.String() == "Asia/Shanghai" }},
 		{"Pwd=placeholder", func(p Config) bool { return p.Password == "placeholder" }},
 		// those are supported currently, but maybe should not be
 		{"someparam", func(p Config) bool { return true }},
@@ -164,6 +167,7 @@ func TestValidConnectionString(t *testing.T) {
 		{"odbc:server=somehost;user id=someuser;password=somepass; disableretry =  1 ", func(p Config) bool {
 			return p.Host == "somehost" && p.User == "someuser" && p.Password == "somepass" && p.DisableRetry
 		}},
+		{"odbc:timezone={Asia/Shanghai}", func(p Config) bool { return p.Encoding.Timezone.String() == "Asia/Shanghai" }},
 
 		// URL mode
 		{"sqlserver://somehost?connection+timeout=30", func(p Config) bool {
@@ -196,6 +200,7 @@ func TestValidConnectionString(t *testing.T) {
 		{"sqlserver://somehost?encrypt=true&tlsmin=1.1&columnencryption=1&guid+conversion=true", func(p Config) bool {
 			return p.Host == "somehost" && p.Encryption == EncryptionRequired && p.TLSConfig.MinVersion == tls.VersionTLS11 && p.ColumnEncryption && p.Encoding.GuidConversion
 		}},
+		{"sqlserver://someuser@somehost?timezone=Asia%2FShanghai", func(p Config) bool { return p.Encoding.Timezone.String() == "Asia/Shanghai" }},
 	}
 	for _, ts := range connStrings {
 		p, err := Parse(ts.connStr)

@@ -81,7 +81,7 @@ func sendRpc(buf *tdsBuffer, headers []headerStruct, proc procId, flags uint16, 
 		if err != nil {
 			return
 		}
-		err = param.ti.Writer(buf, param.ti, param.buffer)
+		err = param.ti.Writer(buf, param.ti, param.buffer, encoding)
 		if err != nil {
 			return
 		}

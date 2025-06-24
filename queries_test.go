@@ -2809,3 +2809,92 @@ func TestAdminConnection(t *testing.T) {
 		t.Fatalf("Tcp connection not made. Protocol: %s", protocol)
 	}
 }
+
+func TestCustomTimezone(t *testing.T) {
+
+	t.Run("without custom timezone", func(t *testing.T) {
+		conn, logger := open(t)
+		defer conn.Close()
+		defer logger.StopLogging()
+		_, err := conn.Exec("create table test (ts datetime)")
+		defer conn.Exec("drop table test")
+		if err != nil {
+			t.Fatal("create table failed with error", err)
+		}
+
+		inputTime := time.Date(2025, 5, 26, 15, 30, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+		_, err = conn.Exec("insert into test (ts) values (@ts)", sql.Named("ts", inputTime.Format("2006-01-02 15:04:05")))
+		if err != nil {
+			t.Fatal("insert failed:", err)
+		}
+
+		var resultTime time.Time
+		err = conn.QueryRow("select ts from test").Scan(&resultTime)
+		if err != nil {
+			t.Fatal("QueryRow failed:", err)
+		}
+
+		if inputTime.Truncate(time.Second).Equal(resultTime) {
+			t.Errorf("Expected result time to differ from input time due to timezone loss,\ninput:  %v\nresult: %v", inputTime, resultTime)
+		} else {
+			t.Logf("Input time and result time differ as expected:\ninput:  %v\nresult: %v", inputTime, resultTime)
+		}
+	})
+
+	t.Run("with custom timezone", func(t *testing.T) {
+		t.Setenv("TIME_ZONE", "Asia/Shanghai") // UTC+8 timezone
+		conn, logger := open(t)
+		defer conn.Close()
+		defer logger.StopLogging()
+		_, err := conn.Exec("create table test (ts datetime)")
+		defer conn.Exec("drop table test")
+		if err != nil {
+			t.Fatal("create table failed with error", err)
+		}
+
+		inputTime := time.Date(2025, 5, 26, 15, 30, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+		_, err = conn.Exec("insert into test (ts) values (@ts)", sql.Named("ts", inputTime.Format("2006-01-02 15:04:05")))
+		if err != nil {
+			t.Fatal("insert failed:", err)
+		}
+
+		var resultTime time.Time
+		err = conn.QueryRow("select ts from test").Scan(&resultTime)
+		if err != nil {
+			t.Fatal("QueryRow failed:", err)
+		}
+
+		if !inputTime.Truncate(time.Second).Equal(resultTime) {
+			t.Errorf("Expected result time to match input time with custom timezone,\ninput:  %v\nresult: %v", inputTime, resultTime)
+		}
+	})
+
+	t.Run("datetimeoffset with custom timezone", func(t *testing.T) {
+		t.Setenv("TIME_ZONE", "Asia/Shanghai")
+		conn, logger := open(t)
+		defer conn.Close()
+		defer logger.StopLogging()
+		_, err := conn.Exec("create table test_offset (ts datetimeoffset)")
+		defer conn.Exec("drop table test_offset")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		inputTime := time.Date(2025, 5, 26, 15, 30, 0, 0, time.FixedZone("UTC+5", 5*60*60))
+		_, err = conn.Exec("insert into test_offset (ts) values (@ts)", sql.Named("ts", inputTime))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var resultTime time.Time
+		err = conn.QueryRow("select ts from test_offset").Scan(&resultTime)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !inputTime.Equal(resultTime) {
+			t.Errorf("expected %v, got %v", inputTime, resultTime)
+		}
+	})
+
+}

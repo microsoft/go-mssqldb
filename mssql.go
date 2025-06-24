@@ -981,6 +981,7 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		res.ti.Size = 0
 		return
 	}
+
 	switch valuer := val.(type) {
 	// sql.Nullxxx integer types return an int64. We want the original type, to match the SQL type size.
 	case sql.NullByte:
