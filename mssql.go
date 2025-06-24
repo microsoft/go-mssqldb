@@ -1266,8 +1266,9 @@ type Rowsq struct {
 }
 
 func (rc *Rowsq) Close() error {
-	rc.cancel()
-
+	rc.stmt.c.sess.LogF(rc.reader.ctx, msdsn.LogDebug, "Rowsq.Close() called, canceling reader after processing all tokens and queuing MsgNextResultSet")
+	_ = sqlexp.ReturnMessageEnqueue(rc.reader.ctx, rc.reader.outs.msgq, sqlexp.MsgNextResultSet{})
+	defer rc.cancel()
 	for {
 		tok, err := rc.reader.nextToken()
 		if err == nil {
@@ -1341,6 +1342,7 @@ func (rc *Rowsq) Next(dest []driver.Value) error {
 					return nil
 				case doneStruct:
 					if tokdata.Status&doneMore == 0 {
+						rc.reader.sess.LogF(rc.reader.ctx, msdsn.LogDebug, "Setting requestDone to true for done token with status %d", tokdata.Status)
 						rc.requestDone = true
 					}
 					if tokdata.isError() {
