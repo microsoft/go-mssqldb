@@ -49,14 +49,9 @@ steps:
   workingDirectory: '$(Build.SourcesDirectory)'
   displayName: 'run tests'
   env:
+# skipping Azure related tests due to lack of access
     SQLPASSWORD: $(SQLPASSWORD)
-    AZURESERVER_DSN: $(AZURESERVER_DSN)
     SQLSERVER_DSN: $(SQLSERVER_DSN)
-    AZURE_CLIENT_SECRET: $(AZURE_CLIENT_SECRET)
-    KEY_VAULT_NAME: $(KEY_VAULT_NAME)
-    AZURE_TENANT_ID: $(AZURE_TENANT_ID)
-    AZURE_CLIENT_ID: $(AZURE_CLIENT_ID)
-    COLUMNENCRYPTION: 1
   continueOnError: true
 - task: PublishTestResults@2
   displayName: "Publish junit-style results"

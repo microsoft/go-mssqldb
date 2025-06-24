@@ -357,6 +357,13 @@ func GetConnParams() (*msdsn.Config, error) {
 			return nil, err
 		}
 		params.LogFlags = logFlags
+		if os.Getenv("TIME_ZONE") != "" {
+			tz, err := time.LoadLocation(os.Getenv("TIME_ZONE"))
+			if err == nil {
+				params.Encoding.Timezone = tz
+			}
+		}
+
 		return &params, nil
 	}
 
