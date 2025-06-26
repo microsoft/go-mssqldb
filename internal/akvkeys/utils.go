@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys"
 )
@@ -22,10 +23,28 @@ func GetTestAKV() (client *azkeys.Client, u string, err error) {
 		return
 	}
 	vaultURL := fmt.Sprintf("https://%s.vault.azure.net/", url.PathEscape(vaultName))
-	cred, err := azidentity.NewDefaultAzureCredential(nil)
+	var cred azcore.TokenCredential
+	cred, err = azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
 		return
 	}
+	sc := os.Getenv("AZURESUBSCRIPTION_SERVICE_CONNECTION_ID")
+	if len(sc) > 0 {
+		tenant := os.Getenv("AZURESUBSCRIPTION_TENANT_ID")
+		clientID := os.Getenv("AZURESUBSCRIPTION_CLIENT_ID")
+		token := os.Getenv("SYSTEM_ACCESSTOKEN")
+		pcred, errp := azidentity.NewAzurePipelinesCredential(tenant, clientID, sc, token, nil)
+		if errp == nil {
+			chain := make([]azcore.TokenCredential, 2)
+			chain[0] = pcred
+			chain[1] = cred
+			cred, err = azidentity.NewChainedTokenCredential(chain, nil)
+			if err != nil {
+				return
+			}
+		}
+	}
+
 	client, err = azkeys.NewClient(vaultURL, cred, nil)
 	if err != nil {
 		return
