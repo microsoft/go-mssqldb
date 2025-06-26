@@ -34,6 +34,16 @@ steps:
     arguments: 'github.com/AlekSi/gocov-xml@latest'
     workingDirectory: '$(System.DefaultWorkingDirectory)'
 
+- task: AzureCLI@2
+  inputs:
+    addSpnToEnvironment: true
+    azureSubscription: $(AZURESUBSCRIPTION_SERVICE_CONNECTION_NAME)
+    scriptType: pscore
+    scriptLocation: inlineScript
+    inlineScript: |
+      Write-Host "##vso[task.setvariable variable=AZURESUBSCRIPTION_CLIENT_ID;]$env:AZURESUBSCRIPTION_CLIENT_ID"
+      Write-Host "##vso[task.setvariable variable=AZURESUBSCRIPTION_TENANT_ID;]$env:AZURESUBSCRIPTION_TENANT_ID"
+      gci env:* | sort-object name
 
 - task: Docker@2
   displayName: 'Run SQL 2017 docker image'
@@ -52,6 +62,12 @@ steps:
 # skipping Azure related tests due to lack of access
     SQLPASSWORD: $(SQLPASSWORD)
     SQLSERVER_DSN: $(SQLSERVER_DSN)
+    AZURESERVER_DSN: $(AZURESERVER_DSN)
+    AZURESUBSCRIPTION_SERVICE_CONNECTION_ID: $(AZURESUBSCRIPTION_SERVICE_CONNECTION_ID)
+    AZURESUBSCRIPTION_CLIENT_ID: $(AZURESUBSCRIPTION_CLIENT_ID)
+    AZURESUBSCRIPTION_TENANT_ID: $(AZURESUBSCRIPTION_TENANT_ID)
+    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+    KEY_VAULT_NAME: $(KEY_VAULT_NAME)
   continueOnError: true
 - task: PublishTestResults@2
   displayName: "Publish junit-style results"
@@ -63,12 +79,10 @@ steps:
   condition: always()
   continueOnError: true
 
-- task: PublishCodeCoverageResults@1
+- task: PublishCodeCoverageResults@2
   inputs:
-    codeCoverageTool: Cobertura 
     pathToSources: '$(Build.SourcesDirectory)'
     summaryFileLocation: $(Build.SourcesDirectory)/**/coverage.xml
-    reportDirectory: $(Build.SourcesDirectory)/**/coverage
     failIfCoverageEmpty: true
   condition: always()
   continueOnError: true
