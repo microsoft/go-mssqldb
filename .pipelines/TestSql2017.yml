@@ -43,6 +43,7 @@ steps:
     inlineScript: |
       Write-Host "##vso[task.setvariable variable=AZURESUBSCRIPTION_CLIENT_ID;]$env:AZURESUBSCRIPTION_CLIENT_ID"
       Write-Host "##vso[task.setvariable variable=AZURESUBSCRIPTION_TENANT_ID;]$env:AZURESUBSCRIPTION_TENANT_ID"
+      Write-Host "##vso[task.setvariable variable=AZURESUBSCRIPTION_SERVICE_CONNECTION_ID;]$env:AZURESUBSCRIPTION_SERVICE_CONNECTION_ID"
       gci env:* | sort-object name
 
 - task: Docker@2
@@ -52,10 +53,9 @@ steps:
     arguments: '-m 2GB -e ACCEPT_EULA=1 -d --name sql2022 -p:1433:1433 -e SA_PASSWORD=$(TESTPASSWORD) mcr.microsoft.com/mssql/server:2022-latest'
 
 - script: |
-    ~/go/bin/gotestsum --junitfile testresults.xml -- -coverprofile=coverage.txt -covermode count ./...
+    ~/go/bin/gotestsum --junitfile testresults.xml -- ./... -coverprofile=coverage.txt -covermode count 
     ~/go/bin/gocov convert coverage.txt > coverage.json
     ~/go/bin/gocov-xml < coverage.json > coverage.xml
-    mkdir coverage
   workingDirectory: '$(Build.SourcesDirectory)'
   displayName: 'run tests'
   env:
