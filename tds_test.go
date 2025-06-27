@@ -313,7 +313,7 @@ func GetConnParams() (*msdsn.Config, error) {
 			if err == nil {
 				params.Encoding.Timezone = tz
 			}
-
+		}
 		return &params, nil
 	}
 	if len(os.Getenv("HOST")) > 0 && len(os.Getenv("DATABASE")) > 0 {

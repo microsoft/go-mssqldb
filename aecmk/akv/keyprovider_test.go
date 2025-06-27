@@ -16,7 +16,7 @@ import (
 )
 
 func TestEncryptDecryptRoundTrip(t *testing.T) {
-	client, vaultURL, err := akvkeys.GetTestAKV()
+	client, vaultURL, err := akvkeys.GetTestAKV(t)
 	if err != nil {
 		t.Skip("No access to AKV")
 	}
