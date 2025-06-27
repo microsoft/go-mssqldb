@@ -10,13 +10,15 @@ import (
 	"math/big"
 	"net/url"
 	"os"
+	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys"
 )
 
-func GetTestAKV() (client *azkeys.Client, u string, err error) {
+func GetTestAKV(t testing.TB) (client *azkeys.Client, u string, err error) {
+	t.Helper()
 	vaultName := os.Getenv("KEY_VAULT_NAME")
 	if len(vaultName) == 0 {
 		err = fmt.Errorf("KEY_VAULT_NAME is not set in the environment")
@@ -30,6 +32,7 @@ func GetTestAKV() (client *azkeys.Client, u string, err error) {
 	}
 	sc := os.Getenv("AZURESUBSCRIPTION_SERVICE_CONNECTION_ID")
 	if len(sc) > 0 {
+		t.Log("Using Azure Pipelines credential for AKV access")
 		tenant := os.Getenv("AZURESUBSCRIPTION_TENANT_ID")
 		clientID := os.Getenv("AZURESUBSCRIPTION_CLIENT_ID")
 		token := os.Getenv("SYSTEM_ACCESSTOKEN")
@@ -42,6 +45,9 @@ func GetTestAKV() (client *azkeys.Client, u string, err error) {
 			if err != nil {
 				return
 			}
+		} else {
+			t.Logf("Failed to create AzurePipelinesCredential: %v", errp)
+			t.Log("Using DefaultAzureCredential for AKV access")
 		}
 	}
 

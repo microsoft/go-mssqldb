@@ -21,7 +21,7 @@ type akvProviderTest struct {
 
 func (p *akvProviderTest) ProvisionMasterKey(t *testing.T) string {
 	t.Helper()
-	client, vaultURL, err := akvkeys.GetTestAKV()
+	client, vaultURL, err := akvkeys.GetTestAKV(t)
 	if err != nil {
 		t.Skip("Unable to access AKV")
 	}
