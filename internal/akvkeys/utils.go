@@ -26,31 +26,26 @@ func GetTestAKV(t testing.TB) (client *azkeys.Client, u string, err error) {
 	}
 	vaultURL := fmt.Sprintf("https://%s.vault.azure.net/", url.PathEscape(vaultName))
 	var cred azcore.TokenCredential
-	cred, err = azidentity.NewDefaultAzureCredential(nil)
-	if err != nil {
-		return
-	}
+
 	sc := os.Getenv("AZURESUBSCRIPTION_SERVICE_CONNECTION_ID")
 	if len(sc) > 0 {
 		t.Log("Using Azure Pipelines credential for AKV access")
 		tenant := os.Getenv("AZURESUBSCRIPTION_TENANT_ID")
 		clientID := os.Getenv("AZURESUBSCRIPTION_CLIENT_ID")
 		token := os.Getenv("SYSTEM_ACCESSTOKEN")
-		pcred, errp := azidentity.NewAzurePipelinesCredential(tenant, clientID, sc, token, nil)
-		if errp == nil {
-			chain := make([]azcore.TokenCredential, 2)
-			chain[0] = pcred
-			chain[1] = cred
-			cred, err = azidentity.NewChainedTokenCredential(chain, nil)
-			if err != nil {
-				return
-			}
-		} else {
-			t.Logf("Failed to create AzurePipelinesCredential: %v", errp)
+		cred, err = azidentity.NewAzurePipelinesCredential(tenant, clientID, sc, token, nil)
+		if err != nil {
+			t.Logf("Failed to create AzurePipelinesCredential: %v", err)
 			t.Log("Using DefaultAzureCredential for AKV access")
 		}
 	}
-
+	if cred == nil {
+		cred, err = azidentity.NewDefaultAzureCredential(nil)
+		if err != nil {
+			return
+		}
+	}
+	t.Logf("Using Credential: %+v", cred)
 	client, err = azkeys.NewClient(vaultURL, cred, nil)
 	if err != nil {
 		return
