@@ -6,6 +6,7 @@ package akv
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"net/url"
 	"testing"
 
@@ -23,11 +24,17 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 	assert.NoError(t, err, "CreateRSAKey")
 	defer akvkeys.DeleteRSAKey(client, name)
 	keyPath, _ := url.JoinPath(vaultURL, name)
+	t.Log("KeyPath:", keyPath)
 	p := &KeyProvider
 	plainKey := make([]byte, 32)
 	_, _ = rand.Read(plainKey)
 	t.Log("Plainkey:", plainKey)
 	encryptedKey, err := p.EncryptColumnEncryptionKey(context.Background(), keyPath, aecmk.KeyEncryptionAlgorithm, plainKey)
+	if err != nil {
+		if unwrapped := errors.Unwrap(err); unwrapped != nil {
+			t.Logf("Inner error: %+v", unwrapped)
+		}
+	}
 	if assert.NoError(t, err, "EncryptColumnEncryptionKey") {
 		t.Log("Encryptedkey:", encryptedKey)
 		assert.NotEqualValues(t, plainKey, encryptedKey, "encryptedKey is the same as plainKey")

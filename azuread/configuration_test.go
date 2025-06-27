@@ -358,6 +358,11 @@ func TestValidateParametersErrors(t *testing.T) {
 		},
 	}
 	for _, tst := range tests {
+		t.Setenv("SYSTEM_ACCESSTOKEN", "")                      // Clear any existing value to avoid conflicts
+		t.Setenv("AZURESUBSCRIPTION_CLIENT_ID", "")             // Clear any existing value to avoid conflicts
+		t.Setenv("AZURESUBSCRIPTION_TENANT_ID", "")             // Clear any existing value to avoid conflicts
+		t.Setenv("AZURESUBSCRIPTION_SERVICE_CONNECTION_ID", "") // Clear any existing value to avoid conflicts
+
 		t.Run(tst.name, func(t *testing.T) {
 			_, err := parse(tst.dsn)
 			if err == nil {
