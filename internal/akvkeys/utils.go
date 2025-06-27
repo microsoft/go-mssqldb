@@ -10,52 +10,44 @@ import (
 	"math/big"
 	"net/url"
 	"os"
-	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys"
 )
 
-// GetProviderCredential retrieves the Azure credential for accessing Azure Key Vault in tests.
-func GetProviderCredential(t testing.TB) (cred azcore.TokenCredential, err error) {
-	t.Helper()
+// GetProviderCredential retrieves the Azure credential for accessing Azure Key Vault
+func GetProviderCredential() (cred azcore.TokenCredential, err error) {
 	sc := os.Getenv("AZURESUBSCRIPTION_SERVICE_CONNECTION_ID")
 	if len(sc) > 0 {
-		t.Log("Using Azure Pipelines credential for AKV access")
 		tenant := os.Getenv("AZURESUBSCRIPTION_TENANT_ID")
 		clientID := os.Getenv("AZURESUBSCRIPTION_CLIENT_ID")
 		token := os.Getenv("SYSTEM_ACCESSTOKEN")
 		cred, err = azidentity.NewAzurePipelinesCredential(tenant, clientID, sc, token, nil)
 		if err != nil {
-			t.Logf("Failed to create AzurePipelinesCredential: %v", err)
-			t.Log("Using DefaultAzureCredential for AKV access")
+			return
 		}
-	}
-	if cred == nil {
+	} else {
 		cred, err = azidentity.NewDefaultAzureCredential(nil)
 		if err != nil {
 			return
 		}
 	}
-	t.Logf("Using Credential: %+v", cred)
 	return
 }
 
 // GetTestAKV retrieves an Azure Key Vault client for testing purposes.
-func GetTestAKV(t testing.TB) (client *azkeys.Client, u string, err error) {
-	t.Helper()
+func GetTestAKV() (client *azkeys.Client, u string, err error) {
 	vaultName := os.Getenv("KEY_VAULT_NAME")
 	if len(vaultName) == 0 {
 		err = fmt.Errorf("KEY_VAULT_NAME is not set in the environment")
 		return
 	}
 	vaultURL := fmt.Sprintf("https://%s.vault.azure.net/", url.PathEscape(vaultName))
-	cred, err := GetProviderCredential(t)
+	cred, err := GetProviderCredential()
 	if err != nil {
 		return
 	}
-	t.Logf("Using Credential: %+v", cred)
 	client, err = azkeys.NewClient(vaultURL, cred, nil)
 	if err != nil {
 		return
