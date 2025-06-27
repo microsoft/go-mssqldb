@@ -159,7 +159,7 @@ func TestValidateParameters(t *testing.T) {
 			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryWorkloadIdentity;user id=service-principal-id@tenant-id",
 			expected: &azureFedAuthConfig{
 				clientID:        "service-principal-id",
-				tenantID:        "tenant-id", 
+				tenantID:        "tenant-id",
 				adalWorkflow:    mssql.FedAuthADALWorkflowPassword,
 				fedAuthWorkflow: ActiveDirectoryWorkloadIdentity,
 			},
@@ -199,11 +199,11 @@ func TestValidateParameters(t *testing.T) {
 			name: "on behalf of with secret",
 			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryOnBehalfOf;user id=service-principal-id@tenant-id;password=somesecret;userassertion=user-token",
 			expected: &azureFedAuthConfig{
-				clientID:      "service-principal-id",
-				tenantID:      "tenant-id",
-				clientSecret:  passphrase,
-				userAssertion: "user-token",
-				adalWorkflow:  mssql.FedAuthADALWorkflowPassword,
+				clientID:        "service-principal-id",
+				tenantID:        "tenant-id",
+				clientSecret:    passphrase,
+				userAssertion:   "user-token",
+				adalWorkflow:    mssql.FedAuthADALWorkflowPassword,
 				fedAuthWorkflow: ActiveDirectoryOnBehalfOf,
 			},
 		},
@@ -479,16 +479,14 @@ func TestAzurePipelinesEnvironmentVariables(t *testing.T) {
 
 	for _, tst := range tests {
 		t.Run(tst.name, func(t *testing.T) {
+			t.Setenv("SYSTEM_ACCESSTOKEN", "")                      // Clear any existing value to avoid conflicts
+			t.Setenv("AZURESUBSCRIPTION_CLIENT_ID", "")             // Clear any existing value to avoid conflicts
+			t.Setenv("AZURESUBSCRIPTION_TENANT_ID", "")             // Clear any existing value to avoid conflicts
+			t.Setenv("AZURESUBSCRIPTION_SERVICE_CONNECTION_ID", "") // Clear any existing value to avoid conflicts
 			// Set environment variables
 			for key, value := range tst.envVars {
 				os.Setenv(key, value)
 			}
-			// Clean up environment variables after test
-			defer func() {
-				for key := range tst.envVars {
-					os.Unsetenv(key)
-				}
-			}()
 
 			config, err := parse(tst.dsn)
 			if tst.shouldError {
