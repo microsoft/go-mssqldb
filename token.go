@@ -1001,7 +1001,6 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 		case tokenDoneInProc:
 			done := parseDoneInProc(sess.buf)
 
-			ch <- done
 			if done.Status&doneCount != 0 {
 				sess.LogF(ctx, msdsn.LogRows, "(%d rows affected)", done.RowCount)
 
@@ -1009,6 +1008,9 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 					_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgRowsAffected{Count: int64(done.RowCount)})
 				}
 			}
+
+			ch <- done
+
 			if outs.msgq != nil {
 				// For now we ignore ctx->Done errors that ReturnMessageEnqueue might return
 				// It's not clear how to handle them correctly here, and data/sql seems
@@ -1041,7 +1043,6 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				}
 				return
 			}
-			ch <- done
 			if done.Status&doneCount != 0 {
 				sess.LogF(ctx, msdsn.LogRows, "(Rows affected: %d)", done.RowCount)
 
@@ -1050,6 +1051,9 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				}
 
 			}
+
+			ch <- done
+
 			colsReceived = false
 			if outs.msgq != nil {
 				sess.LogF(ctx, msdsn.LogDebug, "queueing MsgNextResultSet after tokenDone or tokenDoneProc")
