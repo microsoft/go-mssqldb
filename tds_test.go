@@ -308,6 +308,12 @@ func GetConnParams() (*msdsn.Config, error) {
 		if os.Getenv("COLUMNENCRYPTION") != "" {
 			params.ColumnEncryption = true
 		}
+		if os.Getenv("TIME_ZONE") != "" {
+			tz, err := time.LoadLocation(os.Getenv("TIME_ZONE"))
+			if err == nil {
+				params.Encoding.Timezone = tz
+			}
+		}
 		return &params, nil
 	}
 	if len(os.Getenv("HOST")) > 0 && len(os.Getenv("DATABASE")) > 0 {
