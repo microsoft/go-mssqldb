@@ -11,10 +11,32 @@ import (
 	"net/url"
 	"os"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys"
 )
 
+// GetProviderCredential retrieves the Azure credential for accessing Azure Key Vault
+func GetProviderCredential() (cred azcore.TokenCredential, err error) {
+	sc := os.Getenv("AZURESUBSCRIPTION_SERVICE_CONNECTION_ID")
+	if len(sc) > 0 {
+		tenant := os.Getenv("AZURESUBSCRIPTION_TENANT_ID")
+		clientID := os.Getenv("AZURESUBSCRIPTION_CLIENT_ID")
+		token := os.Getenv("SYSTEM_ACCESSTOKEN")
+		cred, err = azidentity.NewAzurePipelinesCredential(tenant, clientID, sc, token, nil)
+		if err != nil {
+			return
+		}
+	} else {
+		cred, err = azidentity.NewDefaultAzureCredential(nil)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
+
+// GetTestAKV retrieves an Azure Key Vault client for testing purposes.
 func GetTestAKV() (client *azkeys.Client, u string, err error) {
 	vaultName := os.Getenv("KEY_VAULT_NAME")
 	if len(vaultName) == 0 {
@@ -22,7 +44,7 @@ func GetTestAKV() (client *azkeys.Client, u string, err error) {
 		return
 	}
 	vaultURL := fmt.Sprintf("https://%s.vault.azure.net/", url.PathEscape(vaultName))
-	cred, err := azidentity.NewDefaultAzureCredential(nil)
+	cred, err := GetProviderCredential()
 	if err != nil {
 		return
 	}
