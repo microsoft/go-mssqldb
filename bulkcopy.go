@@ -301,15 +301,18 @@ func (b *Bulk) getMetadata(ctx context.Context) (err error) {
 			return
 		}
 
-		stmt, err := b.cn.prepareContext(ctx, "SET FMTONLY OFF")
-		if err != nil {
-			err = errors.Join(err, fmt.Errorf("Could not reset FMTONLY: %s", err))
+		// Don't let resetErr shadow the "real" error, since this
+		// should generally only happen if one of the calls below
+		// failed
+		stmt, resetErr := b.cn.prepareContext(ctx, "SET FMTONLY OFF")
+		if resetErr != nil {
+			resetErr = errors.Join(resetErr, fmt.Errorf("Could not reset FMTONLY: %w", resetErr))
 			return
 		}
 		// stmt.Close is a no-op so ignore it
-		_, err = stmt.ExecContext(ctx, nil)
-		if err != nil {
-			err = errors.Join(err, fmt.Errorf("Could not reset FMTONLY: %s", err))
+		_, resetErr = stmt.ExecContext(ctx, nil)
+		if resetErr != nil {
+			resetErr = errors.Join(resetErr, fmt.Errorf("Could not reset FMTONLY: %w", resetErr))
 			return
 		}
 	}()
