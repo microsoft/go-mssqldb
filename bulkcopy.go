@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -293,6 +294,29 @@ func (b *Bulk) getMetadata(ctx context.Context) (err error) {
 		return
 	}
 
+	// Ensure we always SET FMTONLY OFF even if the next statement fails
+	resetFmtonly := true
+	defer func() {
+		if !resetFmtonly {
+			return
+		}
+
+		// Don't let resetErr shadow the "real" error, since this
+		// should generally only happen if one of the calls below
+		// failed
+		stmt, resetErr := b.cn.prepareContext(ctx, "SET FMTONLY OFF")
+		if resetErr != nil {
+			resetErr = errors.Join(resetErr, fmt.Errorf("Could not reset FMTONLY: %w", resetErr))
+			return
+		}
+		// stmt.Close is a no-op so ignore it
+		_, resetErr = stmt.ExecContext(ctx, nil)
+		if resetErr != nil {
+			resetErr = errors.Join(resetErr, fmt.Errorf("Could not reset FMTONLY: %w", resetErr))
+			return
+		}
+	}()
+
 	// Get columns info.
 	stmt, err = b.cn.prepareContext(ctx, fmt.Sprintf("select * from %s SET FMTONLY OFF", b.tablename))
 	if err != nil {
@@ -302,6 +326,7 @@ func (b *Bulk) getMetadata(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("get columns info failed: %v", err)
 	}
+	resetFmtonly = false
 	b.metadata = rows.(*Rows).cols
 
 	if b.Debug {

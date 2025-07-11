@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestBulkcopyWithInvalidNullableType(t *testing.T) {
@@ -447,4 +449,47 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 		t.Fatal("tablesql failed:", err)
 	}
 	return
+}
+
+func TestBulkcopyFailure(t *testing.T) {
+	// Regression test.
+	pool, logger := open(t)
+	defer pool.Close()
+	defer logger.StopLogging()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	conn, err := pool.Conn(ctx)
+	assert.NoError(t, err)
+	defer conn.Close()
+
+	// The table does not exist, so this will fail below.
+	stmt, err := conn.PrepareContext(ctx, CopyIn("thistabledoesnotexist", BulkOptions{}, "foobar"))
+	assert.NoError(t, err)
+	defer stmt.Close()
+
+	// This implicitly triggers getMetadata which executes SET FMTONLY ON before
+	// trying to query the table to be inserted into.
+	_, err = stmt.ExecContext(ctx, "")
+	// But of course, it fails. Previously this would not SET FMTONLY OFF in the case
+	// of a failure, so the next statement would be nullified.
+	assert.ErrorContains(t, err, "Invalid object name 'thistabledoesnotexist'")
+
+	_, err = stmt.ExecContext(ctx)
+	assert.NoError(t, err)
+
+	// This next statement was being nullified by the SET FMTONLY ON
+	stmt, err = conn.PrepareContext(ctx, "CREATE TABLE #temp (id INT)")
+	assert.NoError(t, err)
+	defer stmt.Close()
+	_, err = stmt.ExecContext(ctx)
+	assert.NoError(t, err)
+
+	// So then the table would not get created, causing an unexpected failure.
+	stmt, err = conn.PrepareContext(ctx, "SELECT * FROM #temp")
+	assert.NoError(t, err)
+	defer stmt.Close()
+	_, err = stmt.ExecContext(ctx)
+	assert.NoError(t, err)
 }
