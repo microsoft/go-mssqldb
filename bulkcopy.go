@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -301,18 +300,19 @@ func (b *Bulk) getMetadata(ctx context.Context) (err error) {
 			return
 		}
 
-		// Don't let resetErr shadow the "real" error, since this
-		// should generally only happen if one of the calls below
-		// failed
+		// Don't let resetErr shadow the "real" error, since this should
+		// generally only happen if one of the calls below failed
 		stmt, resetErr := b.cn.prepareContext(ctx, "SET FMTONLY OFF")
 		if resetErr != nil {
-			resetErr = errors.Join(resetErr, fmt.Errorf("Could not reset FMTONLY: %w", resetErr))
+			// This _should_ be infallible as prepareContext doesn't
+			// actually contact the server
+			b.cn.sess.logger.Log(ctx, msdsn.LogErrors, fmt.Sprintf("Could not reset FMTONLY: %v", resetErr))
 			return
 		}
 		// stmt.Close is a no-op so ignore it
 		_, resetErr = stmt.ExecContext(ctx, nil)
 		if resetErr != nil {
-			resetErr = errors.Join(resetErr, fmt.Errorf("Could not reset FMTONLY: %w", resetErr))
+			b.cn.sess.logger.Log(ctx, msdsn.LogErrors, fmt.Sprintf("Could not reset FMTONLY: %v", resetErr))
 			return
 		}
 	}()
