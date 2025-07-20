@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/golang-sql/sqlexp"
+	"github.com/shopspring/decimal"
 )
 
 func TestOutputParam(t *testing.T) {
@@ -817,8 +818,10 @@ func TestParamNoName(t *testing.T) {
 		var intCol int
 		var nvarcharCol string
 		var varcharCol string
+		var decimalCol decimal.Decimal
+		var nullDecimalCol decimal.NullDecimal
 		for r.Next() {
-			err = r.Scan(&intCol, &nvarcharCol, &varcharCol)
+			err = r.Scan(&intCol, &nvarcharCol, &varcharCol, &decimalCol, &nullDecimalCol)
 		}
 		if intCol != 5 {
 			tInner.Errorf("expected 5, got %d", intCol)
@@ -829,6 +832,12 @@ func TestParamNoName(t *testing.T) {
 		if varcharCol != "DREAM" {
 			tInner.Errorf("expected DREAM, got %s", varcharCol)
 		}
+		if !decimalCol.Equal(decimal.New(112, -1)) {
+			tInner.Errorf("expected 11.2, got %s", decimalCol.String())
+		}
+		if nullDecimalCol.Valid {
+			tInner.Errorf("expected NULL, got %t, %s", nullDecimalCol.Valid, nullDecimalCol.Decimal.String())
+		}
 	}
 
 	t.Run("Execute stored prodecure", func(t *testing.T) {
@@ -836,9 +845,11 @@ func TestParamNoName(t *testing.T) {
 		CREATE PROCEDURE spnoparamname
 			@intCol INT,
 			@nvarcharCol NVARCHAR(2000),
-			@varcharCol VARCHAR(2000)
+			@varcharCol VARCHAR(2000),
+			@decimalCol DECIMAL(18, 4),
+			@nullDecimalCol DECIMAL(18, 4)
 		AS BEGIN
-			SELECT @intCol, @nvarcharCol, @varcharCol
+			SELECT @intCol, @nvarcharCol, @varcharCol, @decimalCol, @nullDecimalCol
 		END`
 		sqltextdrop := `DROP PROCEDURE spnoparamname`
 		sqltextrun := `spnoparamname`
@@ -851,7 +862,7 @@ func TestParamNoName(t *testing.T) {
 		defer db.ExecContext(ctx, sqltextdrop)
 
 		t.Run("With no parameter names", func(t *testing.T) {
-			rows, err := db.QueryContext(ctx, sqltextrun, 5, "OK", "DREAM")
+			rows, err := db.QueryContext(ctx, sqltextrun, 5, "OK", "DREAM", decimal.New(112, -1), decimal.NullDecimal{})
 			if err != nil {
 				t.Error(err)
 			} else {
@@ -861,7 +872,7 @@ func TestParamNoName(t *testing.T) {
 		})
 
 		t.Run("With parameter names", func(t *testing.T) {
-			rows, err := db.QueryContext(ctx, sqltextrun, sql.Named("intCol", 5), sql.Named("nvarcharCol", "OK"), sql.Named("varcharCol", "DREAM"))
+			rows, err := db.QueryContext(ctx, sqltextrun, sql.Named("intCol", 5), sql.Named("nvarcharCol", "OK"), sql.Named("varcharCol", "DREAM"), sql.Named("decimalCol", decimal.New(112, -1)), sql.Named("nullDecimalCol", decimal.NullDecimal{}))
 			if err != nil {
 				t.Error(err)
 			} else {
@@ -872,10 +883,10 @@ func TestParamNoName(t *testing.T) {
 	})
 
 	t.Run("Execute query", func(t *testing.T) {
-		sqltextrun := "SELECT @p1, @p2, @p3"
+		sqltextrun := "SELECT @p1, @p2, @p3, @p4, @p5"
 
 		t.Run("With no parameter names", func(t *testing.T) {
-			rows, err := db.QueryContext(ctx, sqltextrun, 5, "OK", "DREAM")
+			rows, err := db.QueryContext(ctx, sqltextrun, 5, "OK", "DREAM", decimal.New(112, -1), decimal.NullDecimal{})
 			if err != nil {
 				t.Error(err)
 			} else {
@@ -885,7 +896,7 @@ func TestParamNoName(t *testing.T) {
 		})
 
 		t.Run("With parameter names", func(t *testing.T) {
-			rows, err := db.QueryContext(ctx, sqltextrun, sql.Named("p1", 5), sql.Named("p2", "OK"), sql.Named("p3", "DREAM"))
+			rows, err := db.QueryContext(ctx, sqltextrun, sql.Named("p1", 5), sql.Named("p2", "OK"), sql.Named("p3", "DREAM"), sql.Named("p4", decimal.New(112, -1)), sql.Named("p5", decimal.NullDecimal{}))
 			if err != nil {
 				t.Error(err)
 			} else {
