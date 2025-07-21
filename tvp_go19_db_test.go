@@ -51,7 +51,7 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 			p_decimal           DECIMAL(18, 4),
 			p_decimalNull       DECIMAL(18, 4),
 			s_decimal           DECIMAL(18, 4),
-			s_decimalNull       DECIMAL(18, 4),
+			s_decimalNull       DECIMAL(18, 4)
 		); `
 
 	sqltextdroptable := `DROP TYPE tvpGoSQLTypesWithStandardType;`
@@ -254,10 +254,13 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 			param1[i].PDecimalNull.Decimal, result1[i].PDecimalNull.Decimal)
 		param1[i].SDecimal, result1[i].SDecimal = decimal.RescalePair(
 			param1[i].SDecimal, result1[i].SDecimal)
-		p1, r1 := decimal.RescalePair(
-			*param1[i].SDecimalNull, *result1[i].SDecimalNull)
-		param1[i].SDecimalNull = &p1
-		result1[i].SDecimalNull = &r1
+
+		if param1[i].SDecimalNull != nil && result1[i].SDecimalNull != nil {
+			p1, r1 := decimal.RescalePair(
+				*param1[i].SDecimalNull, *result1[i].SDecimalNull)
+			param1[i].SDecimalNull = &p1
+			result1[i].SDecimalNull = &r1
+		}
 	}
 
 	if !reflect.DeepEqual(param1, result1) {
