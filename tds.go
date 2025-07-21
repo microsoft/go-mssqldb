@@ -1245,10 +1245,10 @@ initiate_connection:
 			// Flush any pending packet from the handshake
 			// The driver's Finished message is still in the buffer
 			if handshakeConn.packetPending {
-				handshakeConn.packetPending = false
 				if err := handshakeConn.buf.FinishPacket(); err != nil {
-					return nil, fmt.Errorf("TLS Handshake flush failed: %v", err)
+					return nil, fmt.Errorf("TLS Handshake flush failed: %w", err)
 				}
+				handshakeConn.packetPending = false
 			}
 			if encrypt == encryptOff {
 				outbuf.afterFirst = func() {
