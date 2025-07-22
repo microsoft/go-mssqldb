@@ -1237,8 +1237,6 @@ initiate_connection:
 			passthrough := passthroughConn{c: &handshakeConn}
 			tlsConn := tls.Client(&passthrough, config)
 			err = tlsConn.Handshake()
-			passthrough.c = toconn
-			outbuf.transport = tlsConn
 			if err != nil {
 				return nil, fmt.Errorf("TLS Handshake failed: %v", err)
 			}
@@ -1250,6 +1248,8 @@ initiate_connection:
 				}
 				handshakeConn.packetPending = false
 			}
+			passthrough.c = toconn
+			outbuf.transport = tlsConn
 			if encrypt == encryptOff {
 				outbuf.afterFirst = func() {
 					outbuf.transport = toconn
