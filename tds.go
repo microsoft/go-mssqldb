@@ -1242,11 +1242,9 @@ initiate_connection:
 			}
 			// Flush any pending packet from the handshake
 			// The driver's Finished message is still in the buffer
-			if handshakeConn.packetPending {
-				if err := handshakeConn.buf.FinishPacket(); err != nil {
-					return nil, fmt.Errorf("TLS Handshake flush failed: %w", err)
-				}
-				handshakeConn.packetPending = false
+			_, err = handshakeConn.FinishPacket()
+			if err != nil {
+				return nil, fmt.Errorf("TLS Handshake flush failed: %w", err)
 			}
 			passthrough.c = toconn
 			outbuf.transport = tlsConn
