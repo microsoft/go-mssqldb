@@ -523,6 +523,112 @@ END;
 	})
 }
 
+func TestOutputINOUTDecimalParam(t *testing.T) {
+	sqltextcreate := `
+CREATE PROCEDURE vinout
+   @dinout DECIMAL(18, 4) OUTPUT
+AS
+BEGIN
+	IF @dinout = 'empty'
+		SET @dinout = NULL
+	ELSE
+		SET @dinout = 29342.1234
+END;
+`
+	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextrun := `vinout`
+
+	checkConnStr(t)
+	tl := testLogger{t: t}
+	defer tl.StopLogging()
+	SetLogger(&tl)
+
+	db, err := sql.Open("sqlserver", makeConnStr(t).String())
+	if err != nil {
+		t.Fatalf("failed to open driver sqlserver")
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	db.ExecContext(ctx, sqltextdrop)
+	_, err = db.ExecContext(ctx, sqltextcreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.ExecContext(ctx, sqltextdrop)
+
+	t.Run("original test", func(t *testing.T) {
+		dinout, _ := decimal.NewFromString("52.74")
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected, _ := decimal.NewFromString("29342.1234")
+		if !dinout.Equal(expected) {
+			t.Errorf("expected 29342.1234, got %s", dinout.String())
+		}
+	})
+
+	t.Run("nullable value", func(t *testing.T) {
+		val, _ := decimal.NewFromString("52.74")
+		dinout := decimal.NewNullDecimal(val)
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected, _ := decimal.NewFromString("29342.1234")
+		if !dinout.Valid || !dinout.Decimal.Equal(expected) {
+			if dinout.Valid {
+				t.Errorf("expected 29342.1234, got %t, %s", dinout.Valid, dinout.Decimal.String())
+			} else {
+				t.Errorf("expected 29342.1234, got NULL")
+			}
+		}
+	})
+
+	t.Run("null value", func(t *testing.T) {
+		dinout := decimal.NullDecimal{}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected, _ := decimal.NewFromString("29342.1234")
+		if !dinout.Valid || !dinout.Decimal.Equal(expected) {
+			if dinout.Valid {
+				t.Errorf("expected 29342.1234, got %t, %s", dinout.Valid, dinout.Decimal.String())
+			} else {
+				t.Errorf("expected 29342.1234, got NULL")
+			}
+		}
+	})
+
+	t.Run("null result", func(t *testing.T) {
+		val, _ := decimal.NewFromString("535.8")
+		dinout := decimal.NewNullDecimal(val)
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if dinout.Valid {
+			t.Errorf("expected NULL, got %t, %s", dinout.Valid, dinout.Decimal.String())
+		}
+	})
+}
+
 func TestOutputINOUTParam(t *testing.T) {
 	sqltextcreate := `
 CREATE PROCEDURE abinout
