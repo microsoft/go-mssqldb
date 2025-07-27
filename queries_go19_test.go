@@ -529,7 +529,7 @@ CREATE PROCEDURE vinout
    @dinout DECIMAL(18, 4) OUTPUT
 AS
 BEGIN
-	IF @dinout = 'empty'
+	IF @dinout = 535.8
 		SET @dinout = NULL
 	ELSE
 		SET @dinout = 29342.1234
