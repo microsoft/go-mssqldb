@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
@@ -45,7 +47,11 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 			p_nvarchar 			NVARCHAR(100),
 			p_nvarcharNull 		NVARCHAR(100),
 			s_nvarchar 			NVARCHAR(100),
-			s_nvarcharNull 		NVARCHAR(100)		
+			s_nvarcharNull 		NVARCHAR(100),
+			p_decimal           DECIMAL(18, 4),
+			p_decimalNull       DECIMAL(18, 4),
+			s_decimal           DECIMAL(18, 4),
+			s_decimalNull       DECIMAL(18, 4),
 		); `
 
 	sqltextdroptable := `DROP TYPE tvpGoSQLTypesWithStandardType;`
@@ -80,6 +86,10 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 		PStringNull  sql.NullString
 		SString      string
 		SStringNull  *string
+		PDecimal     decimal.NullDecimal
+		PDecimalNull decimal.NullDecimal
+		SDecimal     decimal.Decimal
+		SDecimalNull *decimal.Decimal
 	}
 
 	sqltextdropsp := `DROP PROCEDURE spwithtvpGoSQLTypesWithStandardType;`
@@ -100,6 +110,7 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 	i64 := int64(4)
 	bTrue := true
 	floatValue64 := 0.123
+	decimalValue := decimal.New(4821212, -4)
 	param1 := []TvpGoSQLTypes{
 		{
 			PBool: sql.NullBool{
@@ -121,7 +132,9 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 				String: "test=tvp",
 				Valid:  true,
 			},
-			PStringNull: sql.NullString{},
+			PStringNull:  sql.NullString{},
+			PDecimal:     decimal.NewNullDecimal(decimal.New(-2323, -3)),
+			PDecimalNull: decimal.NullDecimal{},
 		},
 		{
 			PBool:        sql.NullBool{},
@@ -140,6 +153,10 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 			PStringNull:  sql.NullString{},
 			SString:      "any",
 			SStringNull:  nil,
+			PDecimal:     decimal.NullDecimal{},
+			PDecimalNull: decimal.NullDecimal{},
+			SDecimal:     decimal.New(20012, 2),
+			SDecimalNull: nil,
 		},
 		{
 			PBool: sql.NullBool{
@@ -167,9 +184,13 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 				String: "jifdijrgio",
 				Valid:  true,
 			},
-			PStringNull: sql.NullString{},
-			SString:     "geniefkl123",
-			SStringNull: &nvarchar,
+			PStringNull:  sql.NullString{},
+			SString:      "geniefkl123",
+			SStringNull:  &nvarchar,
+			PDecimal:     decimal.NewNullDecimal(decimal.New(892332, -3)),
+			PDecimalNull: decimal.NullDecimal{},
+			SDecimal:     decimal.New(1004, -1),
+			SDecimalNull: &decimalValue,
 		},
 	}
 
@@ -214,12 +235,29 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 			&val.PStringNull,
 			&val.SString,
 			&val.SStringNull,
+			&val.PDecimal,
+			&val.PDecimalNull,
+			&val.SDecimal,
+			&val.SDecimalNull,
 		)
 		if err != nil {
 			t.Fatalf("scan failed with error: %s", err)
 		}
 
 		result1 = append(result1, val)
+	}
+
+	for i := 0; i < min(len(param1), len(result1)); i++ {
+		param1[i].PDecimal.Decimal, result1[i].PDecimal.Decimal = decimal.RescalePair(
+			param1[i].PDecimal.Decimal, result1[i].PDecimal.Decimal)
+		param1[i].PDecimalNull.Decimal, result1[i].PDecimalNull.Decimal = decimal.RescalePair(
+			param1[i].PDecimalNull.Decimal, result1[i].PDecimalNull.Decimal)
+		param1[i].SDecimal, result1[i].SDecimal = decimal.RescalePair(
+			param1[i].SDecimal, result1[i].SDecimal)
+		p1, r1 := decimal.RescalePair(
+			*param1[i].SDecimalNull, *result1[i].SDecimalNull)
+		param1[i].SDecimalNull = &p1
+		result1[i].SDecimalNull = &r1
 	}
 
 	if !reflect.DeepEqual(param1, result1) {
