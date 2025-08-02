@@ -525,7 +525,9 @@ func testTVP(t *testing.T, guidConversion bool) {
 			p_time 				datetime2,
 			p_timeNull			datetime2,
 			pInt              	INT,
-			pIntNull          	INT
+			pIntNull          	INT,
+			p_decimal           DECIMAL(18, 4),
+			p_decimalNull       DECIMAL(18, 4)
 		); `
 
 	sqltextdroptable := `DROP TYPE tvptable;`
@@ -570,6 +572,8 @@ func testTVP(t *testing.T, guidConversion bool) {
 		DTimeNull     *time.Time        `db:"p_time"`
 		Pint          int               `db:"pInt"`
 		PintNull      *int              `db:"pIntNull"`
+		PDecimal      decimal.Decimal   `db:"p_decimal"`
+		PDecimalNull  *decimal.Decimal  `db:"p_decimalNull"`
 	}
 
 	sqltextdropsp := `DROP PROCEDURE spwithtvp;`
@@ -596,6 +600,7 @@ func testTVP(t *testing.T, guidConversion bool) {
 	bFalse := false
 	floatValue64 := 0.123
 	floatValue32 := float32(-10.123)
+	d := decimal.New(99232321212, -6)
 	// SQL Server's datetime2 has maximum precision of 7 digits, so for end-to-end
 	// equality comparison we must not test with any finer resolution than 100 nsec.
 	datetime2Value := time.Date(2020, 8, 26, 23, 59, 39, 100, time.UTC)
@@ -615,6 +620,7 @@ func testTVP(t *testing.T, guidConversion bool) {
 			PFloat64:   floatValue64,
 			DTime:      datetime2Value,
 			Pint:       355,
+			PDecimal:   decimal.New(223, -7),
 		},
 		{
 			PBinary:    []byte("www"),
@@ -631,6 +637,7 @@ func testTVP(t *testing.T, guidConversion bool) {
 			PFloat64:   -123.45,
 			DTime:      time.Date(2001, 11, 16, 23, 59, 39, 0, time.UTC),
 			Pint:       455,
+			PDecimal:   decimal.New(23253, 5),
 		},
 		{
 			PBinary:       nil,
@@ -647,6 +654,7 @@ func testTVP(t *testing.T, guidConversion bool) {
 			DTime:         datetime2Value,
 			DTimeNull:     &datetime2Value,
 			PintNull:      &i,
+			PDecimalNull:  &d,
 		},
 		{
 			PBinary:       []byte("www"),
@@ -672,6 +680,7 @@ func testTVP(t *testing.T, guidConversion bool) {
 			PFloatNull64:  &floatValue64,
 			DTimeNull:     &datetime2Value,
 			PintNull:      &i,
+			PDecimalNull:  &d,
 		},
 	}
 
@@ -725,12 +734,26 @@ func testTVP(t *testing.T, guidConversion bool) {
 			&val.DTimeNull,
 			&val.Pint,
 			&val.PintNull,
+			&val.PDecimal,
+			&val.PDecimalNull,
 		)
 		if err != nil {
 			t.Fatalf("scan failed with error: %s", err)
 		}
 
 		result1 = append(result1, val)
+	}
+
+	for i := 0; i < min(len(param1), len(result1)); i++ {
+		param1[i].PDecimal, result1[i].PDecimal = decimal.RescalePair(
+			param1[i].PDecimal, result1[i].PDecimal)
+
+		if param1[i].PDecimalNull != nil && result1[i].PDecimalNull != nil {
+			p1, r1 := decimal.RescalePair(
+				*param1[i].PDecimalNull, *result1[i].PDecimalNull)
+			param1[i].PDecimalNull = &p1
+			result1[i].PDecimalNull = &r1
+		}
 	}
 
 	if !reflect.DeepEqual(param1, result1) {
