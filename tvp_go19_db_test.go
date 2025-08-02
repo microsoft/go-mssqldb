@@ -319,7 +319,9 @@ func TestTVPGoSQLTypes(t *testing.T) {
 			p_bigint            BIGINT,
 			p_bigintNull        BIGINT,
 			p_nvarchar 			NVARCHAR(100),
-			p_nvarcharNull 		NVARCHAR(100)		
+			p_nvarcharNull 		NVARCHAR(100),
+			p_decimal           DECIMAL(18, 4),
+			p_decimalNull       DECIMAL(18, 4)
 		); `
 
 	sqltextdroptable := `DROP TYPE tvpGoSQLTypes;`
@@ -346,6 +348,8 @@ func TestTVPGoSQLTypes(t *testing.T) {
 		PInt64Null   sql.NullInt64
 		PString      sql.NullString
 		PStringNull  sql.NullString
+		PDecimal     decimal.NullDecimal
+		PDecimalNull decimal.NullDecimal
 	}
 
 	sqltextdropsp := `DROP PROCEDURE spwithtvpGoSQLTypes;`
