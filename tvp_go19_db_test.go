@@ -600,7 +600,7 @@ func testTVP(t *testing.T, guidConversion bool) {
 	bFalse := false
 	floatValue64 := 0.123
 	floatValue32 := float32(-10.123)
-	d := decimal.New(99232321212, -6)
+	d := decimal.New(99232321212, -4)
 	// SQL Server's datetime2 has maximum precision of 7 digits, so for end-to-end
 	// equality comparison we must not test with any finer resolution than 100 nsec.
 	datetime2Value := time.Date(2020, 8, 26, 23, 59, 39, 100, time.UTC)
