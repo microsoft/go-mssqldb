@@ -386,7 +386,9 @@ func TestTVPGoSQLTypes(t *testing.T) {
 				String: "test=tvp",
 				Valid:  true,
 			},
-			PStringNull: sql.NullString{},
+			PStringNull:  sql.NullString{},
+			PDecimal:     decimal.NewNullDecimal(decimal.New(-7644, -2)),
+			PDecimalNull: decimal.NullDecimal{},
 		},
 	}
 
@@ -422,12 +424,21 @@ func TestTVPGoSQLTypes(t *testing.T) {
 			&val.PInt64Null,
 			&val.PString,
 			&val.PStringNull,
+			&val.PDecimal,
+			&val.PDecimalNull,
 		)
 		if err != nil {
 			t.Fatalf("scan failed with error: %s", err)
 		}
 
 		result1 = append(result1, val)
+	}
+
+	for i := 0; i < min(len(param1), len(result1)); i++ {
+		param1[i].PDecimal.Decimal, result1[i].PDecimal.Decimal = decimal.RescalePair(
+			param1[i].PDecimal.Decimal, result1[i].PDecimal.Decimal)
+		param1[i].PDecimalNull.Decimal, result1[i].PDecimalNull.Decimal = decimal.RescalePair(
+			param1[i].PDecimalNull.Decimal, result1[i].PDecimalNull.Decimal)
 	}
 
 	if !reflect.DeepEqual(param1, result1) {
