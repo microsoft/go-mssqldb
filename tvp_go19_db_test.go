@@ -620,7 +620,7 @@ func testTVP(t *testing.T, guidConversion bool) {
 			PFloat64:   floatValue64,
 			DTime:      datetime2Value,
 			Pint:       355,
-			PDecimal:   decimal.New(223, -7),
+			PDecimal:   decimal.New(223, -4),
 		},
 		{
 			PBinary:    []byte("www"),
