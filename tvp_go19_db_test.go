@@ -838,7 +838,9 @@ func testTVP_WithTag(t *testing.T, guidConversion bool) {
 			p_time 				datetime2,
 			p_timeNull			datetime2,
 			pInt              	INT,
-			pIntNull          	INT
+			pIntNull          	INT,
+			p_decimal           DECIMAL(18, 4),
+			p_decimalNull       DECIMAL(18, 4)
 		); `
 
 	sqltextdroptable := `DROP TYPE tvptable;`
@@ -910,6 +912,10 @@ func testTVP_WithTag(t *testing.T, guidConversion bool) {
 		SkipPint          int               `tvp:"-"`
 		PintNull          *int              `db:"pInt"`
 		SkipPintNull      *int              `tvp:"-"`
+		PDecimal          decimal.Decimal   `db:"p_decimal"`
+		SkipPDecimal      decimal.Decimal   `tvp:"-"`
+		PDecimalNull      *decimal.Decimal  `db:"p_decimalNull"`
+		SkipPDecimalNull  *decimal.Decimal  `tvp:"-"`
 	}
 
 	db.ExecContext(ctx, sqltextdropsp)
@@ -938,43 +944,48 @@ func testTVP_WithTag(t *testing.T, guidConversion bool) {
 	bFalse := false
 	floatValue64 := 0.123
 	floatValue32 := float32(-10.123)
+	d := decimal.New(-55, -1)
 	// SQL Server's datetime2 has maximum precision of 7 digits, so for end-to-end
 	// equality comparison we must not test with any finer resolution than 100 nsec.
 	datetime2Value := time.Date(2020, 8, 26, 23, 59, 39, 100, time.UTC)
 	param1 := []TvptableRowWithSkipTag{
 		{
-			PBinary:    []byte("ccc"),
-			PVarchar:   varcharNull,
-			PNvarchar:  nvarchar,
-			PID:        UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
-			PVarbinary: bytesMock,
-			PTinyint:   i8,
-			PSmallint:  i16,
-			PInt:       i32,
-			PBigint:    i64,
-			PBit:       bFalse,
-			PFloat32:   floatValue32,
-			PFloat64:   floatValue64,
-			DTime:      datetime2Value,
-			Pint:       i,
-			PintNull:   &i,
+			PBinary:      []byte("ccc"),
+			PVarchar:     varcharNull,
+			PNvarchar:    nvarchar,
+			PID:          UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
+			PVarbinary:   bytesMock,
+			PTinyint:     i8,
+			PSmallint:    i16,
+			PInt:         i32,
+			PBigint:      i64,
+			PBit:         bFalse,
+			PFloat32:     floatValue32,
+			PFloat64:     floatValue64,
+			DTime:        datetime2Value,
+			Pint:         i,
+			PintNull:     &i,
+			PDecimal:     d,
+			PDecimalNull: &d,
 		},
 		{
-			PBinary:    []byte("www"),
-			PVarchar:   "eee",
-			PNvarchar:  "lll",
-			PID:        UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
-			PVarbinary: []byte("zzz"),
-			PTinyint:   5,
-			PSmallint:  16000,
-			PInt:       20000000,
-			PBigint:    2000000020000000,
-			PBit:       true,
-			PFloat32:   -123.45,
-			PFloat64:   -123.45,
-			DTime:      time.Date(2001, 11, 16, 23, 59, 39, 0, time.UTC),
-			Pint:       3669,
-			PintNull:   &i,
+			PBinary:      []byte("www"),
+			PVarchar:     "eee",
+			PNvarchar:    "lll",
+			PID:          UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
+			PVarbinary:   []byte("zzz"),
+			PTinyint:     5,
+			PSmallint:    16000,
+			PInt:         20000000,
+			PBigint:      2000000020000000,
+			PBit:         true,
+			PFloat32:     -123.45,
+			PFloat64:     -123.45,
+			DTime:        time.Date(2001, 11, 16, 23, 59, 39, 0, time.UTC),
+			Pint:         3669,
+			PintNull:     &i,
+			PDecimal:     decimal.New(6501, -1),
+			PDecimalNull: &d,
 		},
 		{
 			PBinary:       nil,
@@ -991,6 +1002,7 @@ func testTVP_WithTag(t *testing.T, guidConversion bool) {
 			DTime:         datetime2Value,
 			DTimeNull:     &datetime2Value,
 			Pint:          969,
+			PDecimal:      decimal.New(236645488, -3),
 		},
 		{
 			PBinary:       []byte("www"),
@@ -1016,6 +1028,7 @@ func testTVP_WithTag(t *testing.T, guidConversion bool) {
 			PFloatNull64:  &floatValue64,
 			DTimeNull:     &datetime2Value,
 			PintNull:      &i,
+			PDecimalNull:  &d,
 		},
 	}
 
@@ -1069,12 +1082,26 @@ func testTVP_WithTag(t *testing.T, guidConversion bool) {
 			&val.DTimeNull,
 			&val.Pint,
 			&val.PintNull,
+			&val.PDecimal,
+			&val.PDecimalNull,
 		)
 		if err != nil {
 			t.Fatalf("scan failed with error: %s", err)
 		}
 
 		result1 = append(result1, val)
+	}
+
+	for i := 0; i < min(len(param1), len(result1)); i++ {
+		param1[i].PDecimal, result1[i].PDecimal = decimal.RescalePair(
+			param1[i].PDecimal, result1[i].PDecimal)
+
+		if param1[i].PDecimalNull != nil && result1[i].PDecimalNull != nil {
+			p1, r1 := decimal.RescalePair(
+				*param1[i].PDecimalNull, *result1[i].PDecimalNull)
+			param1[i].PDecimalNull = &p1
+			result1[i].PDecimalNull = &r1
+		}
 	}
 
 	if !reflect.DeepEqual(param1, result1) {
