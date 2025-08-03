@@ -30,6 +30,7 @@ func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 		"test_nullint16",
 		"test_nulltime",
 		"test_nulluniqueidentifier",
+		"test_decimal",
 	}
 	values := []interface{}{
 		sql.NullFloat64{Valid: false},
