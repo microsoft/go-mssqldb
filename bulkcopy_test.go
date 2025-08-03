@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -40,6 +41,7 @@ func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 		sql.NullInt16{Valid: false},
 		sql.NullTime{Valid: false},
 		NullUniqueIdentifier{Valid: false},
+		decimal.NullDecimal{Valid: false},
 	}
 
 	pool, logger := open(t)
