@@ -354,6 +354,7 @@ func setupNullableTypeTable(ctx context.Context, t *testing.T, conn *sql.Conn, t
 	[test_nullint16] [smallint] NULL,
 	[test_nulltime] [datetime] NULL,
 	[test_nulluniqueidentifier] [uniqueidentifier] NULL,
+	[test_decimal] [decimal](18, 4) NULL,
  CONSTRAINT [PK_` + tableName + `_id] PRIMARY KEY CLUSTERED
 (
 	[id] ASC
