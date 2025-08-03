@@ -339,7 +339,12 @@ func compareValue(a interface{}, expected interface{}) bool {
 		}
 		return false
 	case decimal.Decimal:
-		return expected.Equal(a.(decimal.Decimal))
+		actual, err := decimal.NewFromString(a.(string))
+		if err != nil {
+			return false
+		}
+
+		return expected.Equal(actual)
 	default:
 		return reflect.DeepEqual(expected, a)
 	}
