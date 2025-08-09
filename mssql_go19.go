@@ -212,7 +212,13 @@ func (s *Stmt) makeParamExtra(val driver.Value) (res param, err error) {
 		case Money:
 			res = makeMoneyParam(dest)
 		case NullMoney:
-			res = makeMoneyParam(Money{dest.Decimal})
+			if dest.Valid {
+				res = makeMoneyParam(Money{dest.Decimal})
+			} else {
+				res.ti.TypeId = typeMoneyN
+				res.buffer = []byte{}
+				res.ti.Size = 8
+			}
 		default:
 			res, err = s.makeParam(dest)
 		}
