@@ -531,6 +531,8 @@ AS
 BEGIN
 	IF @dinout = 535.8
 		SET @dinout = NULL
+	ELSE IF @dinout IS NULL
+		SET @dinout = -99922.333
 	ELSE
 		SET @dinout = 29342.1234
 END;
@@ -603,12 +605,12 @@ END;
 			t.Error(err)
 		}
 
-		expected, _ := decimal.NewFromString("29342.1234")
+		expected, _ := decimal.NewFromString("-99922.333")
 		if !dinout.Valid || !dinout.Decimal.Equal(expected) {
 			if dinout.Valid {
-				t.Errorf("expected 29342.1234, got %t, %s", dinout.Valid, dinout.Decimal.String())
+				t.Errorf("expected -99922.333, got %t, %s", dinout.Valid, dinout.Decimal.String())
 			} else {
-				t.Errorf("expected 29342.1234, got NULL")
+				t.Errorf("expected -99922.333, got NULL")
 			}
 		}
 	})
@@ -637,6 +639,8 @@ AS
 BEGIN
 	IF @minout = 535.8
 		SET @minout = NULL
+	ELSE IF @minout IS NULL
+		SET @minout = -99922.333
 	ELSE
 		SET @minout = 29342.1234
 END;
@@ -710,12 +714,12 @@ END;
 			t.Error(err)
 		}
 
-		expected, _ := decimal.NewFromString("29342.1234")
+		expected, _ := decimal.NewFromString("-99922.333")
 		if !minout.Valid || !minout.Decimal.Equal(expected) {
 			if minout.Valid {
-				t.Errorf("expected 29342.1234, got %t, %s", minout.Valid, minout.Decimal.String())
+				t.Errorf("expected -99922.333, got %t, %s", minout.Valid, minout.Decimal.String())
 			} else {
-				t.Errorf("expected 29342.1234, got NULL")
+				t.Errorf("expected -99922.333, got NULL")
 			}
 		}
 	})
