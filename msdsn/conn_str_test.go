@@ -111,6 +111,25 @@ func TestValidConnectionString(t *testing.T) {
 		{"MultiSubnetFailover=false", func(p Config) bool { return !p.MultiSubnetFailover }},
 		{"timezone=Asia/Shanghai", func(p Config) bool { return p.Encoding.Timezone.String() == "Asia/Shanghai" }},
 		{"Pwd=placeholder", func(p Config) bool { return p.Password == "placeholder" }},
+		
+		// ADO connection string tests with double-quoted values containing semicolons
+		{"server=test;password=\"pass;word\"", func(p Config) bool { return p.Host == "test" && p.Password == "pass;word" }},
+		{"password=\"[2+R2B6O:fF/[;]cJsr\"", func(p Config) bool { return p.Password == "[2+R2B6O:fF/[;]cJsr" }},
+		{"server=host;user id=user;password=\"complex;pass=word\"", func(p Config) bool { 
+			return p.Host == "host" && p.User == "user" && p.Password == "complex;pass=word" 
+		}},
+		{"password=\"value with \"\"quotes\"\" inside\"", func(p Config) bool { return p.Password == "value with \"quotes\" inside" }},
+		{"server=test;password=\"simple\"", func(p Config) bool { return p.Host == "test" && p.Password == "simple" }},
+		// Test case specifically for the reported issue #282
+		{"Server=tcp:sql.database.windows.net,1433;Initial Catalog=MyDatabase;User Id=testadmin@sql.database.windows.net;Password=\"[2+R2B6O:fF/[;]cJsr\"", func(p Config) bool {
+			return p.Host == "sql.database.windows.net" && p.Database == "MyDatabase" && p.User == "testadmin@sql.database.windows.net" && p.Password == "[2+R2B6O:fF/[;]cJsr"
+		}},
+		// Additional edge cases for double-quoted values
+		{"password=\"\"", func(p Config) bool { return p.Password == "" }}, // Empty quoted password
+		{"password=\";\"", func(p Config) bool { return p.Password == ";" }}, // Just a semicolon
+		{"password=\";;\"", func(p Config) bool { return p.Password == ";;" }}, // Multiple semicolons
+		{"server=\"host;name\";password=\"pass;word\"", func(p Config) bool { return p.Host == "host;name" && p.Password == "pass;word" }}, // Multiple quoted values
+		
 		// those are supported currently, but maybe should not be
 		{"someparam", func(p Config) bool { return true }},
 		{";;=;", func(p Config) bool { return true }},
