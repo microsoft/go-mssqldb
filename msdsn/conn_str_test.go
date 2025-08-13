@@ -130,6 +130,14 @@ func TestValidConnectionString(t *testing.T) {
 		{"password=\";;\"", func(p Config) bool { return p.Password == ";;" }}, // Multiple semicolons
 		{"server=\"host;name\";password=\"pass;word\"", func(p Config) bool { return p.Host == "host;name" && p.Password == "pass;word" }}, // Multiple quoted values
 		
+		// Test cases with multibyte UTF-8 characters
+		{"password=\"пароль;test\"", func(p Config) bool { return p.Password == "пароль;test" }}, // Cyrillic characters with semicolon
+		{"server=\"服务器;name\";password=\"密码;word\"", func(p Config) bool { return p.Host == "服务器;name" && p.Password == "密码;word" }}, // Chinese characters
+		{"password=\"🔐;secret;🗝️\"", func(p Config) bool { return p.Password == "🔐;secret;🗝️" }}, // Emoji characters with semicolons
+		{"user id=\"用户名\";password=\"пароль\"", func(p Config) bool { return p.User == "用户名" && p.Password == "пароль" }}, // Mixed multibyte chars
+		{"password=\"测试\"\"密码\"\"\"", func(p Config) bool { return p.Password == "测试\"密码\"" }}, // Chinese chars with escaped quotes
+		{"password=\"café;naïve;résumé\"", func(p Config) bool { return p.Password == "café;naïve;résumé" }}, // Accented characters
+		
 		// those are supported currently, but maybe should not be
 		{"someparam", func(p Config) bool { return true }},
 		{";;=;", func(p Config) bool { return true }},

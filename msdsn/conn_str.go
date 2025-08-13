@@ -712,26 +712,27 @@ func splitAdoConnectionStringParts(dsn string) []string {
 	var current strings.Builder
 	inQuotes := false
 	
-	for i := 0; i < len(dsn); i++ {
-		char := dsn[i]
+	runes := []rune(dsn)
+	for i := 0; i < len(runes); i++ {
+		char := runes[i]
 		
 		if char == '"' {
-			if inQuotes && i+1 < len(dsn) && dsn[i+1] == '"' {
+			if inQuotes && i+1 < len(runes) && runes[i+1] == '"' {
 				// Double quote escape sequence - add both quotes to current part
-				current.WriteByte(char)
-				current.WriteByte(dsn[i+1])
+				current.WriteRune(char)
+				current.WriteRune(runes[i+1])
 				i++ // Skip the next quote
 			} else {
 				// Start or end of quoted section
 				inQuotes = !inQuotes
-				current.WriteByte(char)
+				current.WriteRune(char)
 			}
 		} else if char == ';' && !inQuotes {
 			// Semicolon outside of quotes - end current part
 			parts = append(parts, current.String())
 			current.Reset()
 		} else {
-			current.WriteByte(char)
+			current.WriteRune(char)
 		}
 	}
 	
