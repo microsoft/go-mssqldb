@@ -293,14 +293,14 @@ func encodeDateTime(t time.Time) (res []byte) {
 	// days since Jan 1st 1900 (same TZ as t)
 	days := gregorianDays(t.Year(), t.YearDay()) - basedays
 	tm := 300*(t.Second()+t.Minute()*60+t.Hour()*60*60) + nanosToThreeHundredthsOfASecond(t.Nanosecond())
-	
+
 	// Handle day overflow when time calculation exceeds one day
 	// One day = 86400 seconds = 86400 * 300 three-hundredths = 25,920,000
 	if tm >= 300*86400 {
 		days++
 		tm = tm - 300*86400
 	}
-	
+
 	// minimum and maximum possible
 	mindays := gregorianDays(1753, 1) - basedays
 	maxdays := gregorianDays(9999, 365) - basedays
