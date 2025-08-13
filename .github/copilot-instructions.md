@@ -6,8 +6,6 @@ This is the Microsoft official Go MSSQL driver repository. This document provide
 
 ## Working Effectively
 
-## Working Effectively
-
 ### Bootstrap and Build the Repository
 - **Download dependencies**: `go mod download` - takes <0.01 seconds (already cached)
 - **Build the driver**: `go build` - takes ~0.1 seconds. NEVER CANCEL
