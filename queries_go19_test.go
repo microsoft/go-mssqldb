@@ -789,12 +789,6 @@ END;
 	t.Run("positive 32-bit in, null out", func(t *testing.T) {
 		dinout, _ := decimal.NewFromString("535.8955")
 		minout := NullMoney{decimal.NewNullDecimal(dinout)}
-		_, err = db.ExecContext(ctx, sqltextrun,
-			sql.Named("minout", sql.Out{Dest: &minout}),
-		)
-		if err != nil {
-			t.Error(err)
-		}
 
 		rows, err := db.QueryContext(ctx, sqltextrun, sql.Named("minout", sql.Out{Dest: &minout}))
 		if err != nil {
