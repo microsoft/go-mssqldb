@@ -740,6 +740,155 @@ END;
 	})
 }
 
+func TestINOUTMoneyParamEncoding(t *testing.T) {
+	sqltextcreate := `
+CREATE PROCEDURE vinout
+   @minout MONEY OUTPUT
+AS
+BEGIN
+	IF @minout = 535.8955
+		SET @minout = NULL
+	ELSE IF @minout = 499983212344.8763
+		SET @minout = 6578.2211
+	ELSE IF @minout = -982.3421
+		SET @minout = -923232111223.1133
+	ELSE IF @minout = -892322132322.9912
+		SET @minout = -99922.333
+	ELSE IF @minout IS NULL
+		SET @minout = -777219991448.0097
+	ELSE
+		SET @minout = @minout + 29342.1234
+END;
+`
+	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextrun := `vinout`
+
+	checkConnStr(t)
+	tl := testLogger{t: t}
+	defer tl.StopLogging()
+	SetLogger(&tl)
+
+	db, err := sql.Open("sqlserver", makeConnStr(t).String())
+	if err != nil {
+		t.Fatalf("failed to open driver sqlserver")
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	db.ExecContext(ctx, sqltextdrop)
+	_, err = db.ExecContext(ctx, sqltextcreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.ExecContext(ctx, sqltextdrop)
+
+	t.Run("positive 32-bit in, null out", func(t *testing.T) {
+		dinout, _ := decimal.NewFromString("535.8955")
+		minout := NullMoney{decimal.NewNullDecimal(dinout)}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("minout", sql.Out{Dest: &minout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if minout.Valid {
+			t.Errorf("expected NULL, got %t, %s", minout.Valid, minout.Decimal.String())
+		}
+	})
+
+	t.Run("positive 64-bit in, positive 32-bit out", func(t *testing.T) {
+		dinout, _ := decimal.NewFromString("499983212344.8763")
+		minout := NullMoney{decimal.NewNullDecimal(dinout)}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("minout", sql.Out{Dest: &minout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected, _ := decimal.NewFromString("6578.2211")
+		if minout.Valid {
+			t.Errorf("expected %s, got %t, %s", expected.String(), minout.Valid, minout.Decimal.String())
+		} else {
+			t.Errorf("expected %s, got NULL", expected.String())
+		}
+	})
+
+	t.Run("negative 32-bit in, negative 64-bit out", func(t *testing.T) {
+		dinout, _ := decimal.NewFromString("-982.3421")
+		minout := NullMoney{decimal.NewNullDecimal(dinout)}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("minout", sql.Out{Dest: &minout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected, _ := decimal.NewFromString("-923232111223.1133")
+		if minout.Valid {
+			t.Errorf("expected %s, got %t, %s", expected.String(), minout.Valid, minout.Decimal.String())
+		} else {
+			t.Errorf("expected %s, got NULL", expected.String())
+		}
+	})
+
+	t.Run("negative 64-bit in, negative 32-bit out", func(t *testing.T) {
+		dinout, _ := decimal.NewFromString("-892322132322.9912")
+		minout := NullMoney{decimal.NewNullDecimal(dinout)}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("minout", sql.Out{Dest: &minout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected, _ := decimal.NewFromString("-99922.333")
+		if minout.Valid {
+			t.Errorf("expected %s, got %t, %s", expected.String(), minout.Valid, minout.Decimal.String())
+		} else {
+			t.Errorf("expected %s, got NULL", expected.String())
+		}
+	})
+
+	t.Run("null in, non-null out", func(t *testing.T) {
+		minout := NullMoney{decimal.NullDecimal{}}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("minout", sql.Out{Dest: &minout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected, _ := decimal.NewFromString("-777219991448.0097")
+		if minout.Valid {
+			t.Errorf("expected %s, got %t, %s", expected.String(), minout.Valid, minout.Decimal.String())
+		} else {
+			t.Errorf("expected %s, got NULL", expected.String())
+		}
+	})
+
+	t.Run("non-null in, non-null out", func(t *testing.T) {
+		dinout, _ := decimal.NewFromString("1")
+		minout := NullMoney{decimal.NewNullDecimal(dinout)}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("minout", sql.Out{Dest: &minout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected, _ := decimal.NewFromString("29343.1234")
+		if minout.Valid {
+			t.Errorf("expected %s, got %t, %s", expected.String(), minout.Valid, minout.Decimal.String())
+		} else {
+			t.Errorf("expected %s, got NULL", expected.String())
+		}
+	})
+}
+
 func TestOutputINOUTParam(t *testing.T) {
 	sqltextcreate := `
 CREATE PROCEDURE abinout
