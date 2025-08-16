@@ -346,6 +346,10 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 	loc := getTimezone(b.cn)
 
 	switch valuer := val.(type) {
+	case Money:
+		return b.makeParam(valuer.Decimal, col)
+	case NullMoney:
+		return b.makeParam(valuer.NullDecimal, col)
 	case driver.Valuer:
 		var e error
 		val, e = driver.DefaultParameterConverter.ConvertValue(valuer)
