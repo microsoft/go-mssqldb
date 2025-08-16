@@ -1,13 +1,5 @@
 package mssql
 
-import (
-	"github.com/shopspring/decimal"
-)
-
-type Money struct {
-	decimal.Decimal
-}
-
-type NullMoney struct {
-	decimal.NullDecimal
+type Money[D any] struct {
+	Decimal D
 }

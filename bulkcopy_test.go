@@ -44,7 +44,7 @@ func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 		sql.NullTime{Valid: false},
 		NullUniqueIdentifier{Valid: false},
 		decimal.NullDecimal{Valid: false},
-		NullMoney{decimal.NullDecimal{Valid: false}},
+		Money[decimal.NullDecimal]{decimal.NullDecimal{Valid: false}},
 	}
 
 	pool, logger := open(t)
@@ -182,10 +182,10 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		{"test_nullint16", sql.NullInt16{32767, true}, 32767},
 		{"test_nulltime", sql.NullTime{time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC), true}, time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC)},
 		{"test_nulldecimal", decimal.NewNullDecimal(decimal.New(1232355, -4)), decimal.New(1232355, -4)},
-		{"test_nullmoney", NullMoney{decimal.NewNullDecimal(decimal.New(-21232311232355, -4))}, decimal.New(-21232311232355, -4)},
+		{"test_nullmoney", Money[decimal.NullDecimal]{decimal.NewNullDecimal(decimal.New(-21232311232355, -4))}, decimal.New(-21232311232355, -4)},
 		{"test_datetimen_midnight", time.Date(2025, 1, 1, 23, 59, 59, 998_350_000, time.UTC), time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)},
-		{"test_smallmoney", Money{decimal.New(-32856, -4)}, decimal.New(-32856, -4)},
-		{"test_money", Money{decimal.New(-21232311232355, -4)}, decimal.New(-21232311232355, -4)},
+		{"test_smallmoney", Money[decimal.Decimal]{decimal.New(-32856, -4)}, decimal.New(-32856, -4)},
+		{"test_money", Money[decimal.Decimal]{decimal.New(-21232311232355, -4)}, decimal.New(-21232311232355, -4)},
 		{"test_decimal_18_0", 1234.0001, "1234"},
 		{"test_decimal_9_2", -1234.560001, "-1234.56"},
 		{"test_decimal_20_0", 1234, "1234"},
@@ -348,13 +348,13 @@ func compareValue(a interface{}, expected interface{}) bool {
 		}
 
 		return expected.Equal(actual)
-	case Money:
+	case Money[decimal.Decimal]:
 		actual, err := decimal.NewFromString(a.(string))
 		if err != nil {
 			return false
 		}
 
-		return expected.Equal(actual)
+		return expected.Decimal.Equal(actual)
 	default:
 		return reflect.DeepEqual(expected, a)
 	}

@@ -1001,9 +1001,9 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		if valuer.Valid {
 			return s.makeParam(valuer.Decimal)
 		}
-	case NullMoney:
-		if valuer.Valid {
-			return s.makeParam(Money{valuer.Decimal})
+	case Money[decimal.NullDecimal]:
+		if valuer.Decimal.Valid {
+			return s.makeParam(Money[decimal.Decimal]{valuer.Decimal.Decimal})
 		}
 	case UniqueIdentifier:
 	case NullUniqueIdentifier:
@@ -1093,7 +1093,7 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		res.ti.TypeId = typeNVarChar
 		res.buffer = nil
 		res.ti.Size = 8000
-	case NullMoney:
+	case Money[decimal.NullDecimal]:
 		// only null values should be getting here
 		res.ti.TypeId = typeNVarChar
 		res.buffer = nil

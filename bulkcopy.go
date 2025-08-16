@@ -14,6 +14,7 @@ import (
 
 	"github.com/microsoft/go-mssqldb/internal/decimal"
 	"github.com/microsoft/go-mssqldb/msdsn"
+	shopspring "github.com/shopspring/decimal"
 )
 
 type Bulk struct {
@@ -346,10 +347,10 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 	loc := getTimezone(b.cn)
 
 	switch valuer := val.(type) {
-	case Money:
+	case Money[shopspring.Decimal]:
 		return b.makeParam(valuer.Decimal, col)
-	case NullMoney:
-		return b.makeParam(valuer.NullDecimal, col)
+	case Money[shopspring.NullDecimal]:
+		return b.makeParam(valuer.Decimal, col)
 	case driver.Valuer:
 		var e error
 		val, e = driver.DefaultParameterConverter.ConvertValue(valuer)
@@ -583,12 +584,12 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 					binary.LittleEndian.PutUint32(buf, ^integer0+1)
 				}
 			} else {
-				integer :=  (uint64(money.GetInteger(1)) << 32) | uint64(integer0)
+				integer := (uint64(money.GetInteger(1)) << 32) | uint64(integer0)
 				if !money.IsPositive() {
 					integer = ^integer + 1
 				}
 
-				binary.LittleEndian.PutUint32(buf, uint32(integer >> 32))
+				binary.LittleEndian.PutUint32(buf, uint32(integer>>32))
 				binary.LittleEndian.PutUint32(buf[4:], uint32(integer))
 			}
 

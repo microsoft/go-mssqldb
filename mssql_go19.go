@@ -146,7 +146,7 @@ func (c *Conn) CheckNamedValue(nv *driver.NamedValue) error {
 	}
 }
 
-func makeMoneyParam(val Money) (res param) {
+func makeMoneyParam(val decimal.Decimal) (res param) {
 	res.ti.TypeId = typeMoneyN
 
 	var coeff int64
@@ -155,14 +155,14 @@ func makeMoneyParam(val Money) (res param) {
 	if exp < -4 {
 		coeff = val.Mul(decimal.New(1, 4)).IntPart()
 	} else {
-		val.Decimal, _ = decimal.RescalePair(val.Decimal, decimal.New(1, -4))
+		val, _ = decimal.RescalePair(val, decimal.New(1, -4))
 
-                coeff = val.CoefficientInt64()
+		coeff = val.CoefficientInt64()
 	}
 
 	res.buffer = make([]byte, 8)
 	res.ti.Size = 8
-	binary.LittleEndian.PutUint32(res.buffer, uint32(coeff >> 32))
+	binary.LittleEndian.PutUint32(res.buffer, uint32(coeff>>32))
 	binary.LittleEndian.PutUint32(res.buffer[4:], uint32(coeff))
 
 	return
@@ -214,11 +214,11 @@ func (s *Stmt) makeParamExtra(val driver.Value) (res param, err error) {
 		res.ti.Size = len(res.buffer)
 	case sql.Out:
 		switch dest := val.Dest.(type) {
-		case Money:
-			res = makeMoneyParam(dest)
-		case NullMoney:
-			if dest.Valid {
-				res = makeMoneyParam(Money{dest.Decimal})
+		case Money[decimal.Decimal]:
+			res = makeMoneyParam(dest.Decimal)
+		case Money[decimal.NullDecimal]:
+			if dest.Decimal.Valid {
+				res = makeMoneyParam(dest.Decimal.Decimal)
 			} else {
 				res.ti.TypeId = typeMoneyN
 				res.buffer = []byte{}
