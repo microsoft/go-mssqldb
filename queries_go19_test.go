@@ -758,6 +758,8 @@ BEGIN
 		SET @minout = -777219991448.0097
 	ELSE
 		SET @minout = @minout + 29342.1234
+
+	SELECT @minout
 END;
 `
 	sqltextdrop := `DROP PROCEDURE vinout;`
@@ -794,8 +796,31 @@ END;
 			t.Error(err)
 		}
 
+		rows, err := db.QueryContext(ctx, sqltextrun, sql.Named("minout", sql.Out{Dest: &minout}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+
+		if !rows.Next() {
+			t.Error("Next returned false")
+		}
+		var rowval NullMoney
+		err = rows.Scan(&rowval)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if rows.Next() {
+			t.Error("Next returned true but should return false after last row was returned")
+		}
+
 		if minout.Valid {
 			t.Errorf("expected NULL, got %t, %s", minout.Valid, minout.Decimal.String())
+		}
+
+		if rowval.Valid {
+			t.Errorf("expected NULL, got %t, %s", rowval.Valid, rowval.Decimal.String())
 		}
 	})
 
