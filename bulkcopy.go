@@ -576,9 +576,17 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			buf := make([]byte, col.ti.Size)
 
 			if col.ti.Size == 4 {
-				binary.LittleEndian.PutUint32(buf, money.GetInteger(0))
+				if money.IsPositive() {
+					binary.LittleEndian.PutUint32(buf, money.GetInteger(0))
+				} else {
+					binary.LittleEndian.PutUint32(buf, ^money.GetInteger(0)+1)
+				}
 			} else {
-				binary.LittleEndian.PutUint32(buf, money.GetInteger(1))
+				if money.IsPositive() {
+					binary.LittleEndian.PutUint32(buf, money.GetInteger(1))
+				} else {
+					binary.LittleEndian.PutUint32(buf, ^money.GetInteger(1)+1)
+				}
 				binary.LittleEndian.PutUint32(buf[4:], money.GetInteger(0))
 			}
 
