@@ -740,6 +740,206 @@ END;
 	})
 }
 
+func TestINOUTDecimalParamEncoding(t *testing.T) {
+	sqltextcreate := `
+CREATE PROCEDURE vinout
+   @minout DECIMAL(18, 4) OUTPUT
+AS
+BEGIN
+	IF @dinout = 535.8955
+		SET @dinout = NULL
+	ELSE IF @dinout = -982.3421
+		SET @dinout = 323233.1133
+	ELSE IF @dinout IS NULL
+		SET @dinout = -777219991448.0097
+	ELSE
+		SET @dinout = @dinout + 29342.1234
+
+	SELECT @dinout
+END;
+`
+	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextrun := `vinout`
+
+	checkConnStr(t)
+	tl := testLogger{t: t}
+	defer tl.StopLogging()
+	SetLogger(&tl)
+
+	db, err := sql.Open("sqlserver", makeConnStr(t).String())
+	if err != nil {
+		t.Fatalf("failed to open driver sqlserver")
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	db.ExecContext(ctx, sqltextdrop)
+	_, err = db.ExecContext(ctx, sqltextcreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.ExecContext(ctx, sqltextdrop)
+
+	t.Run("positive in, null out", func(t *testing.T) {
+		val, _ := decimal.NewFromString("535.8955")
+		dinout := decimal.NewNullDecimal(val)
+
+		rows, err := db.QueryContext(ctx, sqltextrun, sql.Named("dinout", sql.Out{Dest: &dinout}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+
+		if !rows.Next() {
+			t.Error("Next returned false")
+		}
+		var rowval NullMoney
+		err = rows.Scan(&rowval)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if rows.Next() {
+			t.Error("Next returned true but should return false after last row was returned")
+		}
+
+		if dinout.Valid {
+			t.Errorf("expected NULL, got %t, %s", dinout.Valid, dinout.Decimal.String())
+		}
+
+		if rowval.Valid {
+			t.Errorf("expected NULL, got %t, %s", rowval.Valid, rowval.Decimal.String())
+		}
+	})
+
+	t.Run("negative in, positive out", func(t *testing.T) {
+		val, _ := decimal.NewFromString("-982.3421")
+		dinout := decimal.NewNullDecimal(val)
+
+		rows, err := db.QueryContext(ctx, sqltextrun, sql.Named("dinout", sql.Out{Dest: &dinout}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+
+		if !rows.Next() {
+			t.Error("Next returned false")
+		}
+		var rowval NullMoney
+		err = rows.Scan(&rowval)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if rows.Next() {
+			t.Error("Next returned true but should return false after last row was returned")
+		}
+
+		expected, _ := decimal.NewFromString("323233.1133")
+
+		if dinout.Valid {
+			if !expected.Equal(dinout.Decimal) {
+				t.Errorf("expected %s, got %t, %s", expected.String(), dinout.Valid, dinout.Decimal.String())
+			}
+		} else {
+			t.Errorf("expected %s, got NULL", expected.String())
+		}
+
+		if rowval.Valid {
+			if !expected.Equal(rowval.Decimal) {
+				t.Errorf("expected %s, got %t, %s", expected.String(), rowval.Valid, rowval.Decimal.String())
+			}
+		} else {
+			t.Errorf("expected %s, got NULL", expected.String())
+		}
+	})
+
+	t.Run("null in, negative out", func(t *testing.T) {
+		dinout := decimal.NullDecimal{}
+
+		rows, err := db.QueryContext(ctx, sqltextrun, sql.Named("dinout", sql.Out{Dest: &dinout}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+
+		if !rows.Next() {
+			t.Error("Next returned false")
+		}
+		var rowval NullMoney
+		err = rows.Scan(&rowval)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if rows.Next() {
+			t.Error("Next returned true but should return false after last row was returned")
+		}
+
+		expected, _ := decimal.NewFromString("-777219991448.0097")
+
+		if dinout.Valid {
+			if !expected.Equal(dinout.Decimal) {
+				t.Errorf("expected %s, got %t, %s", expected.String(), dinout.Valid, dinout.Decimal.String())
+			}
+		} else {
+			t.Errorf("expected %s, got NULL", expected.String())
+		}
+
+		if rowval.Valid {
+			if !expected.Equal(rowval.Decimal) {
+				t.Errorf("expected %s, got %t, %s", expected.String(), rowval.Valid, rowval.Decimal.String())
+			}
+		} else {
+			t.Errorf("expected %s, got NULL", expected.String())
+		}
+	})
+
+	t.Run("non-null in, non-null out", func(t *testing.T) {
+		val, _ := decimal.NewFromString("1")
+		dinout := decimal.NewNullDecimal(val)
+
+		rows, err := db.QueryContext(ctx, sqltextrun, sql.Named("dinout", sql.Out{Dest: &dinout}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+
+		if !rows.Next() {
+			t.Error("Next returned false")
+		}
+		var rowval NullMoney
+		err = rows.Scan(&rowval)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if rows.Next() {
+			t.Error("Next returned true but should return false after last row was returned")
+		}
+
+		expected, _ := decimal.NewFromString("29343.1234")
+
+		if dinout.Valid {
+			if !expected.Equal(dinout.Decimal) {
+				t.Errorf("expected %s, got %t, %s", expected.String(), dinout.Valid, dinout.Decimal.String())
+			}
+		} else {
+			t.Errorf("expected %s, got NULL", expected.String())
+		}
+
+		if rowval.Valid {
+			if !expected.Equal(rowval.Decimal) {
+				t.Errorf("expected %s, got %t, %s", expected.String(), rowval.Valid, rowval.Decimal.String())
+			}
+		} else {
+			t.Errorf("expected %s, got NULL", expected.String())
+		}
+	})
+}
+
 func TestINOUTMoneyParamEncoding(t *testing.T) {
 	sqltextcreate := `
 CREATE PROCEDURE vinout
