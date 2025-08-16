@@ -575,8 +575,8 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 
 			buf := make([]byte, 8)
 
-			binary.LittleEndian.PutUint32(buf, money.GetInteger(0))
-			binary.LittleEndian.PutUint32(buf[4:], money.GetInteger(1))
+			binary.LittleEndian.PutUint32(buf, money.GetInteger(1))
+			binary.LittleEndian.PutUint32(buf[4:], money.GetInteger(0))
 
 			res.buffer = buf
 		default:
