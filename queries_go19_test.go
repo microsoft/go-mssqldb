@@ -743,7 +743,7 @@ END;
 func TestINOUTDecimalParamEncoding(t *testing.T) {
 	sqltextcreate := `
 CREATE PROCEDURE vinout
-   @minout DECIMAL(18, 4) OUTPUT
+   @dinout DECIMAL(18, 4) OUTPUT
 AS
 BEGIN
 	IF @dinout = 535.8955
