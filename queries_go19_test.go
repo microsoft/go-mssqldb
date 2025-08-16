@@ -811,7 +811,9 @@ END;
 
 		expected, _ := decimal.NewFromString("6578.2211")
 		if minout.Valid {
-			t.Errorf("expected %s, got %t, %s", expected.String(), minout.Valid, minout.Decimal.String())
+			if !expected.Equal(minout.Decimal) {
+				t.Errorf("expected %s, got %t, %s", expected.String(), minout.Valid, minout.Decimal.String())
+			}
 		} else {
 			t.Errorf("expected %s, got NULL", expected.String())
 		}
@@ -829,7 +831,9 @@ END;
 
 		expected, _ := decimal.NewFromString("-923232111223.1133")
 		if minout.Valid {
-			t.Errorf("expected %s, got %t, %s", expected.String(), minout.Valid, minout.Decimal.String())
+			if !expected.Equal(minout.Decimal) {
+				t.Errorf("expected %s, got %t, %s", expected.String(), minout.Valid, minout.Decimal.String())
+			}
 		} else {
 			t.Errorf("expected %s, got NULL", expected.String())
 		}
@@ -847,7 +851,9 @@ END;
 
 		expected, _ := decimal.NewFromString("-99922.333")
 		if minout.Valid {
-			t.Errorf("expected %s, got %t, %s", expected.String(), minout.Valid, minout.Decimal.String())
+			if !expected.Equal(minout.Decimal) {
+				t.Errorf("expected %s, got %t, %s", expected.String(), minout.Valid, minout.Decimal.String())
+			}
 		} else {
 			t.Errorf("expected %s, got NULL", expected.String())
 		}
@@ -864,7 +870,9 @@ END;
 
 		expected, _ := decimal.NewFromString("-777219991448.0097")
 		if minout.Valid {
-			t.Errorf("expected %s, got %t, %s", expected.String(), minout.Valid, minout.Decimal.String())
+			if !expected.Equal(minout.Decimal) {
+				t.Errorf("expected %s, got %t, %s", expected.String(), minout.Valid, minout.Decimal.String())
+			}
 		} else {
 			t.Errorf("expected %s, got NULL", expected.String())
 		}
@@ -882,7 +890,9 @@ END;
 
 		expected, _ := decimal.NewFromString("29343.1234")
 		if minout.Valid {
-			t.Errorf("expected %s, got %t, %s", expected.String(), minout.Valid, minout.Decimal.String())
+			if !expected.Equal(minout.Decimal) {
+				t.Errorf("expected %s, got %t, %s", expected.String(), minout.Valid, minout.Decimal.String())
+			}
 		} else {
 			t.Errorf("expected %s, got NULL", expected.String())
 		}
