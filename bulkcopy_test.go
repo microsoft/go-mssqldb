@@ -30,7 +30,8 @@ func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 		"test_nullint16",
 		"test_nulltime",
 		"test_nulluniqueidentifier",
-		"test_decimal",
+		"test_nulldecimal",
+		"test_nullmoney",
 	}
 	values := []interface{}{
 		sql.NullFloat64{Valid: false},
@@ -43,6 +44,7 @@ func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 		sql.NullTime{Valid: false},
 		NullUniqueIdentifier{Valid: false},
 		decimal.NullDecimal{Valid: false},
+		NullMoney{decimal.NullDecimal{Valid: false}},
 	}
 
 	pool, logger := open(t)
@@ -180,6 +182,7 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		{"test_nullint16", sql.NullInt16{32767, true}, 32767},
 		{"test_nulltime", sql.NullTime{time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC), true}, time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC)},
 		{"test_nulldecimal", decimal.NewNullDecimal(decimal.New(1232355, -4)), decimal.New(1232355, -4)},
+		{"test_nullmoney", NullMoney{decimal.NewNullDecimal(decimal.New(1232355, -4))}, decimal.New(1232355, -4)},
 		{"test_datetimen_midnight", time.Date(2025, 1, 1, 23, 59, 59, 998_350_000, time.UTC), time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)},
 		// {"test_smallmoney", 1234.56, nil},
 		// {"test_money", 1234.56, nil},
@@ -345,6 +348,13 @@ func compareValue(a interface{}, expected interface{}) bool {
 		}
 
 		return expected.Equal(actual)
+	case Money:
+		actual, err := decimal.NewFromString(a.(string))
+		if err != nil {
+			return false
+		}
+
+		return expected.Equal(actual)
 	default:
 		return reflect.DeepEqual(expected, a)
 	}
@@ -362,7 +372,8 @@ func setupNullableTypeTable(ctx context.Context, t *testing.T, conn *sql.Conn, t
 	[test_nullint16] [smallint] NULL,
 	[test_nulltime] [datetime] NULL,
 	[test_nulluniqueidentifier] [uniqueidentifier] NULL,
-	[test_decimal] [decimal](18, 4) NULL,
+	[test_nulldecimal] [decimal](18, 4) NULL,
+	[test_nullmoney] [money] NULL,
  CONSTRAINT [PK_` + tableName + `_id] PRIMARY KEY CLUSTERED
 (
 	[id] ASC
@@ -451,6 +462,7 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 	[test_nullint16] [smallint] NULL,
 	[test_nulltime] [datetime] NULL,
 	[test_nulldecimal] [decimal](18, 4) NULL,
+	[test_nullmoney] [money] NULL,
 	[test_datetimen_midnight] [datetime] NULL,
  CONSTRAINT [PK_` + tableName + `_id] PRIMARY KEY CLUSTERED
 (
