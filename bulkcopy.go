@@ -565,7 +565,23 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			err = fmt.Errorf("mssql: invalid type for time column: %T %s", val, val)
 			return
 		}
-	// case typeMoney, typeMoney4, typeMoneyN:
+	case typeMoney, typeMoneyN:
+		switch v := val.(type) {
+		case string:
+			money, err := decimal.StringToDecimalScale(v, 4)
+			if err != nil {
+				return res, err
+			}
+
+			buf := make([]byte, 8)
+
+			binary.LittleEndian.PutUint32(buf, money.GetInteger(0))
+			binary.LittleEndian.PutUint32(buf[4:], money.GetInteger(1))
+
+			res.buffer = buf
+		default:
+			return res, fmt.Errorf("unknown value for money: %T %#v", v, v)
+		}
 	case typeDecimal, typeDecimalN, typeNumeric, typeNumericN:
 		prec := col.ti.Prec
 		scale := col.ti.Scale
