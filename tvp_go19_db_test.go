@@ -51,7 +51,11 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 			p_decimal           DECIMAL(18, 4),
 			p_decimalNull       DECIMAL(18, 4),
 			s_decimal           DECIMAL(18, 4),
-			s_decimalNull       DECIMAL(18, 4)
+			s_decimalNull       DECIMAL(18, 4),
+			p_money             MONEY,
+			p_moneyNull         MONEY,
+			s_money             MONEY,
+			s_moneyNull         MONEY
 		); `
 
 	sqltextdroptable := `DROP TYPE tvpGoSQLTypesWithStandardType;`
@@ -90,6 +94,10 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 		PDecimalNull decimal.NullDecimal
 		SDecimal     decimal.Decimal
 		SDecimalNull *decimal.Decimal
+		PMoney       Money[decimal.NullDecimal]
+		PMoneyNull   Money[decimal.NullDecimal]
+		SMoney       Money[decimal.Decimal]
+		SMoneyNull   *Money[decimal.Decimal]
 	}
 
 	sqltextdropsp := `DROP PROCEDURE spwithtvpGoSQLTypesWithStandardType;`
@@ -111,6 +119,7 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 	bTrue := true
 	floatValue64 := 0.123
 	decimalValue := decimal.New(4821212, -4)
+	moneyValue := Money[decimal.Decimal]{decimal.New(4821212, -4)}
 	param1 := []TvpGoSQLTypes{
 		{
 			PBool: sql.NullBool{
@@ -135,6 +144,8 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 			PStringNull:  sql.NullString{},
 			PDecimal:     decimal.NewNullDecimal(decimal.New(-2323, -3)),
 			PDecimalNull: decimal.NullDecimal{},
+			PMoney:       Money[decimal.NullDecimal]{decimal.NewNullDecimal(decimal.New(-2323, -3))},
+			PMoneyNull:   Money[decimal.NullDecimal]{decimal.NullDecimal{}},
 		},
 		{
 			PBool:        sql.NullBool{},
@@ -157,6 +168,10 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 			PDecimalNull: decimal.NullDecimal{},
 			SDecimal:     decimal.New(20012, 2),
 			SDecimalNull: nil,
+			PMoney:       Money[decimal.NullDecimal]{decimal.NullDecimal{}},
+			PMoneyNull:   Money[decimal.NullDecimal]{decimal.NullDecimal{}},
+			SMoney:       Money[decimal.Decimal]{decimal.New(20012, 2)},
+			SMoneyNull:   nil,
 		},
 		{
 			PBool: sql.NullBool{
@@ -191,6 +206,10 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 			PDecimalNull: decimal.NullDecimal{},
 			SDecimal:     decimal.New(1004, -1),
 			SDecimalNull: &decimalValue,
+			PMoney:       Money[decimal.NullDecimal]{decimal.NewNullDecimal(decimal.New(892332, -3))},
+			PMoneyNull:   Money[decimal.NullDecimal]{decimal.NullDecimal{}},
+			SMoney:       Money[decimal.Decimal]{decimal.New(1004, -1)},
+			SMoneyNull:   &moneyValue,
 		},
 	}
 
@@ -239,6 +258,10 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 			&val.PDecimalNull,
 			&val.SDecimal,
 			&val.SDecimalNull,
+			&val.PMoney,
+			&val.PMoneyNull,
+			&val.SMoney,
+			&val.SMoneyNull,
 		)
 		if err != nil {
 			t.Fatalf("scan failed with error: %s", err)
@@ -260,6 +283,22 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 				*param1[i].SDecimalNull, *result1[i].SDecimalNull)
 			param1[i].SDecimalNull = &p1
 			result1[i].SDecimalNull = &r1
+		}
+	}
+
+	for i := 0; i < min(len(param1), len(result1)); i++ {
+		param1[i].PMoney.Decimal.Decimal, result1[i].PMoney.Decimal.Decimal = decimal.RescalePair(
+			param1[i].PMoney.Decimal.Decimal, result1[i].PMoney.Decimal.Decimal)
+		param1[i].PMoneyNull.Decimal.Decimal, result1[i].PMoneyNull.Decimal.Decimal = decimal.RescalePair(
+			param1[i].PMoneyNull.Decimal.Decimal, result1[i].PMoneyNull.Decimal.Decimal)
+		param1[i].SMoney.Decimal, result1[i].SMoney.Decimal = decimal.RescalePair(
+			param1[i].SMoney.Decimal, result1[i].SMoney.Decimal)
+
+		if param1[i].SMoneyNull != nil && result1[i].SMoneyNull != nil {
+			p1, r1 := decimal.RescalePair(
+				param1[i].SMoneyNull.Decimal, result1[i].SMoneyNull.Decimal)
+			param1[i].SMoneyNull.Decimal = p1
+			result1[i].SMoneyNull.Decimal = r1
 		}
 	}
 
