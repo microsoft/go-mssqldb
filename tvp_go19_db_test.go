@@ -360,7 +360,9 @@ func TestTVPGoSQLTypes(t *testing.T) {
 			p_nvarchar 			NVARCHAR(100),
 			p_nvarcharNull 		NVARCHAR(100),
 			p_decimal           DECIMAL(18, 4),
-			p_decimalNull       DECIMAL(18, 4)
+			p_decimalNull       DECIMAL(18, 4),
+			p_money             MONEY,
+			p_moneyNull         MONEY
 		); `
 
 	sqltextdroptable := `DROP TYPE tvpGoSQLTypes;`
@@ -389,6 +391,8 @@ func TestTVPGoSQLTypes(t *testing.T) {
 		PStringNull  sql.NullString
 		PDecimal     decimal.NullDecimal
 		PDecimalNull decimal.NullDecimal
+		PMoney       Money[decimal.NullDecimal]
+		PMoneyNull   Money[decimal.NullDecimal]
 	}
 
 	sqltextdropsp := `DROP PROCEDURE spwithtvpGoSQLTypes;`
@@ -428,6 +432,8 @@ func TestTVPGoSQLTypes(t *testing.T) {
 			PStringNull:  sql.NullString{},
 			PDecimal:     decimal.NewNullDecimal(decimal.New(-7644, -2)),
 			PDecimalNull: decimal.NullDecimal{},
+			PMoney:       Money[decimal.NullDecimal]{decimal.NewNullDecimal(decimal.New(-7644, -2))},
+			PMoneyNull:   Money[decimal.NullDecimal]{decimal.NullDecimal{}},
 		},
 	}
 
@@ -465,6 +471,8 @@ func TestTVPGoSQLTypes(t *testing.T) {
 			&val.PStringNull,
 			&val.PDecimal,
 			&val.PDecimalNull,
+			&val.PMoney,
+			&val.PMoneyNull,
 		)
 		if err != nil {
 			t.Fatalf("scan failed with error: %s", err)
@@ -478,6 +486,13 @@ func TestTVPGoSQLTypes(t *testing.T) {
 			param1[i].PDecimal.Decimal, result1[i].PDecimal.Decimal)
 		param1[i].PDecimalNull.Decimal, result1[i].PDecimalNull.Decimal = decimal.RescalePair(
 			param1[i].PDecimalNull.Decimal, result1[i].PDecimalNull.Decimal)
+	}
+
+	for i := 0; i < min(len(param1), len(result1)); i++ {
+		param1[i].PMoney.Decimal.Decimal, result1[i].PMoney.Decimal.Decimal = decimal.RescalePair(
+			param1[i].PMoney.Decimal.Decimal, result1[i].PMoney.Decimal.Decimal)
+		param1[i].PMoneyNull.Decimal.Decimal, result1[i].PMoneyNull.Decimal.Decimal = decimal.RescalePair(
+			param1[i].PMoneyNull.Decimal.Decimal, result1[i].PMoneyNull.Decimal.Decimal)
 	}
 
 	if !reflect.DeepEqual(param1, result1) {
