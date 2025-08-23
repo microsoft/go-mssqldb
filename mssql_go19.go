@@ -149,16 +149,7 @@ func (c *Conn) CheckNamedValue(nv *driver.NamedValue) error {
 func makeMoneyParam(val decimal.Decimal) (res param) {
 	res.ti.TypeId = typeMoneyN
 
-	var coeff int64
-
-	exp := val.Exponent()
-	if exp < -4 {
-		coeff = val.Mul(decimal.New(1, 4)).IntPart()
-	} else {
-		val, _ = decimal.RescalePair(val, decimal.New(1, -4))
-
-		coeff = val.CoefficientInt64()
-	}
+	coeff := val.Mul(decimal.New(1, 4)).IntPart()
 
 	res.buffer = make([]byte, 8)
 	res.ti.Size = 8
