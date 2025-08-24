@@ -9,6 +9,44 @@ import (
 	shopspring "github.com/shopspring/decimal"
 )
 
+func TestBulkInvalidString(t *testing.T) {
+	t.Parallel()
+
+	b := &Bulk{}
+
+	col := columnStruct{
+		ti: typeInfo{
+			TypeId: typeMoneyN,
+			Size: 8,
+		},
+	}
+
+	_, err := b.makeParam("bulk", col)
+
+	if err == nil {
+		t.Error("error expected")
+	}
+}
+
+func TestBulkInvalidType(t *testing.T) {
+	t.Parallel()
+
+	b := &Bulk{}
+
+	col := columnStruct{
+		ti: typeInfo{
+			TypeId: typeMoneyN,
+			Size: 8,
+		},
+	}
+
+	_, err := b.makeParam(12345, col)
+
+	if err == nil {
+		t.Error("error expected")
+	}
+}
+
 func TestBulkMoneyN(t *testing.T) {
 	t.Parallel()
 
