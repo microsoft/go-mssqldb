@@ -297,6 +297,69 @@ func TestMoneyOutDecimalBetterPrecision(t *testing.T) {
 	}
 }
 
+func TestMoneyValueDecimal(t *testing.T) {
+	d := shopspring.New(-82913823232, -6)
+
+	m := Money[shopspring.Decimal]{d}
+
+	dv, _ := d.Value()
+	mv, err := m.Value()
+
+	if mv != dv {
+		t.Errorf("wrong money Value(): %#v, must be: %#v", mv, dv)
+	}
+
+	if err != nil {
+		t.Errorf("unexpected money Value() error: %s", err.Error())
+	}
+}
+
+func TestMoneyScanDecimal(t *testing.T) {
+	v := "123323.3233"
+
+	d := &shopspring.Decimal{}
+	m := &Money[shopspring.Decimal]{}
+
+	d.Scan(v)
+	m.Scan(v)
+
+	if !m.Decimal.Equal(*d) {
+		t.Errorf("wrong money Scan() result: %#v, must be: %#v", m.Decimal, *d)
+	}
+}
+
+func TestMoneyValueNullDecimal(t *testing.T) {
+	nd := shopspring.NewNullDecimal(shopspring.New(-82913823232, -6))
+
+	m := Money[shopspring.NullDecimal]{nd}
+
+	dv, _ := nd.Value()
+	mv, err := m.Value()
+
+	if mv != dv {
+		t.Errorf("wrong money Value(): %#v, must be: %#v", mv, dv)
+	}
+
+	if err != nil {
+		t.Errorf("unexpected money Value() error: %s", err.Error())
+	}
+}
+
+func TestMoneyScanNullDecimal(t *testing.T) {
+	v := "123323.3233"
+
+	nd := &shopspring.NullDecimal{}
+	nm := &Money[shopspring.NullDecimal]{}
+
+	nd.Scan(v)
+	nm.Scan(v)
+
+	if !nm.Decimal.Decimal.Equal(nd.Decimal) {
+		t.Errorf("wrong money Scan() result: %#v, must be: %#v", nm.Decimal.Decimal, nd.Decimal)
+	}
+}
+
+
 func readMoney(buf []byte) int64 {
 	return int64((uint64(binary.LittleEndian.Uint32(buf)) << 32) | uint64(binary.LittleEndian.Uint32(buf[4:])))
 }
