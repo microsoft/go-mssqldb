@@ -661,7 +661,7 @@ var adoSynonyms = map[string]string{
 
 func splitConnectionString(dsn string) (res map[string]string) {
 	res = map[string]string{}
-	parts := strings.Split(dsn, ";")
+	parts := splitAdoConnectionStringParts(dsn)
 	for _, part := range parts {
 		if len(part) == 0 {
 			continue
@@ -674,6 +674,12 @@ func splitConnectionString(dsn string) (res map[string]string) {
 		var value string = ""
 		if len(lst) > 1 {
 			value = strings.TrimSpace(lst[1])
+			// Remove surrounding double quotes if present
+			if len(value) >= 2 && strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
+				value = value[1 : len(value)-1]
+				// Unescape double quotes
+				value = strings.ReplaceAll(value, "\"\"", "\"")
+			}
 		}
 		synonym, hasSynonym := adoSynonyms[name]
 		if hasSynonym {
@@ -697,6 +703,45 @@ func splitConnectionString(dsn string) (res map[string]string) {
 		res[name] = value
 	}
 	return res
+}
+
+// splitAdoConnectionStringParts splits an ADO connection string into parts,
+// properly handling double-quoted values that may contain semicolons
+func splitAdoConnectionStringParts(dsn string) []string {
+	var parts []string
+	var current strings.Builder
+	inQuotes := false
+	
+	runes := []rune(dsn)
+	for i := 0; i < len(runes); i++ {
+		char := runes[i]
+		
+		if char == '"' {
+			if inQuotes && i+1 < len(runes) && runes[i+1] == '"' {
+				// Double quote escape sequence - add both quotes to current part
+				current.WriteRune(char)
+				current.WriteRune(runes[i+1])
+				i++ // Skip the next quote
+			} else {
+				// Start or end of quoted section
+				inQuotes = !inQuotes
+				current.WriteRune(char)
+			}
+		} else if char == ';' && !inQuotes {
+			// Semicolon outside of quotes - end current part
+			parts = append(parts, current.String())
+			current.Reset()
+		} else {
+			current.WriteRune(char)
+		}
+	}
+	
+	// Add the last part if it's not empty
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+	
+	return parts
 }
 
 // Splits a URL of the form sqlserver://username:password@host/instance?param1=value&param2=value
