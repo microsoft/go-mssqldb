@@ -1237,11 +1237,17 @@ initiate_connection:
 			passthrough := passthroughConn{c: &handshakeConn}
 			tlsConn := tls.Client(&passthrough, config)
 			err = tlsConn.Handshake()
-			passthrough.c = toconn
-			outbuf.transport = tlsConn
 			if err != nil {
 				return nil, fmt.Errorf("TLS Handshake failed: %v", err)
 			}
+			// Flush any pending packet from the handshake
+			// The driver's Finished message is still in the buffer
+			_, err = handshakeConn.FinishPacket()
+			if err != nil {
+				return nil, fmt.Errorf("TLS Handshake flush failed: %w", err)
+			}
+			passthrough.c = toconn
+			outbuf.transport = tlsConn
 			if encrypt == encryptOff {
 				outbuf.afterFirst = func() {
 					outbuf.transport = toconn

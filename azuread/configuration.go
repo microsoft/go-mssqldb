@@ -67,7 +67,7 @@ type azureFedAuthConfig struct {
 	systemAccessToken   string // For Azure Pipelines
 	userAssertion       string // For On-Behalf-Of flow
 	clientAssertion     string // For Client Assertion
-	
+
 	// Common credential options
 	additionallyAllowedTenants []string // For most credential types
 	disableInstanceDiscovery   bool     // For most credential types
@@ -162,7 +162,7 @@ func (p *azureFedAuthConfig) validateParameters(params map[string]string) error 
 		p.adalWorkflow = mssql.FedAuthADALWorkflowPassword
 		// Split the clientID@tenantID format from connection string
 		p.clientID, p.tenantID = splitTenantAndClientID(params["user id"])
-		
+
 		// If not provided in connection string, check environment variables
 		if p.clientID == "" {
 			p.clientID = os.Getenv("AZURESUBSCRIPTION_CLIENT_ID")
@@ -170,11 +170,11 @@ func (p *azureFedAuthConfig) validateParameters(params map[string]string) error 
 		if p.tenantID == "" {
 			p.tenantID = os.Getenv("AZURESUBSCRIPTION_TENANT_ID")
 		}
-		
+
 		if p.clientID == "" {
 			return errors.New("Must provide 'client id[@tenant id]' as username parameter or set AZURESUBSCRIPTION_CLIENT_ID environment variable when using ActiveDirectoryAzurePipelines authentication")
 		}
-		
+
 		p.serviceConnectionID = params["serviceconnectionid"]
 		if p.serviceConnectionID == "" {
 			p.serviceConnectionID = os.Getenv("AZURESUBSCRIPTION_SERVICE_CONNECTION_ID")
@@ -182,7 +182,7 @@ func (p *azureFedAuthConfig) validateParameters(params map[string]string) error 
 		if p.serviceConnectionID == "" {
 			return errors.New("Must provide 'serviceconnectionid' parameter or set AZURESUBSCRIPTION_SERVICE_CONNECTION_ID environment variable when using ActiveDirectoryAzurePipelines authentication")
 		}
-		
+
 		p.systemAccessToken = params["systemtoken"]
 		if p.systemAccessToken == "" {
 			p.systemAccessToken = os.Getenv("SYSTEM_ACCESSTOKEN")
@@ -231,10 +231,10 @@ func (p *azureFedAuthConfig) validateParameters(params map[string]string) error 
 			fedAuthWorkflow,
 			[]string{ActiveDirectoryApplication, ActiveDirectoryServicePrincipal, ActiveDirectoryDefault, ActiveDirectoryIntegrated, ActiveDirectoryInteractive, ActiveDirectoryManagedIdentity, ActiveDirectoryMSI, ActiveDirectoryPassword, ActiveDirectoryAzCli, ActiveDirectoryDeviceCode, ActiveDirectoryAzureDeveloperCli, ActiveDirectoryAzurePipelines, ActiveDirectoryEnvironment, ActiveDirectoryWorkloadIdentity, ActiveDirectoryClientAssertion, ActiveDirectoryOnBehalfOf})
 	}
-	
+
 	// Parse common credential options that apply to multiple auth types
 	p.parseCommonCredentialOptions(params)
-	
+
 	p.fedAuthWorkflow = fedAuthWorkflow
 	return nil
 }
@@ -260,18 +260,18 @@ func (p *azureFedAuthConfig) parseCommonCredentialOptions(params map[string]stri
 			p.additionallyAllowedTenants = []string{strings.TrimSpace(allowedTenants)}
 		}
 	}
-	
+
 	// DisableInstanceDiscovery - boolean flag for disconnected/private clouds
 	if disableDiscovery := params["disableinstancediscovery"]; disableDiscovery != "" {
 		p.disableInstanceDiscovery = strings.EqualFold(disableDiscovery, "true") || disableDiscovery == "1"
 	}
-	
+
 	// TokenFilePath - for WorkloadIdentity specifically
 	if tokenFilePath := params["tokenfilepath"]; tokenFilePath != "" {
 		p.tokenFilePath = tokenFilePath
 	}
-	
-	// SendCertificateChain - for ClientCertificate specifically  
+
+	// SendCertificateChain - for ClientCertificate specifically
 	if sendCertChain := params["sendcertificatechain"]; sendCertChain != "" {
 		p.sendCertificateChain = strings.EqualFold(sendCertChain, "true") || sendCertChain == "1"
 	}
@@ -286,7 +286,7 @@ func isPasswordWorkflowAuth(workflow string) bool {
 		ActiveDirectoryAzureDeveloperCli,
 		ActiveDirectoryEnvironment,
 	}
-	
+
 	for _, w := range passwordWorkflows {
 		if strings.EqualFold(workflow, w) {
 			return true
