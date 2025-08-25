@@ -1,4 +1,10 @@
 # Changelog
+## 1.9.3
+
+### Bug fixes
+
+* Fix parsing of ADO connection strings with double-quoted values containing semicolons (#282)
+
 ## 1.9.2
 
 ### Bug fixes

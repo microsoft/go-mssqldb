@@ -172,11 +172,13 @@ For further information on usage:
 * `sqlserver://username@host/instance?krb5-configfile=path/to/file&krb5-credcachefile=/path/to/cache`
     * `sqlserver://username@host/instance?krb5-configfile=path/to/file&krb5-realm=domain.com&krb5-keytabfile=/path/to/keytabfile`
 
-2. ADO: `key=value` pairs separated by `;`. Values may not contain `;`, leading and trailing whitespace is ignored.
+2. ADO: `key=value` pairs separated by `;`. Values can contain `;` and other special characters by enclosing them in double quotes. Leading and trailing whitespace is ignored.
      Examples:
 
     * `server=localhost\\SQLExpress;user id=sa;database=master;app name=MyAppName`
     * `server=localhost;user id=sa;database=master;app name=MyAppName`
+    * `server=localhost;user id=sa;password="my;complex;password";database=master` // Password with semicolons
+    * `server=localhost;user id=sa;password="value with ""quotes"" inside";database=master` // Escaped quotes using double quotes
     * `server=localhost;user id=sa;database=master;app name=MyAppName;krb5-configfile=path/to/file;krb5-credcachefile=path/to/cache;authenticator=krb5`
     * `server=localhost;user id=sa;database=master;app name=MyAppName;krb5-configfile=path/to/file;krb5-realm=domain.com;krb5-keytabfile=path/to/keytabfile;authenticator=krb5`
 
