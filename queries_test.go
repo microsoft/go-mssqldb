@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/microsoft/go-mssqldb/msdsn"
+	"github.com/shopspring/decimal"
 )
 
 func driverWithProcess(t *testing.T, tl Logger) *Driver {
@@ -212,6 +213,45 @@ func testSelect(t *testing.T, guidConversion bool) {
 
 		if out.String != strings.Repeat("a", 8000) {
 			t.Error("got back a string with count:", len(out.String))
+		}
+	})
+	t.Run("scan into decimal.Decimal", func(t *testing.T) {
+		row := conn.QueryRow("SELECT cast(11.2 AS DECIMAL(18, 2))")
+		var out decimal.Decimal
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to Decimal failed", err.Error())
+			return
+		}
+
+		if !out.Equal(decimal.New(112, -1)) {
+			t.Errorf("got back a Decimal with value: %s", out.String())
+		}
+	})
+	t.Run("scan into decimal.NullDecimal", func(t *testing.T) {
+		row := conn.QueryRow("SELECT cast(11.2 AS DECIMAL(18, 2))")
+		var out decimal.NullDecimal
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to NullDecimal failed", err.Error())
+			return
+		}
+
+		if !out.Decimal.Equal(decimal.New(112, -1)) || !out.Valid {
+			t.Errorf("got back a NullDecimal with value: %t, %s", out.Valid, out.Decimal.String())
+		}
+	})
+	t.Run("scan into decimal.NullDecimal from NULL", func(t *testing.T) {
+		row := conn.QueryRow("SELECT NULL")
+		var out decimal.NullDecimal
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to NullDecimal failed", err.Error())
+			return
+		}
+
+		if out.Valid {
+			t.Errorf("got back a NullDecimal with value: %t, %s", out.Valid, out.Decimal.String())
 		}
 	})
 }
@@ -966,6 +1006,99 @@ func TestUniqueIdentifierParam(t *testing.T) {
 
 			if expected != uuid2 {
 				t.Errorf("uniqueidentifier does not match: '%s' '%s'", expected, uuid2)
+			}
+		})
+	}
+}
+
+func TestDecimalParam(t *testing.T) {
+	conn, logger := open(t)
+	defer conn.Close()
+	defer logger.StopLogging()
+	type testStruct struct {
+		name    string
+		decimal decimal.Decimal
+	}
+
+	values := []testStruct{
+		{
+			"positive with negative exp",
+			decimal.New(2534, -3),
+		},
+		{
+			"positive with positive exp",
+			decimal.New(12, 10),
+		},
+		{
+			"negative with negative exp",
+			decimal.New(-252234, -8),
+		},
+		{
+			"negative with positive exp",
+			decimal.New(-67, 4),
+		},
+	}
+
+	for _, test := range values {
+		t.Run(test.name, func(t *testing.T) {
+			var decimal2 decimal.Decimal
+			err := conn.QueryRow("select @p1", test.decimal).Scan(&decimal2)
+			if err != nil {
+				t.Fatal("select / scan failed", err.Error())
+			}
+
+			if !test.decimal.Equal(decimal2) {
+				t.Errorf("decimal does not match: '%s' '%s'", test.decimal.String(), decimal2.String())
+			}
+		})
+	}
+}
+
+func TestNullDecimalParam(t *testing.T) {
+	conn, logger := open(t)
+	defer conn.Close()
+	defer logger.StopLogging()
+	type testStruct struct {
+		name    string
+		decimal decimal.NullDecimal
+	}
+
+	values := []testStruct{
+		{
+			"positive with negative exp",
+			decimal.NewNullDecimal(decimal.New(2534, -3)),
+		},
+		{
+			"positive with positive exp",
+			decimal.NewNullDecimal(decimal.New(12, 10)),
+		},
+		{
+			"negative with negative exp",
+			decimal.NewNullDecimal(decimal.New(-252234, -8)),
+		},
+		{
+			"negative with positive exp",
+			decimal.NewNullDecimal(decimal.New(-67, 4)),
+		},
+		{
+			"null",
+			decimal.NullDecimal{},
+		},
+	}
+
+	for _, test := range values {
+		t.Run(test.name, func(t *testing.T) {
+			var decimal2 decimal.NullDecimal
+			err := conn.QueryRow("select @p1", test.decimal).Scan(&decimal2)
+			if err != nil {
+				t.Fatal("select / scan failed", err.Error())
+			}
+
+			if test.decimal.Valid != decimal2.Valid ||
+				(test.decimal.Valid && !test.decimal.Decimal.Equal(decimal2.Decimal)) {
+				t.Errorf("null decimal does not match: '%t, %s' '%t, %s'",
+					test.decimal.Valid, test.decimal.Decimal.String(),
+					decimal2.Valid, decimal2.Decimal.String())
 			}
 		})
 	}
