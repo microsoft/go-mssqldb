@@ -67,6 +67,15 @@ select top 1 1`,
 select top 1 1`,
 			},
 		},
+		testItem{
+			Sql: `PRINT 1
+GOTO Bookmark
+GO
+PRINT 2
+Bookmark:
+GO`,
+			Expect: []string{"PRINT 1\nGOTO Bookmark\n", "\nPRINT 2\nBookmark:\n"},
+		},
 		testItem{Sql: `"0'"`, Expect: []string{`"0'"`}},
 		testItem{Sql: "0'", Expect: []string{"0'"}},
 		testItem{Sql: "--", Expect: []string{"--"}},
