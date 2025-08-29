@@ -71,6 +71,12 @@ func convertInputParameter(val interface{}) (interface{}, error) {
 		return val, nil
 	case civil.Time:
 		return val, nil
+	case NullDate:
+		return val, nil
+	case NullDateTime:
+		return val, nil
+	case NullTime:
+		return val, nil
 	// case *apd.Decimal:
 	// 	return nil
 	case float32:
@@ -188,6 +194,34 @@ func (s *Stmt) makeParamExtra(val driver.Value) (res param, err error) {
 		res.ti.Scale = 7
 		res.buffer = encodeTime(val.Hour, val.Minute, val.Second, val.Nanosecond, int(res.ti.Scale))
 		res.ti.Size = len(res.buffer)
+	case NullDate:
+		res.ti.TypeId = typeDateN
+		res.ti.Size = 3
+		if val.Valid {
+			res.buffer = encodeDate(val.Date.In(loc))
+		} else {
+			res.buffer = []byte{}
+		}
+	case NullDateTime:
+		res.ti.TypeId = typeDateTime2N
+		res.ti.Scale = 7
+		if val.Valid {
+			res.buffer = encodeDateTime2(val.DateTime.In(loc), int(res.ti.Scale))
+			res.ti.Size = len(res.buffer)
+		} else {
+			res.buffer = []byte{}
+			res.ti.Size = calcTimeSize(int(res.ti.Scale)) + 3
+		}
+	case NullTime:
+		res.ti.TypeId = typeTimeN
+		res.ti.Scale = 7
+		if val.Valid {
+			res.buffer = encodeTime(val.Time.Hour, val.Time.Minute, val.Time.Second, val.Time.Nanosecond, int(res.ti.Scale))
+			res.ti.Size = len(res.buffer)
+		} else {
+			res.buffer = []byte{}
+			res.ti.Size = calcTimeSize(int(res.ti.Scale))
+		}
 	case sql.Out:
 		res, err = s.makeParam(val.Dest)
 		res.Flags = fByRevValue
