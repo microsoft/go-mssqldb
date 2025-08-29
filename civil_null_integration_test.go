@@ -13,7 +13,7 @@ import (
 // This test requires a SQL Server connection
 func TestNullCivilTypesIntegration(t *testing.T) {
 	checkConnStr(t)
-	
+
 	tl := testLogger{t: t}
 	defer tl.StopLogging()
 
@@ -29,7 +29,7 @@ func TestNullCivilTypesIntegration(t *testing.T) {
 		// Test NullDate OUT parameter
 		t.Run("NullDate", func(t *testing.T) {
 			var nullDate NullDate
-			
+
 			// Test NULL value
 			_, err := conn.ExecContext(ctx, "SELECT @p1 = NULL", sql.Out{Dest: &nullDate})
 			if err != nil {
@@ -56,7 +56,7 @@ func TestNullCivilTypesIntegration(t *testing.T) {
 		// Test NullDateTime OUT parameter
 		t.Run("NullDateTime", func(t *testing.T) {
 			var nullDateTime NullDateTime
-			
+
 			// Test NULL value
 			_, err := conn.ExecContext(ctx, "SELECT @p1 = NULL", sql.Out{Dest: &nullDateTime})
 			if err != nil {
@@ -75,12 +75,12 @@ func TestNullCivilTypesIntegration(t *testing.T) {
 				t.Error("Expected NullDateTime to be valid")
 			}
 			// Check that the date and time components are correct
-			if nullDateTime.DateTime.Date.Year != 2023 || 
-			   nullDateTime.DateTime.Date.Month != time.December || 
-			   nullDateTime.DateTime.Date.Day != 25 ||
-			   nullDateTime.DateTime.Time.Hour != 14 ||
-			   nullDateTime.DateTime.Time.Minute != 30 ||
-			   nullDateTime.DateTime.Time.Second != 45 {
+			if nullDateTime.DateTime.Date.Year != 2023 ||
+				nullDateTime.DateTime.Date.Month != time.December ||
+				nullDateTime.DateTime.Date.Day != 25 ||
+				nullDateTime.DateTime.Time.Hour != 14 ||
+				nullDateTime.DateTime.Time.Minute != 30 ||
+				nullDateTime.DateTime.Time.Second != 45 {
 				t.Errorf("Unexpected datetime value: %v", nullDateTime.DateTime)
 			}
 		})
@@ -88,7 +88,7 @@ func TestNullCivilTypesIntegration(t *testing.T) {
 		// Test NullTime OUT parameter
 		t.Run("NullTime", func(t *testing.T) {
 			var nullTime NullTime
-			
+
 			// Test NULL value
 			_, err := conn.ExecContext(ctx, "SELECT @p1 = NULL", sql.Out{Dest: &nullTime})
 			if err != nil {
@@ -107,7 +107,7 @@ func TestNullCivilTypesIntegration(t *testing.T) {
 				t.Error("Expected NullTime to be valid")
 			}
 			if nullTime.Time.Hour != 14 || nullTime.Time.Minute != 30 || nullTime.Time.Second != 45 {
-				t.Errorf("Expected time 14:30:45, got %02d:%02d:%02d", 
+				t.Errorf("Expected time 14:30:45, got %02d:%02d:%02d",
 					nullTime.Time.Hour, nullTime.Time.Minute, nullTime.Time.Second)
 			}
 		})

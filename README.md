@@ -437,6 +437,9 @@ are supported:
 * "github.com/golang-sql/civil".Date -> date
 * "github.com/golang-sql/civil".DateTime -> datetime2
 * "github.com/golang-sql/civil".Time -> time
+* mssql.NullDate -> date (nullable)
+* mssql.NullDateTime -> datetime2 (nullable)
+* mssql.NullTime -> time (nullable)
 * mssql.TVP -> Table Value Parameter (TDS version dependent)
 
 Using an `int` parameter will send a 4 byte value (int) from a 32bit app and an 8 byte value (bigint) from a 64bit app. 
