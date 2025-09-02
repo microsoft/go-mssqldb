@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-sql/civil"
 	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
@@ -586,4 +587,167 @@ func TestTVP_encode_WithGuidConversion(t *testing.T) {
 
 func TestTVP_encode(t *testing.T) {
 	testTVP_encode(t, false /*guidConversion*/)
+}
+
+// TestTVPWithNullCivilTypes tests that nullable civil types work correctly in TVP operations
+func TestTVPWithNullCivilTypes(t *testing.T) {
+	type tvpDataRowNullDateTime struct {
+		T NullDateTime
+	}
+
+	type tvpDataRowNullDate struct {
+		D NullDate
+	}
+
+	type tvpDataRowNullTime struct {
+		T NullTime
+	}
+
+	type tvpDataRowMixed struct {
+		Date     NullDate     `tvp:"date_col"`
+		DateTime NullDateTime `tvp:"datetime_col"`
+		Time     NullTime     `tvp:"time_col"`
+	}
+
+	tests := []struct {
+		name    string
+		tvpData interface{}
+		wantErr bool
+	}{
+		{
+			name: "NullDateTime with Valid=false",
+			tvpData: []tvpDataRowNullDateTime{
+				{T: NullDateTime{Valid: false}},
+			},
+			wantErr: false,
+		},
+		{
+			name: "NullDateTime with Valid=true",
+			tvpData: []tvpDataRowNullDateTime{
+				{T: NullDateTime{DateTime: civil.DateTime{Date: civil.Date{Year: 2025, Month: 10, Day: 2}, Time: civil.Time{Hour: 16, Minute: 10, Second: 55}}, Valid: true}},
+			},
+			wantErr: false,
+		},
+		{
+			name: "NullDate with Valid=false",
+			tvpData: []tvpDataRowNullDate{
+				{D: NullDate{Valid: false}},
+			},
+			wantErr: false,
+		},
+		{
+			name: "NullDate with Valid=true",
+			tvpData: []tvpDataRowNullDate{
+				{D: NullDate{Date: civil.Date{Year: 2025, Month: 10, Day: 2}, Valid: true}},
+			},
+			wantErr: false,
+		},
+		{
+			name: "NullTime with Valid=false",
+			tvpData: []tvpDataRowNullTime{
+				{T: NullTime{Valid: false}},
+			},
+			wantErr: false,
+		},
+		{
+			name: "NullTime with Valid=true",
+			tvpData: []tvpDataRowNullTime{
+				{T: NullTime{Time: civil.Time{Hour: 16, Minute: 10, Second: 55}, Valid: true}},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Mixed nullable civil types with some null, some valid",
+			tvpData: []tvpDataRowMixed{
+				{
+					Date:     NullDate{Valid: false},
+					DateTime: NullDateTime{DateTime: civil.DateTime{Date: civil.Date{Year: 2025, Month: 10, Day: 2}, Time: civil.Time{Hour: 16, Minute: 10, Second: 55}}, Valid: true},
+					Time:     NullTime{Valid: false},
+				},
+				{
+					Date:     NullDate{Date: civil.Date{Year: 2025, Month: 12, Day: 25}, Valid: true},
+					DateTime: NullDateTime{Valid: false},
+					Time:     NullTime{Time: civil.Time{Hour: 9, Minute: 30, Second: 0}, Valid: true},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "User example 1: Empty NullDateTime",
+			tvpData: []tvpDataRowNullDateTime{
+				{T: NullDateTime{}}, // Valid defaults to false
+			},
+			wantErr: false,
+		},
+		{
+			name: "User example 2: Valid NullDateTime",
+			tvpData: func() []tvpDataRowNullDateTime {
+				t1, _ := civil.ParseDateTime("2025-10-02T16:10:55")
+				return []tvpDataRowNullDateTime{
+					{T: NullDateTime{DateTime: t1, Valid: true}},
+				}
+			}(),
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tvp := TVP{
+				TypeName: "dbo.TestType",
+				Value:    tt.tvpData,
+			}
+
+			// Test columnTypes
+			columnStr, tvpFieldIndexes, err := tvp.columnTypes()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("TVP.columnTypes() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if err != nil {
+				return // Skip encoding test if columnTypes failed
+			}
+
+			// Test encode
+			_, err = tvp.encode("dbo", "TestType", columnStr, tvpFieldIndexes, msdsn.EncodeParameters{})
+			if (err != nil) != tt.wantErr {
+				t.Errorf("TVP.encode() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+		})
+	}
+}
+
+// TestTVPNullCivilTypesCreateZeroType tests that nullable civil types are handled correctly
+// in the createZeroType method when building column type information
+func TestTVPNullCivilTypesCreateZeroType(t *testing.T) {
+	type tvpDataRowMixed struct {
+		Date     NullDate     `tvp:"date_col"`
+		DateTime NullDateTime `tvp:"datetime_col"`
+		Time     NullTime     `tvp:"time_col"`
+	}
+
+	tvp := TVP{
+		TypeName: "dbo.TestType",
+		Value: []tvpDataRowMixed{
+			{}, // Empty struct to trigger createZeroType for all fields
+		},
+	}
+
+	// Test that we can get column types without error
+	columnStr, tvpFieldIndexes, err := tvp.columnTypes()
+	if err != nil {
+		t.Errorf("TVP.columnTypes() with empty struct failed: %v", err)
+		return
+	}
+
+	// Should have 3 columns for the 3 fields
+	if len(columnStr) != 3 {
+		t.Errorf("Expected 3 columns, got %d", len(columnStr))
+	}
+
+	if len(tvpFieldIndexes) != 3 {
+		t.Errorf("Expected 3 field indexes, got %d", len(tvpFieldIndexes))
+	}
 }

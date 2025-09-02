@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-sql/civil"
 	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
@@ -108,6 +109,23 @@ func (tvp TVP) encode(schema, name string, columnStr []columnStruct, tvpFieldInd
 			if tvp.verifyStandardTypeOnNull(buf, tvpVal) {
 				continue
 			}
+			
+			// Extract inner value from nullable civil types when they are valid
+			switch v := tvpVal.(type) {
+			case NullDate:
+				if v.Valid {
+					tvpVal = v.Date
+				}
+			case NullDateTime:
+				if v.Valid {
+					tvpVal = v.DateTime
+				}
+			case NullTime:
+				if v.Valid {
+					tvpVal = v.Time
+				}
+			}
+			
 			valOf := reflect.ValueOf(tvpVal)
 			elemKind := field.Kind()
 			if elemKind == reflect.Ptr && valOf.IsNil() {
@@ -279,6 +297,12 @@ func (tvp TVP) createZeroType(fieldVal interface{}) interface{} {
 		return defaultInt64
 	case sql.NullString:
 		return defaultString
+	case NullDate:
+		return civil.Date{}
+	case NullDateTime:
+		return civil.DateTime{}
+	case NullTime:
+		return civil.Time{}
 	}
 	return fieldVal
 }
@@ -308,6 +332,21 @@ func (tvp TVP) verifyStandardTypeOnNull(buf *bytes.Buffer, tvpVal interface{}) b
 	case sql.NullString:
 		if !val.Valid {
 			binary.Write(buf, binary.LittleEndian, uint64(_PLP_NULL))
+			return true
+		}
+	case NullDate:
+		if !val.Valid {
+			binary.Write(buf, binary.LittleEndian, defaultNull)
+			return true
+		}
+	case NullDateTime:
+		if !val.Valid {
+			binary.Write(buf, binary.LittleEndian, defaultNull)
+			return true
+		}
+	case NullTime:
+		if !val.Valid {
+			binary.Write(buf, binary.LittleEndian, defaultNull)
 			return true
 		}
 	}
