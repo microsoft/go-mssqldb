@@ -39,7 +39,7 @@ func (n NullDate) Value() (driver.Value, error) {
 	if !n.Valid {
 		return nil, nil
 	}
-	return n.Date, nil
+	return n.Date.In(time.UTC), nil
 }
 
 // String returns the string representation of the date or "NULL".
@@ -107,7 +107,7 @@ func (n NullDateTime) Value() (driver.Value, error) {
 	if !n.Valid {
 		return nil, nil
 	}
-	return n.DateTime, nil
+	return n.DateTime.In(time.UTC), nil
 }
 
 // String returns the string representation of the datetime or "NULL".
@@ -175,7 +175,7 @@ func (n NullTime) Value() (driver.Value, error) {
 	if !n.Valid {
 		return nil, nil
 	}
-	return n.Time, nil
+	return time.Date(1, 1, 1, n.Time.Hour, n.Time.Minute, n.Time.Second, n.Time.Nanosecond, time.UTC), nil
 }
 
 // String returns the string representation of the time or "NULL".

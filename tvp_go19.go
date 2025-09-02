@@ -109,7 +109,7 @@ func (tvp TVP) encode(schema, name string, columnStr []columnStruct, tvpFieldInd
 			if tvp.verifyStandardTypeOnNull(buf, tvpVal) {
 				continue
 			}
-			
+
 			// Extract inner value from nullable civil types when they are valid
 			switch v := tvpVal.(type) {
 			case NullDate:
@@ -125,7 +125,7 @@ func (tvp TVP) encode(schema, name string, columnStr []columnStruct, tvpFieldInd
 					tvpVal = v.Time
 				}
 			}
-			
+
 			valOf := reflect.ValueOf(tvpVal)
 			elemKind := field.Kind()
 			if elemKind == reflect.Ptr && valOf.IsNil() {

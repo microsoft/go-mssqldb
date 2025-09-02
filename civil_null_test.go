@@ -19,8 +19,9 @@ func TestNullDate(t *testing.T) {
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
-		if val != date {
-			t.Errorf("Expected %v, got %v", date, val)
+		expectedTime := date.In(time.UTC)
+		if val != expectedTime {
+			t.Errorf("Expected %v, got %v", expectedTime, val)
 		}
 
 		// Invalid case
@@ -139,8 +140,9 @@ func TestNullDateTime(t *testing.T) {
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
-		if val != dateTime {
-			t.Errorf("Expected %v, got %v", dateTime, val)
+		expectedTime := dateTime.In(time.UTC)
+		if val != expectedTime {
+			t.Errorf("Expected %v, got %v", expectedTime, val)
 		}
 
 		// Invalid case
@@ -203,8 +205,9 @@ func TestNullTime(t *testing.T) {
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
-		if val != civilTime {
-			t.Errorf("Expected %v, got %v", civilTime, val)
+		expectedTime := time.Date(1, 1, 1, civilTime.Hour, civilTime.Minute, civilTime.Second, civilTime.Nanosecond, time.UTC)
+		if val != expectedTime {
+			t.Errorf("Expected %v, got %v", expectedTime, val)
 		}
 
 		// Invalid case
