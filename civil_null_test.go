@@ -268,3 +268,117 @@ func TestNullCivilTypesImplementInterfaces(t *testing.T) {
 	)
 	// Note: Scanner interface is verified by successful compilation of Scan methods
 }
+
+// TestNullCivilTypesParameterEncoding tests that nullable civil types are properly encoded
+// as typed NULL parameters rather than untyped NULLs, which is important for OUT parameters
+func TestNullCivilTypesParameterEncoding(t *testing.T) {
+	// Create a mock connection and statement for testing
+	c := &Conn{}
+	c.sess = &tdsSession{}
+	c.sess.loginAck.TDSVersion = verTDS74  // Use modern TDS version
+	s := &Stmt{c: c}
+
+	t.Run("NullDate parameter encoding", func(t *testing.T) {
+		// Test valid NullDate
+		validDate := NullDate{Date: civil.Date{Year: 2023, Month: time.December, Day: 25}, Valid: true}
+		param, err := s.makeParam(validDate)
+		if err != nil {
+			t.Errorf("Unexpected error for valid NullDate: %v", err)
+		}
+		if param.ti.TypeId != typeDateN {
+			t.Errorf("Expected TypeId %v for valid NullDate, got %v", typeDateN, param.ti.TypeId)
+		}
+		if len(param.buffer) == 0 {
+			t.Error("Expected non-empty buffer for valid NullDate")
+		}
+
+		// Test invalid NullDate (NULL)
+		nullDate := NullDate{Valid: false}
+		param, err = s.makeParam(nullDate)
+		if err != nil {
+			t.Errorf("Unexpected error for NULL NullDate: %v", err)
+		}
+		if param.ti.TypeId != typeDateN {
+			t.Errorf("Expected TypeId %v for NULL NullDate, got %v", typeDateN, param.ti.TypeId)
+		}
+		if param.ti.TypeId == typeNull {
+			t.Error("NULL NullDate should not use untyped NULL (typeNull)")
+		}
+		if len(param.buffer) != 0 {
+			t.Error("Expected empty buffer for NULL NullDate")
+		}
+		if param.ti.Size != 3 {
+			t.Errorf("Expected Size 3 for NULL NullDate, got %v", param.ti.Size)
+		}
+	})
+
+	t.Run("NullDateTime parameter encoding", func(t *testing.T) {
+		// Test valid NullDateTime
+		testTime := time.Date(2023, time.December, 25, 14, 30, 45, 0, time.UTC)
+		validDateTime := NullDateTime{DateTime: civil.DateTimeOf(testTime), Valid: true}
+		param, err := s.makeParam(validDateTime)
+		if err != nil {
+			t.Errorf("Unexpected error for valid NullDateTime: %v", err)
+		}
+		if param.ti.TypeId != typeDateTime2N {
+			t.Errorf("Expected TypeId %v for valid NullDateTime, got %v", typeDateTime2N, param.ti.TypeId)
+		}
+		if len(param.buffer) == 0 {
+			t.Error("Expected non-empty buffer for valid NullDateTime")
+		}
+
+		// Test invalid NullDateTime (NULL)
+		nullDateTime := NullDateTime{Valid: false}
+		param, err = s.makeParam(nullDateTime)
+		if err != nil {
+			t.Errorf("Unexpected error for NULL NullDateTime: %v", err)
+		}
+		if param.ti.TypeId != typeDateTime2N {
+			t.Errorf("Expected TypeId %v for NULL NullDateTime, got %v", typeDateTime2N, param.ti.TypeId)
+		}
+		if param.ti.TypeId == typeNull {
+			t.Error("NULL NullDateTime should not use untyped NULL (typeNull)")
+		}
+		if len(param.buffer) != 0 {
+			t.Error("Expected empty buffer for NULL NullDateTime")
+		}
+		if param.ti.Scale != 7 {
+			t.Errorf("Expected Scale 7 for NULL NullDateTime, got %v", param.ti.Scale)
+		}
+	})
+
+	t.Run("NullTime parameter encoding", func(t *testing.T) {
+		// Test valid NullTime
+		testTime := time.Date(2023, time.December, 25, 14, 30, 45, 0, time.UTC)
+		validTime := NullTime{Time: civil.TimeOf(testTime), Valid: true}
+		param, err := s.makeParam(validTime)
+		if err != nil {
+			t.Errorf("Unexpected error for valid NullTime: %v", err)
+		}
+		if param.ti.TypeId != typeTimeN {
+			t.Errorf("Expected TypeId %v for valid NullTime, got %v", typeTimeN, param.ti.TypeId)
+		}
+		if len(param.buffer) == 0 {
+			t.Error("Expected non-empty buffer for valid NullTime")
+		}
+
+		// Test invalid NullTime (NULL)
+		nullTime := NullTime{Valid: false}
+		param, err = s.makeParam(nullTime)
+		if err != nil {
+			t.Errorf("Unexpected error for NULL NullTime: %v", err)
+		}
+		if param.ti.TypeId != typeTimeN {
+			t.Errorf("Expected TypeId %v for NULL NullTime, got %v", typeTimeN, param.ti.TypeId)
+		}
+		if param.ti.TypeId == typeNull {
+			t.Error("NULL NullTime should not use untyped NULL (typeNull)")
+		}
+		if len(param.buffer) != 0 {
+			t.Error("Expected empty buffer for NULL NullTime")
+		}
+		if param.ti.Scale != 7 {
+			t.Errorf("Expected Scale 7 for NULL NullTime, got %v", param.ti.Scale)
+		}
+	})
+}
