@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-sql/civil"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -29,6 +30,9 @@ func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 		"test_nullint16",
 		"test_nulltime",
 		"test_nulluniqueidentifier",
+		"test_nulldate",
+		"test_nulldatetime",
+		"test_nullciviltime",
 	}
 	values := []interface{}{
 		sql.NullFloat64{Valid: false},
@@ -40,6 +44,9 @@ func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 		sql.NullInt16{Valid: false},
 		sql.NullTime{Valid: false},
 		NullUniqueIdentifier{Valid: false},
+		NullDate{Valid: false},
+		NullDateTime{Valid: false},
+		NullTime{Valid: false},
 	}
 
 	pool, logger := open(t)
@@ -176,6 +183,9 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		{"test_nullint32", sql.NullInt32{2147483647, true}, 2147483647},
 		{"test_nullint16", sql.NullInt16{32767, true}, 32767},
 		{"test_nulltime", sql.NullTime{time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC), true}, time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC)},
+		{"test_nulldate", NullDate{civil.Date{Year: 2010, Month: 11, Day: 12}, true}, time.Date(2010, 11, 12, 0, 0, 0, 0, time.UTC)},
+		{"test_nulldatetime", NullDateTime{civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}, Time: civil.Time{Hour: 13, Minute: 14, Second: 15, Nanosecond: 120000000}}, true}, time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC)},
+		{"test_nullciviltime", NullTime{civil.Time{Hour: 13, Minute: 14, Second: 15, Nanosecond: 123000000}, true}, time.Date(1, 1, 1, 13, 14, 15, 123000000, time.UTC)},
 		{"test_datetimen_midnight", time.Date(2025, 1, 1, 23, 59, 59, 998_350_000, time.UTC), time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)},
 		// {"test_smallmoney", 1234.56, nil},
 		// {"test_money", 1234.56, nil},
@@ -351,6 +361,9 @@ func setupNullableTypeTable(ctx context.Context, t *testing.T, conn *sql.Conn, t
 	[test_nullint16] [smallint] NULL,
 	[test_nulltime] [datetime] NULL,
 	[test_nulluniqueidentifier] [uniqueidentifier] NULL,
+	[test_nulldate] [date] NULL,
+	[test_nulldatetime] [datetime2] NULL,
+	[test_nullciviltime] [time] NULL,
  CONSTRAINT [PK_` + tableName + `_id] PRIMARY KEY CLUSTERED
 (
 	[id] ASC
@@ -438,6 +451,9 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 	[test_nullint32] [int] NULL,
 	[test_nullint16] [smallint] NULL,
 	[test_nulltime] [datetime] NULL,
+	[test_nulldate] [date] NULL,
+	[test_nulldatetime] [datetime2] NULL,
+	[test_nullciviltime] [time] NULL,
 	[test_datetimen_midnight] [datetime] NULL,
  CONSTRAINT [PK_` + tableName + `_id] PRIMARY KEY CLUSTERED
 (
