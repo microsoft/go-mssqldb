@@ -1028,8 +1028,6 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		return s.makeParamExtra(*valuer)
 	case UniqueIdentifier:
 	case NullUniqueIdentifier:
-	default:
-		break
 	case driver.Valuer:
 		// If the value has a non-nil value, call MakeParam on its Value
 		val, e := driver.DefaultParameterConverter.ConvertValue(valuer)
