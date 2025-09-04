@@ -1000,26 +1000,32 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		if valuer.Valid {
 			return s.makeParamExtra(valuer.Date)
 		}
+		return s.makeParamExtra(valuer)
 	case NullDateTime:
 		if valuer.Valid {
 			return s.makeParamExtra(valuer.DateTime)
 		}
+		return s.makeParamExtra(valuer)
 	case NullTime:
 		if valuer.Valid {
 			return s.makeParamExtra(valuer.Time)
 		}
+		return s.makeParamExtra(valuer)
 	case *NullDate:
 		if valuer.Valid {
 			return s.makeParamExtra(valuer.Date)
 		}
+		return s.makeParamExtra(*valuer)
 	case *NullDateTime:
 		if valuer.Valid {
 			return s.makeParamExtra(valuer.DateTime)
 		}
+		return s.makeParamExtra(*valuer)
 	case *NullTime:
 		if valuer.Valid {
 			return s.makeParamExtra(valuer.Time)
 		}
+		return s.makeParamExtra(*valuer)
 	case UniqueIdentifier:
 	case NullUniqueIdentifier:
 	default:

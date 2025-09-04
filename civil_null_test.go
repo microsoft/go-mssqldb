@@ -275,7 +275,7 @@ func TestNullCivilTypesParameterEncoding(t *testing.T) {
 	// Create a mock connection and statement for testing
 	c := &Conn{}
 	c.sess = &tdsSession{}
-	c.sess.loginAck.TDSVersion = verTDS74  // Use modern TDS version
+	c.sess.loginAck.TDSVersion = verTDS74 // Use modern TDS version
 	s := &Stmt{c: c}
 
 	t.Run("NullDate parameter encoding", func(t *testing.T) {
