@@ -123,6 +123,13 @@ func stateSep(l *lexer) stateFn {
 		return nil
 	}
 	s := l.Sql[l.At+len(l.Sep):]
+	if unicode.IsLetter(rune(s[0])) {
+		// If the first character after the separator is a letter, then
+		// it's a text line that happens to start with the separator.
+		// E.g. statement "goto", column name "gone", etc.
+		// We don't want to split here.
+		return stateText
+	}
 
 	parseNumberStart := -1
 loop:
