@@ -1192,16 +1192,21 @@ func (t *tokenProcessor) iterateResponse() error {
 func (t tokenProcessor) nextToken() (tokenStruct, error) {
 	// we do this separate non-blocking check on token channel to
 	// prioritize it over cancellation channel
-	if len(t.tokChan) > 0 {
-		tok := <-t.tokChan
-		err, ok := tok.(error)
-		if ok {
-			t.sess.LogF(t.ctx, msdsn.LogDebug, "nextToken returned an error:"+err.Error())
-			// this is an error and not a token
-			return nil, err
+	select {
+	case tok, more := <-t.tokChan:
+		if more {
+			err, ok := tok.(error)
+			if ok {
+				t.sess.LogF(t.ctx, msdsn.LogDebug, "nextToken returned an error:"+err.Error())
+				// this is an error and not a token
+				return nil, err
+			} else {
+				return tok, nil
+			}
 		} else {
-			return tok, nil
+			return nil, nil
 		}
+	default:
 	}
 
 	select {
