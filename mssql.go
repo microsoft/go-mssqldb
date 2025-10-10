@@ -292,8 +292,9 @@ func (c *Conn) clearOuts() {
 	c.outs = outputs{}
 }
 
-func (c *Conn) simpleProcessResp(ctx context.Context) error {
+func (c *Conn) simpleProcessResp(ctx context.Context, isRollback bool) error {
 	reader := startReading(c.sess, ctx, c.outs)
+	reader.noAttn = isRollback
 	c.clearOuts()
 
 	var resultError error
@@ -311,7 +312,7 @@ func (c *Conn) Commit() error {
 	if err := c.sendCommitRequest(); err != nil {
 		return c.checkBadConn(c.transactionCtx, err, true)
 	}
-	return c.simpleProcessResp(c.transactionCtx)
+	return c.simpleProcessResp(c.transactionCtx, false)
 }
 
 func (c *Conn) sendCommitRequest() error {
@@ -336,7 +337,7 @@ func (c *Conn) Rollback() error {
 	if err := c.sendRollbackRequest(); err != nil {
 		return c.checkBadConn(c.transactionCtx, err, true)
 	}
-	return c.simpleProcessResp(c.transactionCtx)
+	return c.simpleProcessResp(c.transactionCtx, true)
 }
 
 func (c *Conn) sendRollbackRequest() error {
@@ -390,7 +391,7 @@ func (c *Conn) sendBeginRequest(ctx context.Context, tdsIsolation isoLevel) erro
 }
 
 func (c *Conn) processBeginResponse(ctx context.Context) (driver.Tx, error) {
-	if err := c.simpleProcessResp(ctx); err != nil {
+	if err := c.simpleProcessResp(ctx, false); err != nil {
 		return nil, err
 	}
 	// successful BEGINXACT request will return sess.tranid

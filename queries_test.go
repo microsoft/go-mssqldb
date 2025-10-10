@@ -1240,7 +1240,7 @@ func TestCommitTranError(t *testing.T) {
 
 	// close connection to cause processBeginResponse to fail
 	conn.sess.buf.transport.Close()
-	err = conn.simpleProcessResp(ctx)
+	err = conn.simpleProcessResp(ctx, false)
 	switch err {
 	case nil:
 		t.Error("simpleProcessResp should fail but it succeeded")
@@ -1300,7 +1300,7 @@ func TestRollbackTranError(t *testing.T) {
 
 	// close connection to cause processBeginResponse to fail
 	conn.sess.buf.transport.Close()
-	err = conn.simpleProcessResp(ctx)
+	err = conn.simpleProcessResp(ctx, false)
 	switch err {
 	case nil:
 		t.Error("simpleProcessResp should fail but it succeeded")
