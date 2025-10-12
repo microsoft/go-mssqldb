@@ -2898,3 +2898,69 @@ func TestCustomTimezone(t *testing.T) {
 	})
 
 }
+
+func TestCancelDuringRollback(t *testing.T) {
+	conn, logger := open(t)
+	defer conn.Close()
+	defer logger.StopLogging()
+
+	_, err := conn.Exec("if (exists(select * from INFORMATION_SCHEMA.TABLES where TABLE_NAME='tbl')) drop table tbl")
+	if err != nil {
+		t.Fatal("Drop table failed", err)
+	}
+
+	_, err = conn.Exec("create table tbl (fld1 int primary key, fld2 int)")
+	if err != nil {
+		t.Fatal("Create table failed", err)
+	}
+	_, err = conn.Exec("insert into tbl (fld1, fld2) values (1, 2)")
+	if err != nil {
+		t.Fatal("Insert failed", err)
+	}
+
+	// Try 10 attempts to reproduce the issue
+	for i := range 10 {
+		runRollbackCancellationTest(t, i+1)
+	}
+}
+
+func runRollbackCancellationTest(t *testing.T, attempt int) {
+	conn, _ := open(t)
+	defer conn.Close()
+
+	ctx, cancelFn := context.WithCancel(context.Background())
+
+	var tx *sql.Tx
+	var err error
+	if tx, err = conn.BeginTx(ctx, nil); err != nil {
+		t.Fatal("Begin failed", err.Error())
+	}
+
+	_, err = tx.ExecContext(ctx, "update tbl set fld2 = 1 where fld1 = 1")
+	if err != nil {
+		t.Fatal("Update failed", err)
+	}
+
+	// Cancel the context, this leads to the rollback of the transaction
+	// If the cancellation also leads to issue of Attention packet, and this is issued within a certain period
+	// of the Rollback request, the Rollback is cancelled.
+	// Outside of this period, the transaction is rolled back successfully - and it seems
+	// the Attention has no effect.
+	cancelFn()
+
+	// Need to refresh connection after rollback as conn returned to pool
+	conn, _ = open(t)
+	row := conn.QueryRow("select COUNT(1) FROM sys.dm_tran_session_transactions")
+	var retval *int64
+	err = row.Scan(&retval)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return
+		} else {
+			t.Fatalf("Scan failed: %s", err.Error())
+		}
+	}
+	if retval != nil && *retval != 0 {
+		t.Fatalf("Expected no outstanding transactions; got %d; failed in %d attempts", *retval, attempt)
+	}
+}
