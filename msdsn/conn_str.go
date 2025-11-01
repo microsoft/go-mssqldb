@@ -88,6 +88,7 @@ const (
 	NoTraceID              = "notraceid"
 	GuidConversion         = "guid conversion"
 	Timezone               = "timezone"
+	DisableEPA             = "disableepa"
 )
 
 type EncodeParameters struct {
@@ -105,6 +106,7 @@ func (e EncodeParameters) GetTimezone() *time.Location {
 }
 
 type Config struct {
+	DisableEPA bool
 	Port       uint64
 	Host       string
 	Instance   string
@@ -637,6 +639,14 @@ func Parse(dsn string) (Config, error) {
 	} else {
 		// set to false for backward compatibility
 		p.Encoding.GuidConversion = false
+	}
+
+	disableEPA, ok := params[DisableEPA]
+	if ok {
+		p.DisableEPA, err = strconv.ParseBool(disableEPA)
+		if err != nil {
+			return p, fmt.Errorf("invalid disableEPA '%s': %s", disableEPA, err.Error())
+		}
 	}
 
 	return p, nil
