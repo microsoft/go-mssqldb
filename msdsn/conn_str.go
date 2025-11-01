@@ -86,6 +86,7 @@ const (
 	NoTraceID              = "notraceid"
 	GuidConversion         = "guid conversion"
 	Timezone               = "timezone"
+	DisableEPA             = "disableepa"
 )
 
 type EncodeParameters struct {
@@ -103,6 +104,7 @@ func (e EncodeParameters) GetTimezone() *time.Location {
 }
 
 type Config struct {
+	DisableEPA bool
 	Port       uint64
 	Host       string
 	Instance   string
@@ -569,6 +571,14 @@ func Parse(dsn string) (Config, error) {
 		p.Encoding.GuidConversion = false
 	}
 
+	disableEPA, ok := params[DisableEPA]
+	if ok {
+		p.DisableEPA, err = strconv.ParseBool(disableEPA)
+		if err != nil {
+			return p, fmt.Errorf("invalid disableEPA '%s': %s", disableEPA, err.Error())
+		}
+	}
+
 	return p, nil
 }
 
@@ -711,11 +721,11 @@ func splitAdoConnectionStringParts(dsn string) []string {
 	var parts []string
 	var current strings.Builder
 	inQuotes := false
-	
+
 	runes := []rune(dsn)
 	for i := 0; i < len(runes); i++ {
 		char := runes[i]
-		
+
 		if char == '"' {
 			if inQuotes && i+1 < len(runes) && runes[i+1] == '"' {
 				// Double quote escape sequence - add both quotes to current part
@@ -735,12 +745,12 @@ func splitAdoConnectionStringParts(dsn string) []string {
 			current.WriteRune(char)
 		}
 	}
-	
+
 	// Add the last part if it's not empty
 	if current.Len() > 0 {
 		parts = append(parts, current.String())
 	}
-	
+
 	return parts
 }
 

@@ -15,6 +15,7 @@ type IntegratedAuthenticator interface {
 	InitialBytes() ([]byte, error)
 	NextBytes([]byte) ([]byte, error)
 	Free()
+	SetChannelBinding([]byte)
 }
 
 // ProviderFunc is an adapter to convert a GetIntegratedAuthenticator func into a Provider
