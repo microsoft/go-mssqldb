@@ -118,6 +118,8 @@ type Auth struct {
 	ctxt     SecHandle
 }
 
+func (auth *Auth) SetChannelBinding(channelBinding []byte) {}
+
 // getAuth returns an authentication handle Auth to provide authentication content
 // to mssql.connect
 func getAuth(config msdsn.Config) (integratedauth.IntegratedAuthenticator, error) {
