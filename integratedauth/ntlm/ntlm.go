@@ -57,11 +57,20 @@ const _NEGOTIATE_FLAGS = _NEGOTIATE_UNICODE |
 	_NEGOTIATE_ALWAYS_SIGN |
 	_NEGOTIATE_EXTENDED_SESSIONSECURITY
 
+const (
+	AV_PAIR_MsvAvChannelBindings = 0x000A
+)
+
 type Auth struct {
 	Domain      string
 	UserName    string
 	Password    string
 	Workstation string
+	ChannelBinding []byte
+}
+
+func (auth *Auth) SetChannelBinding(channelBinding []byte) {
+	auth.ChannelBinding = channelBinding
 }
 
 // getAuth returns an authentication handle Auth to provide authentication content
@@ -76,6 +85,7 @@ func getAuth(config msdsn.Config) (integratedauth.IntegratedAuthenticator, error
 		UserName:    domainUser[1],
 		Password:    config.Password,
 		Workstation: config.Workstation,
+		ChannelBinding: []byte{},
 	}, nil
 }
 
@@ -243,7 +253,7 @@ func getNTLMv2AndLMv2ResponsePayloads(userDomain, username, password string, cha
 	return
 }
 
-func negotiateExtendedSessionSecurity(flags uint32, message []byte, challenge [8]byte, username, password, userDom string) (lm, nt []byte, err error) {
+func negotiateExtendedSessionSecurity(flags uint32, message []byte, challenge [8]byte, username, password, userDom string, channelBinding []byte) (lm, nt []byte, err error) {
 	nonce := clientChallenge()
 
 	// Official specification: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-nlmp/b38c36ed-2804-4868-a9ff-8dd3182128e4
@@ -252,6 +262,18 @@ func negotiateExtendedSessionSecurity(flags uint32, message []byte, challenge [8
 		targetInfoFields, err := getNTLMv2TargetInfoFields(message)
 		if err != nil {
 			return lm, nt, err
+		}
+
+		if len(channelBinding) > 0 {
+			av_pair_cb := make([]byte, 4)
+			// AvId
+			// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-nlmp/83f5e789-660d-4781-8491-5f8c6641f75e
+			binary.LittleEndian.PutUint16(av_pair_cb[0:2], AV_PAIR_MsvAvChannelBindings)
+			binary.LittleEndian.PutUint16(av_pair_cb[2:4], uint16(len(channelBinding)))
+			av_pair_cb = append(av_pair_cb, channelBinding...)
+
+			targetInfoFields = append(targetInfoFields[:len(targetInfoFields)-4], av_pair_cb...)
+			targetInfoFields = append(targetInfoFields, 0,0,0,0)
 		}
 
 		nt, lm = getNTLMv2AndLMv2ResponsePayloads(userDom, username, password, challenge, nonce, targetInfoFields, time.Now())
@@ -376,7 +398,7 @@ func (auth *Auth) NextBytes(bytes []byte) ([]byte, error) {
 	copy(challenge[:], bytes[24:32])
 	flags := binary.LittleEndian.Uint32(bytes[20:24])
 	if (flags & _NEGOTIATE_EXTENDED_SESSIONSECURITY) != 0 {
-		lm, nt, err := negotiateExtendedSessionSecurity(flags, bytes, challenge, auth.UserName, auth.Password, auth.Domain)
+		lm, nt, err := negotiateExtendedSessionSecurity(flags, bytes, challenge, auth.UserName, auth.Password, auth.Domain, auth.ChannelBinding)
 		if err != nil {
 			return nil, err
 		}
