@@ -12,8 +12,6 @@ import (
 	"os"
 	"time"
 
-	// mssqldb "github.com/denisenkom/go-mssqldb"
-	// "github.com/denisenkom/go-mssqldb/msdsn"
 	"github.com/google/uuid"
 	mssqldb "github.com/microsoft/go-mssqldb"
 	"github.com/microsoft/go-mssqldb/msdsn"
@@ -38,7 +36,11 @@ func main() {
 	if err != nil {
 		log.Fatal("failed to open keylog file:", err)
 	}
-	defer keyLogFile.Close()
+	defer func() {
+		if cerr := keyLogFile.Close(); cerr != nil {
+			log.Printf("warning: failed to close keylog file: %v", cerr)
+		}
+	}()
 
 
 	cfg := msdsn.Config{
@@ -62,12 +64,10 @@ func main() {
 
 		Parameters: map[string]string{
 			"authenticator": *auth,
-			"krb5-credcachefile": "/tmp/krb5cc_719880",
-			"krb5-configfile": "/etc/krb5.conf",
+			"krb5-credcachefile": os.Getenv("KRB5_CCNAME"),
+			"krb5-configfile": os.Getenv("KRB5_CONFIG"),
 		},
-		ProtocolParameters: map[string]interface{}{
-
-		},
+		ProtocolParameters: map[string]interface{}{},
 		Protocols: []string{
 			"tcp",
 		},
@@ -81,11 +81,6 @@ func main() {
 		EpaMode: msdsn.EpaMode(*epa),
 	}
 
-	// if *spn != "" {
-	// 	cfg.Parameters["authenticator"]	= "krb5"
-	// 	// cfg.Parameters["krb5-credcachefile"]	= "/tmp/krb5cc_719880"
-	// }
-
 	activityid, uerr := uuid.NewRandom()
 	if uerr == nil {
 		cfg.ActivityID = activityid[:]
@@ -97,12 +92,6 @@ func main() {
 	}
 
 	connector := mssqldb.NewConnectorConfig(cfg)
-	// dsn := "server=" + *server + ";user id=" + *userid + ";password=" + *password + ";database=" + *database
-	// connector,err = mssqldb.NewConnector(dsn)
-	// if err != nil {
-	// 	fmt.Println("failed to create connector: ", err.Error())
-	// 	return
-	// }
 
 	_, err = connector.Connect(context.Background())
 	if err != nil {
@@ -113,10 +102,6 @@ func main() {
 	db := sql.OpenDB(connector)
 	defer db.Close()
 
-	// if err != nil {
-	// 	fmt.Println("Cannot connect: ", err.Error())
-	// 	return
-	// }
 	err = db.Ping()
 	if err != nil {
 		fmt.Println("Cannot connect: ", err.Error())
