@@ -62,10 +62,10 @@ const (
 )
 
 type Auth struct {
-	Domain      string
-	UserName    string
-	Password    string
-	Workstation string
+	Domain         string
+	UserName       string
+	Password       string
+	Workstation    string
 	ChannelBinding []byte
 }
 
@@ -81,10 +81,10 @@ func getAuth(config msdsn.Config) (integratedauth.IntegratedAuthenticator, error
 	}
 	domainUser := strings.SplitN(config.User, "\\", 2)
 	return &Auth{
-		Domain:      domainUser[0],
-		UserName:    domainUser[1],
-		Password:    config.Password,
-		Workstation: config.Workstation,
+		Domain:         domainUser[0],
+		UserName:       domainUser[1],
+		Password:       config.Password,
+		Workstation:    config.Workstation,
 		ChannelBinding: []byte{},
 	}, nil
 }
@@ -273,7 +273,7 @@ func negotiateExtendedSessionSecurity(flags uint32, message []byte, challenge [8
 			av_pair_cb = append(av_pair_cb, channelBinding...)
 
 			targetInfoFields = append(targetInfoFields[:len(targetInfoFields)-4], av_pair_cb...)
-			targetInfoFields = append(targetInfoFields, 0,0,0,0)
+			targetInfoFields = append(targetInfoFields, 0, 0, 0, 0)
 		}
 
 		nt, lm = getNTLMv2AndLMv2ResponsePayloads(userDom, username, password, challenge, nonce, targetInfoFields, time.Now())

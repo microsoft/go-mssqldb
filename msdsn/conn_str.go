@@ -95,7 +95,7 @@ const (
 	NoTraceID              = "notraceid"
 	GuidConversion         = "guid conversion"
 	Timezone               = "timezone"
-	EPA             = "epa"
+	EPA                    = "epa"
 )
 
 type EncodeParameters struct {
@@ -113,7 +113,6 @@ func (e EncodeParameters) GetTimezone() *time.Location {
 }
 
 type Config struct {
-	EpaMode    EpaMode
 	Port       uint64
 	Host       string
 	Instance   string
@@ -170,6 +169,8 @@ type Config struct {
 	NoTraceID bool
 	// Parameters related to type encoding
 	Encoding EncodeParameters
+	// EPA mode determines how the Channel Bindings are calculated.
+	EpaMode EpaMode
 }
 
 func readDERFile(filename string) ([]byte, error) {

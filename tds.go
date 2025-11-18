@@ -1255,21 +1255,19 @@ initiate_connection:
 				}
 			}
 
-			if outbuf.transport != nil && p.EpaMode != msdsn.EpaOff {
-				if tlsConn, ok := outbuf.transport.(*tls.Conn); ok {
-					state := tlsConn.ConnectionState()
-					switch p.EpaMode {
-					case msdsn.EpaTlsUnique:
-						if len(state.TLSUnique) > 0 {
-							cbt = integratedauth.GenerateCBTFromTLSUnique(state.TLSUnique)
-						}
-					case msdsn.EpaTlsServerEndPoint:
-						if len(state.PeerCertificates) > 0 {
-							cbt = integratedauth.GenerateCBTFromServerCert(state.PeerCertificates[0])
-						}
-					default:
-						break
+			if p.EpaMode != msdsn.EpaOff {
+				state := tlsConn.ConnectionState()
+				switch p.EpaMode {
+				case msdsn.EpaTlsUnique:
+					if len(state.TLSUnique) > 0 {
+						cbt = integratedauth.GenerateCBTFromTLSUnique(state.TLSUnique)
 					}
+				case msdsn.EpaTlsServerEndPoint:
+					if len(state.PeerCertificates) > 0 {
+						cbt = integratedauth.GenerateCBTFromServerCert(state.PeerCertificates[0])
+					}
+				default:
+					break
 				}
 			}
 		}
@@ -1290,7 +1288,6 @@ initiate_connection:
 			auth.SetChannelBinding(cbt)
 		}
 	}
-
 
 	login, err := prepareLogin(ctx, c, p, logger, auth, fedAuth, uint32(outbuf.PackageSize()))
 	if err != nil {

@@ -32,6 +32,9 @@ type SEC_CHANNEL_BINDINGS struct {
 	Data                    []byte
 }
 
+// ToBytes converts a ChannelBindings struct to a byte slice as it would be gss_channel_bindings_struct structure in GSSAPI.
+// Returns:
+// - a byte slice
 func (cb *ChannelBindings) ToBytes() []byte {
 	binarylength := 4 + 4 + 4 + 4 + 4 + uint32(len(cb.InitiatorAddress)+len(cb.AcceptorAddress)+len(cb.ApplicationData))
 	i := 0
@@ -62,12 +65,18 @@ func (cb *ChannelBindings) ToBytes() []byte {
 	return bytes
 }
 
+// Md5Hash calculates the MD5 hash of the ChannelBindings struct
+// Returns:
+// - a byte slice
 func (cb *ChannelBindings) Md5Hash() []byte {
 	hash := md5.New()
 	hash.Write(cb.ToBytes())
 	return hash.Sum(nil)
 }
 
+// AsSSPI_SEC_CHANNEL_BINDINGS converts a ChannelBindings struct to a SEC_CHANNEL_BINDINGS struct
+// Returns:
+// - a SEC_CHANNEL_BINDINGS struct
 func (cb *ChannelBindings) AsSSPI_SEC_CHANNEL_BINDINGS() *SEC_CHANNEL_BINDINGS {
 	initiatorOffset := uint32(32)
 	acceptorOffset := initiatorOffset + uint32(len(cb.InitiatorAddress))
@@ -100,6 +109,9 @@ func (cb *ChannelBindings) AsSSPI_SEC_CHANNEL_BINDINGS() *SEC_CHANNEL_BINDINGS {
 	return c
 }
 
+// ToBytes converts a SEC_CHANNEL_BINDINGS struct to a byte slice, that can be use in SSPI InitializeSecurityContext function.
+// Returns:
+// - a byte slice
 func (cb *SEC_CHANNEL_BINDINGS) ToBytes() []byte {
 	bytes := make([]byte, 32+len(cb.Data))
 	binary.LittleEndian.PutUint32(bytes[0:4], cb.DwInitiatorAddrType)
@@ -115,6 +127,12 @@ func (cb *SEC_CHANNEL_BINDINGS) ToBytes() []byte {
 	return bytes
 }
 
+// GenerateCBTFromTLSUnique generates a ChannelBindings struct from a TLS unique value
+// Adds tls-unique: prefix to the TLS unique value.
+// Parameters:
+// - tlsUnique: the TLS unique value
+// Returns:
+// - a ChannelBindings struct
 func GenerateCBTFromTLSUnique(tlsUnique []byte) *ChannelBindings {
 	return &ChannelBindings{
 		InitiatorAddrType: 0,
@@ -125,6 +143,12 @@ func GenerateCBTFromTLSUnique(tlsUnique []byte) *ChannelBindings {
 	}
 }
 
+// GenerateCBTFromServerCert generates a ChannelBindings struct from a server certificate
+// Calculates the hash of the server certificate as described in 4.2 section of RFC5056.
+// Parameters:
+// - cert: the server certificate
+// Returns:
+// - a ChannelBindings struct
 func GenerateCBTFromServerCert(cert *x509.Certificate) *ChannelBindings {
 	var certHash []byte
 	var h hash.Hash
