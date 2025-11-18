@@ -112,6 +112,21 @@ func (e EncodeParameters) GetTimezone() *time.Location {
 	return e.Timezone
 }
 
+// EpaModeFromString creates an EpaMode from a string value, case-insensitive.
+// Returns EpaOff if the value does not match a known mode.
+func EpaModeFromString(s string) EpaMode {
+	switch strings.ToLower(s) {
+	case string(EpaOff):
+		return EpaOff
+	case string(EpaTlsUnique):
+		return EpaTlsUnique
+	case string(EpaTlsServerEndPoint):
+		return EpaTlsServerEndPoint
+	default:
+		return EpaOff
+	}
+}
+
 type Config struct {
 	Port       uint64
 	Host       string
@@ -651,18 +666,14 @@ func Parse(dsn string) (Config, error) {
 
 	epa, ok := params[EPA]
 	if !ok {
-		p.EpaMode = EpaOff
-	} else {
-		switch EpaMode(strings.ToLower(epa)) {
-		case EpaOff:
+		epa = os.Getenv("MSSQL_USE_EPA")
+		if epa != "" {
+			p.EpaMode = EpaModeFromString(epa)
+		} else {
 			p.EpaMode = EpaOff
-		case EpaTlsUnique:
-			p.EpaMode = EpaTlsUnique
-		case EpaTlsServerEndPoint:
-			p.EpaMode = EpaTlsServerEndPoint
-		default:
-			return p, fmt.Errorf("invalid EPA mode '%s'", epa)
 		}
+	} else {
+		p.EpaMode = EpaModeFromString(epa)
 	}
 
 	return p, nil
