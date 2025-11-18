@@ -22,6 +22,7 @@ type (
 	Encryption int
 	Log        uint64
 	BrowserMsg byte
+	EpaMode    string
 )
 
 const (
@@ -57,6 +58,12 @@ const (
 )
 
 const (
+	EpaOff               EpaMode = "off"
+	EpaTlsUnique         EpaMode = "tls-unique"
+	EpaTlsServerEndPoint EpaMode = "tls-server-end-point"
+)
+
+const (
 	Database               = "database"
 	Encrypt                = "encrypt"
 	Password               = "password"
@@ -86,7 +93,7 @@ const (
 	NoTraceID              = "notraceid"
 	GuidConversion         = "guid conversion"
 	Timezone               = "timezone"
-	DisableEPA             = "disableepa"
+	EPA             = "epa"
 )
 
 type EncodeParameters struct {
@@ -104,7 +111,7 @@ func (e EncodeParameters) GetTimezone() *time.Location {
 }
 
 type Config struct {
-	DisableEPA bool
+	EpaMode    EpaMode
 	Port       uint64
 	Host       string
 	Instance   string
@@ -571,11 +578,19 @@ func Parse(dsn string) (Config, error) {
 		p.Encoding.GuidConversion = false
 	}
 
-	disableEPA, ok := params[DisableEPA]
-	if ok {
-		p.DisableEPA, err = strconv.ParseBool(disableEPA)
-		if err != nil {
-			return p, fmt.Errorf("invalid disableEPA '%s': %s", disableEPA, err.Error())
+	epa, ok := params[EPA]
+	if !ok {
+		p.EpaMode = EpaOff
+	} else {
+		switch EpaMode(strings.ToLower(epa)) {
+		case EpaOff:
+			p.EpaMode = EpaOff
+		case EpaTlsUnique:
+			p.EpaMode = EpaTlsUnique
+		case EpaTlsServerEndPoint:
+			p.EpaMode = EpaTlsServerEndPoint
+		default:
+			return p, fmt.Errorf("invalid EPA mode '%s'", epa)
 		}
 	}
 
