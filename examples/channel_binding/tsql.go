@@ -30,6 +30,7 @@ func main() {
 		database = flag.String("d", "", "db_name")
 		spn      = flag.String("spn", "", "SPN")
 		auth = flag.String("a", "ntlm", "Authentication method: ntlm or krb5")
+		epa = flag.String("epa", "tls-unique", "EPA mode: tls-unique, tls-server-end-point")
 	)
 	flag.Parse()
 
@@ -77,7 +78,7 @@ func main() {
 		DialTimeout: time.Second * 5,
 		ConnTimeout: time.Second * 10,
 		KeepAlive:   time.Second * 30,
-
+		EpaMode: msdsn.EpaMode(*epa),
 	}
 
 	// if *spn != "" {

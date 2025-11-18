@@ -1129,7 +1129,7 @@ func getTLSConn(conn *timeoutConn, p msdsn.Config, alpnSeq string) (tlsConn *tls
 }
 
 func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Config) (res *tdsSession, err error) {
-	cbt := []byte{}
+	var cbt *integratedauth.ChannelBindings
 	isTransportEncrypted := false
 	// if instance is specified use instance resolution service
 	if len(p.Instance) > 0 && p.Port != 0 && uint64(p.LogFlags)&logDebug != 0 {
@@ -1255,11 +1255,20 @@ initiate_connection:
 				}
 			}
 
-			if !p.DisableEPA && outbuf.transport != nil {
+			if outbuf.transport != nil && p.EpaMode != msdsn.EpaOff {
 				if tlsConn, ok := outbuf.transport.(*tls.Conn); ok {
 					state := tlsConn.ConnectionState()
-					if len(state.TLSUnique) > 0 {
-						cbt = integratedauth.GenerateCBTFromTLSUnique(state.TLSUnique)
+					switch p.EpaMode {
+					case msdsn.EpaTlsUnique:
+						if len(state.TLSUnique) > 0 {
+							cbt = integratedauth.GenerateCBTFromTLSUnique(state.TLSUnique)
+						}
+					case msdsn.EpaTlsServerEndPoint:
+						if len(state.PeerCertificates) > 0 {
+							cbt = integratedauth.GenerateCBTFromServerCert(state.PeerCertificates[0])
+						}
+					default:
+						break
 					}
 				}
 			}
@@ -1277,7 +1286,7 @@ initiate_connection:
 
 	if auth != nil {
 		defer auth.Free()
-		if len(cbt) > 0 {
+		if cbt != nil {
 			auth.SetChannelBinding(cbt)
 		}
 	}
