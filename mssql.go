@@ -20,6 +20,7 @@ import (
 	"github.com/microsoft/go-mssqldb/aecmk"
 	"github.com/microsoft/go-mssqldb/internal/querytext"
 	"github.com/microsoft/go-mssqldb/msdsn"
+	"github.com/shopspring/decimal"
 )
 
 // ReturnStatus may be used to return the return value from a proc.
@@ -997,6 +998,14 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		if valuer.Valid {
 			return s.makeParam(valuer.Int32)
 		}
+	case decimal.NullDecimal:
+		if valuer.Valid {
+			return s.makeParam(valuer.Decimal)
+		}
+	case Money[decimal.NullDecimal]:
+		if valuer.Decimal.Valid {
+			return s.makeParam(Money[decimal.Decimal]{valuer.Decimal.Decimal})
+		}
 	case UniqueIdentifier:
 	case NullUniqueIdentifier:
 	default:
@@ -1080,6 +1089,16 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		res.buffer = []byte{}
 		res.ti.Size = 1
 		res.ti.TypeId = typeIntN
+	case decimal.NullDecimal:
+		// only null values should be getting here
+		res.ti.TypeId = typeNVarChar
+		res.buffer = nil
+		res.ti.Size = 8000
+	case Money[decimal.NullDecimal]:
+		// only null values should be getting here
+		res.ti.TypeId = typeNVarChar
+		res.buffer = nil
+		res.ti.Size = 8000
 	case byte:
 		res.ti.TypeId = typeIntN
 		res.buffer = []byte{val}

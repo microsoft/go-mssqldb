@@ -438,6 +438,8 @@ are supported:
 * "github.com/golang-sql/civil".DateTime -> datetime2
 * "github.com/golang-sql/civil".Time -> time
 * mssql.TVP -> Table Value Parameter (TDS version dependent)
+* "github.com/shopspring/decimal".Decimal -> decimal
+* mssql.Money -> money
 
 Using an `int` parameter will send a 4 byte value (int) from a 32bit app and an 8 byte value (bigint) from a 64bit app. 
 To make sure your integer parameter matches the size of the SQL parameter, use the appropriate sized type like `int32` or `int8`.
