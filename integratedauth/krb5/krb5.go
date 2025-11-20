@@ -252,6 +252,11 @@ type krbAuth struct {
 	krb5Config   *krb5Login
 	spnegoClient *spnego.SPNEGO
 	krb5Client   *client.Client
+	channelBinding *integratedauth.ChannelBindings
+}
+
+func (k *krbAuth) SetChannelBinding(channelBinding *integratedauth.ChannelBindings) {
+	k.channelBinding = channelBinding
 }
 
 func (k *krbAuth) InitialBytes() ([]byte, error) {

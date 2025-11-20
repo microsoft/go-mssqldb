@@ -1129,6 +1129,7 @@ func getTLSConn(conn *timeoutConn, p msdsn.Config, alpnSeq string) (tlsConn *tls
 }
 
 func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Config) (res *tdsSession, err error) {
+	var cbt *integratedauth.ChannelBindings
 	isTransportEncrypted := false
 	// if instance is specified use instance resolution service
 	if len(p.Instance) > 0 && p.Port != 0 && uint64(p.LogFlags)&logDebug != 0 {
@@ -1253,8 +1254,23 @@ initiate_connection:
 					outbuf.transport = toconn
 				}
 			}
-		}
 
+			if p.EpaMode != msdsn.EpaOff {
+				state := tlsConn.ConnectionState()
+				switch p.EpaMode {
+				case msdsn.EpaTlsUnique:
+					if len(state.TLSUnique) > 0 {
+						cbt = integratedauth.GenerateCBTFromTLSUnique(state.TLSUnique)
+					}
+				case msdsn.EpaTlsServerEndPoint:
+					if len(state.PeerCertificates) > 0 {
+						cbt = integratedauth.GenerateCBTFromServerCert(state.PeerCertificates[0])
+					}
+				default:
+					break
+				}
+			}
+		}
 	}
 
 	auth, err := integratedauth.GetIntegratedAuthenticator(p)
@@ -1268,6 +1284,9 @@ initiate_connection:
 
 	if auth != nil {
 		defer auth.Free()
+		if cbt != nil {
+			auth.SetChannelBinding(cbt)
+		}
 	}
 
 	login, err := prepareLogin(ctx, c, p, logger, auth, fedAuth, uint32(outbuf.PackageSize()))
