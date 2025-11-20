@@ -1,3 +1,5 @@
+//go:build windows && (amd64 || 386)
+
 package sharedmemory
 
 import (
@@ -10,6 +12,8 @@ import (
 	"github.com/microsoft/go-mssqldb/internal/np"
 	"github.com/microsoft/go-mssqldb/msdsn"
 )
+
+type sharedMemoryDialer struct{}
 
 func (n sharedMemoryDialer) ParseServer(server string, p *msdsn.Config) error {
 	if p.Port > 0 {
@@ -66,4 +70,10 @@ func (n sharedMemoryDialer) DialConnection(ctx context.Context, p *msdsn.Config)
 
 func (n sharedMemoryDialer) CallBrowser(p *msdsn.Config) bool {
 	return false
+}
+
+func init() {
+	dialer := sharedMemoryDialer{}
+	msdsn.ProtocolParsers = append(msdsn.ProtocolParsers, dialer)
+	msdsn.ProtocolDialers["lpc"] = dialer
 }
