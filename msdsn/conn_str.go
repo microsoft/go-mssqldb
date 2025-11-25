@@ -22,6 +22,7 @@ type (
 	Encryption int
 	Log        uint64
 	BrowserMsg byte
+	EpaMode    string
 )
 
 const (
@@ -86,6 +87,7 @@ const (
 	NoTraceID              = "notraceid"
 	GuidConversion         = "guid conversion"
 	Timezone               = "timezone"
+	EpaEnabled             = "epa enabled"
 )
 
 type EncodeParameters struct {
@@ -159,6 +161,8 @@ type Config struct {
 	NoTraceID bool
 	// Parameters related to type encoding
 	Encoding EncodeParameters
+	// EPA mode determines how the Channel Bindings are calculated.
+	EpaEnabled bool
 }
 
 func readDERFile(filename string) ([]byte, error) {
@@ -569,6 +573,19 @@ func Parse(dsn string) (Config, error) {
 		p.Encoding.GuidConversion = false
 	}
 
+	epaString, ok := params[EpaEnabled]
+	if !ok {
+		epaString = os.Getenv("MSSQL_USE_EPA")
+	}
+	switch strings.ToLower(epaString) {
+	case "true", "1", "enabled", "yes", "y":
+		p.EpaEnabled = true
+	case "false", "0", "disabled", "no", "n":
+		p.EpaEnabled = false
+	default:
+		return p, fmt.Errorf("invalid epa enabled value '%s'", epaString)
+	}
+
 	return p, nil
 }
 
@@ -711,11 +728,11 @@ func splitAdoConnectionStringParts(dsn string) []string {
 	var parts []string
 	var current strings.Builder
 	inQuotes := false
-	
+
 	runes := []rune(dsn)
 	for i := 0; i < len(runes); i++ {
 		char := runes[i]
-		
+
 		if char == '"' {
 			if inQuotes && i+1 < len(runes) && runes[i+1] == '"' {
 				// Double quote escape sequence - add both quotes to current part
@@ -735,12 +752,12 @@ func splitAdoConnectionStringParts(dsn string) []string {
 			current.WriteRune(char)
 		}
 	}
-	
+
 	// Add the last part if it's not empty
 	if current.Len() > 0 {
 		parts = append(parts, current.String())
 	}
-	
+
 	return parts
 }
 
