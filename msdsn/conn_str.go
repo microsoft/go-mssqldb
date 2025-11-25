@@ -59,12 +59,6 @@ const (
 )
 
 const (
-	EpaOff               EpaMode = "off"
-	EpaTlsUnique         EpaMode = "tls-unique"
-	EpaTlsServerEndPoint EpaMode = "tls-server-end-point"
-)
-
-const (
 	Database               = "database"
 	Encrypt                = "encrypt"
 	Password               = "password"
@@ -95,7 +89,7 @@ const (
 	NoTraceID              = "notraceid"
 	GuidConversion         = "guid conversion"
 	Timezone               = "timezone"
-	EPA                    = "epa"
+	EpaEnabled             = "epa enabled"
 )
 
 type EncodeParameters struct {
@@ -110,21 +104,6 @@ func (e EncodeParameters) GetTimezone() *time.Location {
 		return time.UTC
 	}
 	return e.Timezone
-}
-
-// EpaModeFromString creates an EpaMode from a string value, case-insensitive.
-// Returns EpaOff if the value does not match a known mode.
-func EpaModeFromString(s string) EpaMode {
-	switch strings.ToLower(s) {
-	case string(EpaOff):
-		return EpaOff
-	case string(EpaTlsUnique):
-		return EpaTlsUnique
-	case string(EpaTlsServerEndPoint):
-		return EpaTlsServerEndPoint
-	default:
-		return EpaOff
-	}
 }
 
 type Config struct {
@@ -185,7 +164,7 @@ type Config struct {
 	// Parameters related to type encoding
 	Encoding EncodeParameters
 	// EPA mode determines how the Channel Bindings are calculated.
-	EpaMode EpaMode
+	EpaEnabled bool
 }
 
 func readDERFile(filename string) ([]byte, error) {
@@ -664,16 +643,17 @@ func Parse(dsn string) (Config, error) {
 		p.Encoding.GuidConversion = false
 	}
 
-	epa, ok := params[EPA]
+	epaString, ok := params[EpaEnabled]
 	if !ok {
-		epa = os.Getenv("MSSQL_USE_EPA")
-		if epa != "" {
-			p.EpaMode = EpaModeFromString(epa)
-		} else {
-			p.EpaMode = EpaOff
-		}
-	} else {
-		p.EpaMode = EpaModeFromString(epa)
+		epaString = os.Getenv("MSSQL_USE_EPA")
+	}
+	switch strings.ToLower(epaString) {
+	case "true", "1", "enabled", "yes", "y":
+		p.EpaEnabled = true
+	case "false", "0", "disabled", "no", "n":
+		p.EpaEnabled = false
+	default:
+		return p, fmt.Errorf("invalid epa enabled value '%s'", epaString)
 	}
 
 	return p, nil

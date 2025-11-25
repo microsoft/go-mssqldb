@@ -27,8 +27,12 @@ func main() {
 		keyLog   = flag.String("K", "tlslog.log", "path to sslkeylog file")
 		database = flag.String("d", "", "db_name")
 		spn      = flag.String("spn", "", "SPN")
-		auth = flag.String("a", "ntlm", "Authentication method: ntlm or krb5")
-		epa = flag.String("epa", "tls-unique", "EPA mode: tls-unique, tls-server-end-point")
+		auth = flag.String("a", "ntlm", "Authentication method: ntlm, krb5 or winsspi")
+		epa = flag.Bool("epa", true, "EPA enabled: true, false")
+		encrypt = flag.String("e", "required", "encrypt mode: required, disabled, strict, optional")
+		query = flag.String("q", "", "query to execute")
+		tlsMinVersion = flag.String("tlsmin", "1.1", "TLS minimum version: 1.0, 1.1, 1.2, 1.3")
+		tlsMaxVersion = flag.String("tlsmax", "1.3", "TLS maximum version: 1.0, 1.1, 1.2, 1.3")
 	)
 	flag.Parse()
 
@@ -42,7 +46,13 @@ func main() {
 		}
 	}()
 
+	encryption, err := parseEncrypt(*encrypt)
+	if err != nil {
+		log.Fatal("failed to parse encrypt: ", err)
+	}
 
+	tlsMinVersionNum := msdsn.TLSVersionFromString(*tlsMinVersion)
+	tlsMaxVersionNum := msdsn.TLSVersionFromString(*tlsMaxVersion)
 	cfg := msdsn.Config{
 		User:           *userid,
 		Database:       *database,
@@ -57,11 +67,10 @@ func main() {
 			ServerName:                  *server,
 			KeyLogWriter:                keyLogFile,
 			DynamicRecordSizingDisabled: true,
-			MinVersion:                  tls.VersionTLS11,
-			MaxVersion:                  tls.VersionTLS12,
+			MinVersion:                  tlsMinVersionNum,
+			MaxVersion:                  tlsMaxVersionNum,
 		},
-		Encryption:         msdsn.EncryptionRequired,
-
+		Encryption:         encryption,
 		Parameters: map[string]string{
 			"authenticator": *auth,
 			"krb5-credcachefile": os.Getenv("KRB5_CCNAME"),
@@ -78,7 +87,7 @@ func main() {
 		DialTimeout: time.Second * 5,
 		ConnTimeout: time.Second * 10,
 		KeepAlive:   time.Second * 30,
-		EpaMode: msdsn.EpaMode(*epa),
+		EpaEnabled: *epa,
 	}
 
 	activityid, uerr := uuid.NewRandom()
@@ -107,6 +116,15 @@ func main() {
 		fmt.Println("Cannot connect: ", err.Error())
 		return
 	}
+	
+	if *query != "" {
+		err = exec(db, *query)
+		if err != nil {
+			fmt.Println(err)
+		}
+		return
+	}
+
 	r := bufio.NewReader(os.Stdin)
 	for {
 		_, err = os.Stdout.Write([]byte("> "))
@@ -188,5 +206,20 @@ func printValue(pval *interface{}) {
 		fmt.Print(v.Format("2006-01-02 15:04:05.999"))
 	default:
 		fmt.Print(v)
+	}
+}
+
+func parseEncrypt(encrypt string) (msdsn.Encryption, error) {
+	switch encrypt {
+	case "required", "yes", "1", "t", "true", "":
+		return msdsn.EncryptionRequired, nil
+	case "disabled":
+		return msdsn.EncryptionDisabled, nil
+	case "strict":
+		return msdsn.EncryptionStrict, nil
+	case "optional", "no", "0", "f", "false":
+		return msdsn.EncryptionOff, nil
+	default:
+		return msdsn.EncryptionOff, fmt.Errorf("invalid encrypt '%s'", encrypt)
 	}
 }
