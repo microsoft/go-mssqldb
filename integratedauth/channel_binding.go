@@ -11,7 +11,7 @@ import (
 
 const (
 	// https://datatracker.ietf.org/doc/rfc9266/
-	TLS_EXPORTER_PREFIX = "tls-exporter:"
+	TLS_EXPORTER_PREFIX     = "tls-exporter:"
 	TLS_EXPORTER_EKM_LABEL  = "EXPORTER-Channel-Binding"
 	TLS_EXPORTER_EKM_LENGTH = 32
 	// https://www.rfc-editor.org/rfc/rfc5801.html#section-5.2
@@ -143,9 +143,9 @@ func (cb *SEC_CHANNEL_BINDINGS) ToBytes() []byte {
 // - tlsUnique: the TLS unique value
 // Returns:
 // - a ChannelBindings struct
-func GenerateCBTFromTLSUnique(tlsUnique []byte) *ChannelBindings {
+func GenerateCBTFromTLSUnique(tlsUnique []byte) (*ChannelBindings, error) {
 	if len(tlsUnique) == 0 {
-		return nil
+		return nil, fmt.Errorf("tlsUnique is empty")
 	}
 	return &ChannelBindings{
 		InitiatorAddrType: 0,
@@ -153,7 +153,7 @@ func GenerateCBTFromTLSUnique(tlsUnique []byte) *ChannelBindings {
 		AcceptorAddrType:  0,
 		AcceptorAddress:   nil,
 		ApplicationData:   append([]byte(TLS_UNIQUE_PREFIX), tlsUnique...),
-	}
+	}, nil
 }
 
 // GenerateCBTFromTLSConnState generates a ChannelBindings struct from a TLS connection state
@@ -163,13 +163,12 @@ func GenerateCBTFromTLSUnique(tlsUnique []byte) *ChannelBindings {
 // - state: the TLS connection state
 // Returns:
 // - a ChannelBindings struct
-func GenerateCBTFromTLSConnState(state tls.ConnectionState) *ChannelBindings {
+func GenerateCBTFromTLSConnState(state tls.ConnectionState) (*ChannelBindings, error) {
 	switch state.Version {
 	case tls.VersionTLS13:
 		exporterKey, err := state.ExportKeyingMaterial(TLS_EXPORTER_EKM_LABEL, nil, TLS_EXPORTER_EKM_LENGTH)
 		if err != nil {
-			fmt.Println("GenerateCBTFromTLSExporter: error: ", err)
-			return nil
+			return nil, fmt.Errorf("error exporting keying material: %w", err)
 		}
 		return GenerateCBTFromTLSExporter(exporterKey)
 	default:
@@ -182,10 +181,9 @@ func GenerateCBTFromTLSConnState(state tls.ConnectionState) *ChannelBindings {
 // - exporterKey: the TLS exporter key
 // Returns:
 // - a ChannelBindings struct
-func GenerateCBTFromTLSExporter(exporterKey []byte) *ChannelBindings {
-	fmt.Println("GenerateCBTFromTLSExporter: exporterKey: ", exporterKey)
+func GenerateCBTFromTLSExporter(exporterKey []byte) (*ChannelBindings, error) {
 	if len(exporterKey) == 0 {
-		return nil
+		return nil, fmt.Errorf("exporterKey is empty")
 	}
 
 	return &ChannelBindings{
@@ -194,7 +192,7 @@ func GenerateCBTFromTLSExporter(exporterKey []byte) *ChannelBindings {
 		AcceptorAddrType:  0,
 		AcceptorAddress:   nil,
 		ApplicationData:   append([]byte(TLS_EXPORTER_PREFIX), exporterKey...),
-	}
+	}, nil
 }
 
 // GenerateCBTFromServerCert generates a ChannelBindings struct from a server certificate
