@@ -1180,7 +1180,10 @@ initiate_connection:
 		isTransportEncrypted = true
 		outbuf.transport = tlsConn
 		if p.EpaEnabled {
-			cbt = integratedauth.GenerateCBTFromTLSConnState(tlsConn.ConnectionState())
+			cbt, err = integratedauth.GenerateCBTFromTLSConnState(tlsConn.ConnectionState())
+			if err != nil {
+				logger.Log(ctx, msdsn.LogErrors, fmt.Sprintf("Error while generating Channel Bindings from TLS connection state: %v", err))
+			}
 		}
 	}
 	sess := newSession(outbuf, logger, p)
@@ -1260,7 +1263,10 @@ initiate_connection:
 			}
 
 			if p.EpaEnabled {
-				cbt = integratedauth.GenerateCBTFromTLSConnState(tlsConn.ConnectionState())
+				cbt, err = integratedauth.GenerateCBTFromTLSConnState(tlsConn.ConnectionState())
+				if err != nil {
+					logger.Log(ctx, msdsn.LogErrors, fmt.Sprintf("Error while generating Channel Bindings from TLS connection state: %v", err))
+				}
 			}
 		}
 	}
