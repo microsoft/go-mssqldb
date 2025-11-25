@@ -1173,11 +1173,15 @@ initiate_connection:
 	outbuf := newTdsBuffer(packetSize, toconn)
 
 	if p.Encryption == msdsn.EncryptionStrict {
-		outbuf.transport, err = getTLSConn(toconn, p, "tds/8.0")
+		tlsConn, err := getTLSConn(toconn, p, "tds/8.0")
 		if err != nil {
 			return nil, err
 		}
 		isTransportEncrypted = true
+		outbuf.transport = tlsConn
+		if p.EpaEnabled {
+			cbt = integratedauth.GenerateCBTFromTLSConnState(tlsConn.ConnectionState())
+		}
 	}
 	sess := newSession(outbuf, logger, p)
 
@@ -1255,20 +1259,8 @@ initiate_connection:
 				}
 			}
 
-			if p.EpaMode != msdsn.EpaOff {
-				state := tlsConn.ConnectionState()
-				switch p.EpaMode {
-				case msdsn.EpaTlsUnique:
-					if len(state.TLSUnique) > 0 {
-						cbt = integratedauth.GenerateCBTFromTLSUnique(state.TLSUnique)
-					}
-				case msdsn.EpaTlsServerEndPoint:
-					if len(state.PeerCertificates) > 0 {
-						cbt = integratedauth.GenerateCBTFromServerCert(state.PeerCertificates[0])
-					}
-				default:
-					break
-				}
+			if p.EpaEnabled {
+				cbt = integratedauth.GenerateCBTFromTLSConnState(tlsConn.ConnectionState())
 			}
 		}
 	}

@@ -1,12 +1,22 @@
 package integratedauth
 
 import (
+	"crypto"
 	"crypto/md5"
-	"crypto/sha256"
-	"crypto/sha512"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
-	"hash"
+	"fmt"
+)
+
+const (
+	// https://datatracker.ietf.org/doc/rfc9266/
+	TLS_EXPORTER_PREFIX = "tls-exporter:"
+	TLS_EXPORTER_EKM_LABEL  = "EXPORTER-Channel-Binding"
+	TLS_EXPORTER_EKM_LENGTH = 32
+	// https://www.rfc-editor.org/rfc/rfc5801.html#section-5.2
+	TLS_UNIQUE_PREFIX           = "tls-unique:"
+	TLS_SERVER_END_POINT_PREFIX = "tls-server-end-point:"
 )
 
 // gss_channel_bindings_struct: https://docs.oracle.com/cd/E19683-01/816-1331/overview-52/index.html
@@ -134,12 +144,56 @@ func (cb *SEC_CHANNEL_BINDINGS) ToBytes() []byte {
 // Returns:
 // - a ChannelBindings struct
 func GenerateCBTFromTLSUnique(tlsUnique []byte) *ChannelBindings {
+	if len(tlsUnique) == 0 {
+		return nil
+	}
 	return &ChannelBindings{
 		InitiatorAddrType: 0,
 		InitiatorAddress:  nil,
 		AcceptorAddrType:  0,
 		AcceptorAddress:   nil,
-		ApplicationData:   append([]byte("tls-unique:"), tlsUnique...),
+		ApplicationData:   append([]byte(TLS_UNIQUE_PREFIX), tlsUnique...),
+	}
+}
+
+// GenerateCBTFromTLSConnState generates a ChannelBindings struct from a TLS connection state
+// If the TLS version is TLS 1.3, it generates a ChannelBindings struct from the TLS exporter key.
+// If the TLS version is not TLS 1.3, it generates a ChannelBindings struct from the TLS unique value.
+// Parameters:
+// - state: the TLS connection state
+// Returns:
+// - a ChannelBindings struct
+func GenerateCBTFromTLSConnState(state tls.ConnectionState) *ChannelBindings {
+	switch state.Version {
+	case tls.VersionTLS13:
+		exporterKey, err := state.ExportKeyingMaterial(TLS_EXPORTER_EKM_LABEL, nil, TLS_EXPORTER_EKM_LENGTH)
+		if err != nil {
+			fmt.Println("GenerateCBTFromTLSExporter: error: ", err)
+			return nil
+		}
+		return GenerateCBTFromTLSExporter(exporterKey)
+	default:
+		return GenerateCBTFromTLSUnique(state.TLSUnique)
+	}
+}
+
+// GenerateCBTFromTLSExporter generates a ChannelBindings struct from a TLS exporter key
+// Parameters:
+// - exporterKey: the TLS exporter key
+// Returns:
+// - a ChannelBindings struct
+func GenerateCBTFromTLSExporter(exporterKey []byte) *ChannelBindings {
+	fmt.Println("GenerateCBTFromTLSExporter: exporterKey: ", exporterKey)
+	if len(exporterKey) == 0 {
+		return nil
+	}
+
+	return &ChannelBindings{
+		InitiatorAddrType: 0,
+		InitiatorAddress:  nil,
+		AcceptorAddrType:  0,
+		AcceptorAddress:   nil,
+		ApplicationData:   append([]byte(TLS_EXPORTER_PREFIX), exporterKey...),
 	}
 }
 
@@ -150,25 +204,29 @@ func GenerateCBTFromTLSUnique(tlsUnique []byte) *ChannelBindings {
 // Returns:
 // - a ChannelBindings struct
 func GenerateCBTFromServerCert(cert *x509.Certificate) *ChannelBindings {
+	if cert == nil {
+		return nil
+	}
 	var certHash []byte
-	var h hash.Hash
+	var hashType crypto.Hash
 	switch cert.SignatureAlgorithm {
 	case x509.SHA256WithRSA, x509.ECDSAWithSHA256, x509.SHA256WithRSAPSS:
-		h = sha256.New()
+		hashType = crypto.SHA256
 	case x509.SHA384WithRSA, x509.ECDSAWithSHA384, x509.SHA384WithRSAPSS:
-		h = sha512.New384()
+		hashType = crypto.SHA384
 	case x509.SHA512WithRSA, x509.ECDSAWithSHA512, x509.SHA512WithRSAPSS:
-		h = sha512.New()
+		hashType = crypto.SHA512
 	default:
-		h = sha256.New()
+		hashType = crypto.SHA256
 	}
-	h.Write(cert.Raw)
+	h := hashType.New()
+	_, _ = h.Write(cert.Raw)
 	certHash = h.Sum(nil)
 	return &ChannelBindings{
 		InitiatorAddrType: 0,
 		InitiatorAddress:  nil,
 		AcceptorAddrType:  0,
 		AcceptorAddress:   nil,
-		ApplicationData:   append([]byte("tls-server-end-point:"), certHash...),
+		ApplicationData:   append([]byte(TLS_SERVER_END_POINT_PREFIX), certHash...),
 	}
 }
