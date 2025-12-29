@@ -7,7 +7,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-type Money[D decimal.Decimal|decimal.NullDecimal] struct {
+type Money[D decimal.Decimal | decimal.NullDecimal] struct {
 	Decimal D
 }
 
@@ -20,5 +20,5 @@ func (m Money[D]) Value() (driver.Value, error) {
 func (m *Money[D]) Scan(v any) error {
 	scanner, _ := any(&m.Decimal).(sql.Scanner)
 
-	return scanner.Scan(v);
+	return scanner.Scan(v)
 }

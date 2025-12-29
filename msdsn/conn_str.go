@@ -206,6 +206,9 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 		MinVersion:                  TLSVersionFromString(minTLSVersion),
 	}
 
+	// Configure signature schemes for Go 1.25+ to avoid SHA-1 related TLS handshake failures
+	configureTLSSignatureSchemes(&config)
+
 	if len(certificate) == 0 {
 		return &config, nil
 	}
@@ -711,11 +714,11 @@ func splitAdoConnectionStringParts(dsn string) []string {
 	var parts []string
 	var current strings.Builder
 	inQuotes := false
-	
+
 	runes := []rune(dsn)
 	for i := 0; i < len(runes); i++ {
 		char := runes[i]
-		
+
 		if char == '"' {
 			if inQuotes && i+1 < len(runes) && runes[i+1] == '"' {
 				// Double quote escape sequence - add both quotes to current part
@@ -735,12 +738,12 @@ func splitAdoConnectionStringParts(dsn string) []string {
 			current.WriteRune(char)
 		}
 	}
-	
+
 	// Add the last part if it's not empty
 	if current.Len() > 0 {
 		parts = append(parts, current.String())
 	}
-	
+
 	return parts
 }
 
