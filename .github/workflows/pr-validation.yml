@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go: ['1.23']
+        go: ['1.25']
         sqlImage: ['2019-latest','2022-latest']
     steps:
     - uses: actions/checkout@v2
