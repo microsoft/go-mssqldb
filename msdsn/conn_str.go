@@ -206,9 +206,6 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 		MinVersion:                  TLSVersionFromString(minTLSVersion),
 	}
 
-	// Configure signature schemes for Go 1.25+ to avoid SHA-1 related TLS handshake failures
-	configureTLSSignatureSchemes(&config)
-
 	if len(certificate) == 0 {
 		return &config, nil
 	}

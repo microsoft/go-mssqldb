@@ -579,6 +579,13 @@ Use the native "@Name" parameters instead with the "sqlserver" driver name.
 
 ## Known Issues
 
+* **Go 1.25 TLS Handshake Failures with SHA-1 Certificates**: Go 1.25 disabled SHA-1 signature algorithms in TLS 1.2 handshakes per [RFC 9155](https://www.rfc-editor.org/rfc/rfc9155). If your SQL Server uses certificates signed with SHA-1, you may encounter "TLS Handshake failed: cannot read handshake packet: EOF" errors.
+  
+  **Solutions:**
+  * **Recommended**: Upgrade your SQL Server certificates to use SHA-256 or stronger signature algorithms.
+  * **Temporary workaround**: Set the environment variable `GODEBUG=tlssha1=1` before running your application. Note: This workaround will be removed in a future Go release.
+  * **Alternative workaround**: Add `encrypt=disable` to your connection string to disable TLS encryption (not recommended for production environments).
+
 * SQL Server 2008 and 2008 R2 engine cannot handle login records when SSL encryption is not disabled.
 To fix SQL Server 2008 R2 issue, install SQL Server 2008 R2 Service Pack 2.
 To fix SQL Server 2008 issue, install Microsoft SQL Server 2008 Service Pack 3 and Cumulative update package 3 for SQL Server 2008 SP3.
