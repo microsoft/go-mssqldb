@@ -18,8 +18,14 @@ environment:
   TAGS:
   matrix:
     - SQLINSTANCE: SQL2017
-    - GOVERSION: 125
+    # Test with Go 1.23 (minimum version)
+    - GOVERSION: 123
       SQLINSTANCE: SQL2017
+    # Test with Go 1.24
+    - GOVERSION: 124
+      SQLINSTANCE: SQL2019
+      COLUMNENCRYPTION: 1
+    # Test with Go 1.25 (includes new TLS signature scheme fix)
     - GOVERSION: 125
       SQLINSTANCE: SQL2019
       COLUMNENCRYPTION: 1
