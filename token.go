@@ -1194,16 +1194,19 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 	// prioritize it over cancellation channel
 	select {
 	case tok, more := <-t.tokChan:
-		err, more := tok.(error)
 		if more {
-			t.sess.LogF(t.ctx, msdsn.LogDebug, "nextToken returned an error:"+err.Error())
-			// this is an error and not a token
-			return nil, err
+			err, ok := tok.(error)
+			if ok {
+				t.sess.LogF(t.ctx, msdsn.LogDebug, "nextToken returned an error:"+err.Error())
+				// this is an error and not a token
+				return nil, err
+			} else {
+				return tok, nil
+			}
 		} else {
-			return tok, nil
+			return nil, nil
 		}
 	default:
-		// there are no tokens on the channel, will need to wait
 	}
 
 	select {
