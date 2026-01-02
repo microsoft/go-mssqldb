@@ -1196,7 +1196,7 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 	case tok, more := <-t.tokChan:
 		err, more := tok.(error)
 		if more {
-			t.sess.LogF(t.ctx, msdsn.LogDebug, "nextToken returned an error:"+err.Error())
+			t.sess.LogF(t.ctx, msdsn.LogDebug, "%s", "nextToken returned an error:"+err.Error())
 			// this is an error and not a token
 			return nil, err
 		} else {
