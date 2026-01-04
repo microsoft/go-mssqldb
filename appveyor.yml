@@ -11,16 +11,16 @@ environment:
   SQLUSER: sa
   SQLPASSWORD: Password12!
   DATABASE: test
-  GOVERSION: 123
+  GOVERSION: 124
   COLUMNENCRYPTION:
   APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
 
   TAGS:
   matrix:
     - SQLINSTANCE: SQL2017
-    - GOVERSION: 123
+    - GOVERSION: 124
       SQLINSTANCE: SQL2017
-    - GOVERSION: 123
+    - GOVERSION: 124
       SQLINSTANCE: SQL2019
       COLUMNENCRYPTION: 1
       # Cover 32bit and named pipes protocol
@@ -30,7 +30,7 @@ environment:
       PROTOCOL: np
       TAGS: -tags np
       # Cover SSPI and lpc protocol
-    - GOVERSION: 123
+    - GOVERSION: 124
       SQLINSTANCE: SQL2019
       PROTOCOL: lpc
       TAGS: -tags sm
