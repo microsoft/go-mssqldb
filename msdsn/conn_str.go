@@ -193,7 +193,7 @@ func readCertificate(certificate string) ([]byte, error) {
 }
 
 // Build a tls.Config object from the supplied certificate.
-func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate string, minTLSVersion string) (*tls.Config, error) {
+func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate string, minTLSVersion string, skipHostnameValidation bool) (*tls.Config, error) {
 	config := tls.Config{
 		ServerName:         hostInCertificate,
 		InsecureSkipVerify: insecureSkipVerify,
@@ -213,12 +213,20 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 	if err != nil {
 		return nil, fmt.Errorf("cannot read certificate %q: %w", certificate, err)
 	}
-	if strings.Contains(config.ServerName, ":") && !insecureSkipVerify {
+
+	// When skipHostnameValidation is true, we skip hostname checks but still validate the certificate chain
+	if skipHostnameValidation {
+		err := setupTLSCertificateOnly(&config, pem)
+		if err != nil {
+			return nil, err
+		}
+	} else if strings.Contains(config.ServerName, ":") && !insecureSkipVerify {
 		err := setupTLSCommonName(&config, pem)
 		if err != skipSetup {
 			return &config, err
 		}
 	}
+
 	certs := x509.NewCertPool()
 	certs.AppendCertsFromPEM(pem)
 	config.RootCAs = certs
@@ -261,10 +269,16 @@ func parseTLS(params map[string]string, host string) (Encryption, *tls.Config, e
 	certificate := params[Certificate]
 	if encryption != EncryptionDisabled {
 		tlsMin := params[TLSMin]
+		skipHostnameValidation := false
 		if encrypt == "strict" {
 			trustServerCert = false
+			// When a certificate is provided with strict encryption, skip hostname validation
+			// The certificate itself will still be validated against the provided CA
+			if len(certificate) > 0 {
+				skipHostnameValidation = true
+			}
 		}
-		tlsConfig, err := SetupTLS(certificate, trustServerCert, host, tlsMin)
+		tlsConfig, err := SetupTLS(certificate, trustServerCert, host, tlsMin, skipHostnameValidation)
 		if err != nil {
 			return encryption, nil, fmt.Errorf("failed to setup TLS: %w", err)
 		}
@@ -711,11 +725,11 @@ func splitAdoConnectionStringParts(dsn string) []string {
 	var parts []string
 	var current strings.Builder
 	inQuotes := false
-	
+
 	runes := []rune(dsn)
 	for i := 0; i < len(runes); i++ {
 		char := runes[i]
-		
+
 		if char == '"' {
 			if inQuotes && i+1 < len(runes) && runes[i+1] == '"' {
 				// Double quote escape sequence - add both quotes to current part
@@ -735,12 +749,12 @@ func splitAdoConnectionStringParts(dsn string) []string {
 			current.WriteRune(char)
 		}
 	}
-	
+
 	// Add the last part if it's not empty
 	if current.Len() > 0 {
 		parts = append(parts, current.String())
 	}
-	
+
 	return parts
 }
 

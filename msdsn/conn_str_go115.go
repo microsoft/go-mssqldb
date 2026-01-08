@@ -33,3 +33,19 @@ func setupTLSCommonName(config *tls.Config, pem []byte) error {
 	}
 	return nil
 }
+
+// setupTLSCertificateOnly validates the certificate chain without checking the hostname
+func setupTLSCertificateOnly(config *tls.Config, pem []byte) error {
+	// Skip hostname validation but still verify the certificate chain
+	config.InsecureSkipVerify = true
+	config.VerifyConnection = func(cs tls.ConnectionState) error {
+		opts := x509.VerifyOptions{
+			Roots:         nil,
+			Intermediates: x509.NewCertPool(),
+		}
+		opts.Intermediates.AppendCertsFromPEM(pem)
+		_, err := cs.PeerCertificates[0].Verify(opts)
+		return err
+	}
+	return nil
+}
