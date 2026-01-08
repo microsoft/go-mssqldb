@@ -363,15 +363,26 @@ func TestReadCertificate(t *testing.T) {
 }
 
 // TestStrictEncryptionWithCertificate tests that hostname validation is skipped
+// TestStrictEncryptionWithCertificate tests that hostname validation is skipped
 // when a certificate is provided with encrypt=strict
 func TestStrictEncryptionWithCertificate(t *testing.T) {
 	// Create a temporary certificate file for testing
-	derBytes, _ := hex.DecodeString("308201893082012fa003020102020900f07e606f6ba84d95300d06092a864886f70d01010b0500301c311a301806035504030c117777772e7465737473657276657274656d70301e170d3232303430343131323135335a170d3332303430313131323135335a301c311a301806035504030c117777772e7465737473657276657274656d7030819f300d06092a864886f70d010101050003818d0030818902818100c8e06efb8f5de3f7bc5a3f7e6d2e2e6e7e8e9e0e1e2e3e4e5e6e7e8e9e0e1e2e3e4e5e6e7e8e9e0e1e2e3e4e5e6e7e8e9e0e1e2e3e4e5e6e7e8e9e0e1e2e3e4e5e6e7e8e9e0e1e2e3e4e5e6e7e8e9e0e1e2e3e4e5e6e7e8e9e0e1e2e3e4e5e6e7e8e9e0e1e2e3e4e5e6e7e8e9e0e1e2e3e4e5e6e7e8e9e0e1e2e3e4e5e6e7e8e9e0e10203010001a3233021301f0603551d11041830168214777777772e7465737473657276657274656d70300d06092a864886f70d01010b05000381810057cd8a6fb4b9f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5")
+	// This is a minimal self-signed certificate for testing purposes
+	pemCert := `-----BEGIN CERTIFICATE-----
+MIIBkTCB+wIJAKHHCgVZU1tZMA0GCSqGSIb3DQEBBQUAMBExDzANBgNVBAMMBnNl
+cnZlcjAeFw0yMjA0MDQxMTIxNTNaFw0zMjA0MDExMTIxNTNaMBExDzANBgNVBAMM
+BnNlcnZlcjCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEAuTU1euiQCmLQG0z8
+b/5pXNlWM6gGAMJklwO9jN8vGiWQGbQXPOMPqK8xDQqLOQnVEXrKJSfF2blHRneC
+qVmMNL7YSUEMxWdVaW3mQ4MzC6JgmWsxVrJeQEDZLdYVbQPXMGh5YtH5Ih8qTqJy
+e4MJwPMXEKlYVPJ3LE3E8pD6vXkCAwEAATANBgkqhkiG9w0BAQUFAAOBgQBHCqVT
+tZhWYXPHQFQgbKh6yvmhZfF8ZXHgZMhQQQwvqc0i5mvFpJpCQUQXAOkPGNPJANcV
+QSkVdAJg8mHKYGNZ6pIYMFr7RoBLGqMnKLPMYn3VqFvMccPx7A0hKQFJBR/qV8lh
+f0kGHKQEAFYGJLqJdK4KsGQDKLfZr9fqvXCCAA==
+-----END CERTIFICATE-----`
+
 	pemfile, _ := os.CreateTemp("", "*.pem")
 	defer os.Remove(pemfile.Name())
-	pemfile.Write([]byte("-----BEGIN CERTIFICATE-----\n"))
-	pemfile.Write([]byte(hex.EncodeToString(derBytes)))
-	pemfile.Write([]byte("\n-----END CERTIFICATE-----\n"))
+	pemfile.WriteString(pemCert)
 	pemfile.Close()
 
 	// Test 1: encrypt=strict with certificate should skip hostname validation

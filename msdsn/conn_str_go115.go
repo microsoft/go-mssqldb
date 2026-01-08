@@ -23,11 +23,14 @@ func setupTLSCommonName(config *tls.Config, pem []byte) error {
 		if commonName != cs.ServerName {
 			return fmt.Errorf("invalid certificate name %q, expected %q", commonName, cs.ServerName)
 		}
+		// Create a certificate pool with the provided certificate as the root CA
+		roots := x509.NewCertPool()
+		roots.AppendCertsFromPEM(pem)
+
 		opts := x509.VerifyOptions{
-			Roots:         nil,
+			Roots:         roots,
 			Intermediates: x509.NewCertPool(),
 		}
-		opts.Intermediates.AppendCertsFromPEM(pem)
 		_, err := cs.PeerCertificates[0].Verify(opts)
 		return err
 	}
@@ -39,11 +42,14 @@ func setupTLSCertificateOnly(config *tls.Config, pem []byte) error {
 	// Skip hostname validation but still verify the certificate chain
 	config.InsecureSkipVerify = true
 	config.VerifyConnection = func(cs tls.ConnectionState) error {
+		// Create a certificate pool with the provided certificate as the root CA
+		roots := x509.NewCertPool()
+		roots.AppendCertsFromPEM(pem)
+
 		opts := x509.VerifyOptions{
-			Roots:         nil,
+			Roots:         roots,
 			Intermediates: x509.NewCertPool(),
 		}
-		opts.Intermediates.AppendCertsFromPEM(pem)
 		_, err := cs.PeerCertificates[0].Verify(opts)
 		return err
 	}
