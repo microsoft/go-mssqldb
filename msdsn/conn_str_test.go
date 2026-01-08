@@ -363,7 +363,6 @@ func TestReadCertificate(t *testing.T) {
 }
 
 // TestStrictEncryptionWithCertificate tests that hostname validation is skipped
-// TestStrictEncryptionWithCertificate tests that hostname validation is skipped
 // when a certificate is provided with encrypt=strict
 func TestStrictEncryptionWithCertificate(t *testing.T) {
 	// Create a temporary certificate file for testing

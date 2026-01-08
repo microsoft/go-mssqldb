@@ -19,6 +19,9 @@ func setupTLSCommonName(config *tls.Config, pem []byte) error {
 	// for this VerifyConnection callback to accomplish certificate verification.
 	config.InsecureSkipVerify = true
 	config.VerifyConnection = func(cs tls.ConnectionState) error {
+		if len(cs.PeerCertificates) == 0 {
+			return fmt.Errorf("no peer certificates provided")
+		}
 		commonName := cs.PeerCertificates[0].Subject.CommonName
 		if commonName != cs.ServerName {
 			return fmt.Errorf("invalid certificate name %q, expected %q", commonName, cs.ServerName)
@@ -42,6 +45,9 @@ func setupTLSCertificateOnly(config *tls.Config, pem []byte) error {
 	// Skip hostname validation but still verify the certificate chain
 	config.InsecureSkipVerify = true
 	config.VerifyConnection = func(cs tls.ConnectionState) error {
+		if len(cs.PeerCertificates) == 0 {
+			return fmt.Errorf("no peer certificates provided")
+		}
 		// Create a certificate pool with the provided certificate as the root CA
 		roots := x509.NewCertPool()
 		roots.AppendCertsFromPEM(pem)
