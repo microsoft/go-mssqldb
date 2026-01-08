@@ -43,12 +43,14 @@ func setupTLSCommonName(config *tls.Config, pem []byte) error {
 		
 		// Build intermediates pool from the peer certificates (excluding the first one which is the server cert)
 		intermediates := x509.NewCertPool()
-		for i := 1; i < len(rawCerts); i++ {
-			intermediateCert, err := x509.ParseCertificate(rawCerts[i])
-			if err != nil {
-				return fmt.Errorf("failed to parse intermediate certificate: %w", err)
+		if len(rawCerts) > 1 {
+			for i := 1; i < len(rawCerts); i++ {
+				intermediateCert, err := x509.ParseCertificate(rawCerts[i])
+				if err != nil {
+					return fmt.Errorf("failed to parse intermediate certificate: %w", err)
+				}
+				intermediates.AddCert(intermediateCert)
 			}
-			intermediates.AddCert(intermediateCert)
 		}
 		
 		// Verify the certificate chain against the provided root CA
@@ -64,9 +66,10 @@ func setupTLSCommonName(config *tls.Config, pem []byte) error {
 
 // setupTLSCertificateOnly validates the certificate chain without checking the hostname
 func setupTLSCertificateOnly(config *tls.Config, pem []byte) error {
-	// Skip hostname validation by setting ServerName to empty string
-	// The certificate chain will still be verified against RootCAs (set later in SetupTLS)
-	// This is the secure way to skip hostname validation without using InsecureSkipVerify
+	// Skip hostname validation by setting ServerName to empty string.
+	// When ServerName is empty, Go's TLS implementation will skip hostname verification
+	// but still verify the certificate chain against the RootCAs (configured in SetupTLS after this function returns).
+	// This is the secure way to skip hostname validation without using InsecureSkipVerify.
 	config.ServerName = ""
 	return nil
 }
