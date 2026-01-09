@@ -390,8 +390,9 @@ f0kGHKQEAFYGJLqJdK4KsGQDKLfZr9fqvXCCAA==
 	assert.Nil(t, err, "Expected no error parsing connection string")
 	assert.Equal(t, Encryption(EncryptionStrict), config.Encryption, "Expected EncryptionStrict")
 	assert.NotNil(t, config.TLSConfig, "Expected TLSConfig to be set")
-	assert.Equal(t, "", config.TLSConfig.ServerName, "Expected ServerName to be empty when certificate is provided with strict encryption")
-	assert.False(t, config.TLSConfig.InsecureSkipVerify, "Expected InsecureSkipVerify to be false")
+	// When skipping hostname validation, InsecureSkipVerify is set to true with VerifyPeerCertificate callback
+	assert.True(t, config.TLSConfig.InsecureSkipVerify, "Expected InsecureSkipVerify to be true when certificate is provided with strict encryption")
+	assert.NotNil(t, config.TLSConfig.VerifyPeerCertificate, "Expected VerifyPeerCertificate callback to be set")
 
 	// Test 2: encrypt=strict without certificate should NOT skip hostname validation
 	connStr2 := "server=somehost;encrypt=strict"

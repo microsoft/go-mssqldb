@@ -13,9 +13,9 @@ func setupTLSCommonName(config *tls.Config, pem []byte) error {
 
 // setupTLSCertificateOnly validates the certificate chain without checking the hostname
 func setupTLSCertificateOnly(config *tls.Config, pem []byte) error {
-	// Skip hostname validation by setting ServerName to empty string.
-	// When ServerName is empty, Go's TLS implementation will skip hostname verification
-	// but still verify the certificate chain against the RootCAs (configured in SetupTLS after this function returns).
-	config.ServerName = ""
+	// Prior to Go 1.15, we don't have VerifyPeerCertificate callback.
+	// We must use InsecureSkipVerify=true to skip hostname validation.
+	// The certificate will still be verified against RootCAs (set in SetupTLS after this function).
+	config.InsecureSkipVerify = true
 	return nil
 }

@@ -66,10 +66,46 @@ func setupTLSCommonName(config *tls.Config, pem []byte) error {
 
 // setupTLSCertificateOnly validates the certificate chain without checking the hostname
 func setupTLSCertificateOnly(config *tls.Config, pem []byte) error {
-	// Skip hostname validation by setting ServerName to empty string.
-	// When ServerName is empty, Go's TLS implementation will skip hostname verification
-	// but still verify the certificate chain against the RootCAs (configured in SetupTLS after this function returns).
-	// This is the secure way to skip hostname validation without using InsecureSkipVerify.
-	config.ServerName = ""
+	// To skip hostname validation while still validating the certificate chain,
+	// we must use InsecureSkipVerify=true with a VerifyPeerCertificate callback.
+	// This is the only way to skip hostname checks in Go's TLS implementation.
+	
+	// Create a certificate pool with the provided certificate as the root CA
+	roots := x509.NewCertPool()
+	roots.AppendCertsFromPEM(pem)
+	
+	config.InsecureSkipVerify = true
+	config.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+		if len(rawCerts) == 0 {
+			return fmt.Errorf("no peer certificates provided")
+		}
+		
+		// Parse the peer certificate
+		cert, err := x509.ParseCertificate(rawCerts[0])
+		if err != nil {
+			return fmt.Errorf("failed to parse certificate: %w", err)
+		}
+		
+		// Build intermediates pool from the peer certificates (excluding the first one which is the server cert)
+		intermediates := x509.NewCertPool()
+		if len(rawCerts) > 1 {
+			for i := 1; i < len(rawCerts); i++ {
+				intermediateCert, err := x509.ParseCertificate(rawCerts[i])
+				if err != nil {
+					return fmt.Errorf("failed to parse intermediate certificate: %w", err)
+				}
+				intermediates.AddCert(intermediateCert)
+			}
+		}
+		
+		// Verify the certificate chain against the provided root CA
+		// Note: We do NOT check the hostname here - that's intentional for this use case
+		opts := x509.VerifyOptions{
+			Roots:         roots,
+			Intermediates: intermediates,
+		}
+		_, err = cert.Verify(opts)
+		return err
+	}
 	return nil
 }
