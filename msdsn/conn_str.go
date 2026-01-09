@@ -214,22 +214,30 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 		return nil, fmt.Errorf("cannot read certificate %q: %w", certificate, err)
 	}
 
+	usedCustomVerification := false
+
 	// When skipHostnameValidation is true, we skip hostname checks but still validate the certificate chain
 	if skipHostnameValidation {
-		err := setupTLSCertificateOnly(&config, pem)
-		if err != nil {
+		if err := setupTLSCertificateOnly(&config, pem); err != nil {
 			return nil, err
 		}
+		usedCustomVerification = true
 	} else if strings.Contains(config.ServerName, ":") && !insecureSkipVerify {
-		err := setupTLSCommonName(&config, pem)
-		if err != skipSetup {
+		switch err := setupTLSCommonName(&config, pem); err {
+		case nil:
+			usedCustomVerification = true
+		case skipSetup:
+			// fall back to standard RootCAs handling below
+		default:
 			return &config, err
 		}
 	}
 
-	certs := x509.NewCertPool()
-	certs.AppendCertsFromPEM(pem)
-	config.RootCAs = certs
+	if !usedCustomVerification {
+		certs := x509.NewCertPool()
+		certs.AppendCertsFromPEM(pem)
+		config.RootCAs = certs
+	}
 	return &config, nil
 }
 
