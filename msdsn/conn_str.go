@@ -280,11 +280,11 @@ func parseTLS(params map[string]string, host string) (Encryption, *tls.Config, e
 		skipHostnameValidation := false
 		if encrypt == "strict" {
 			trustServerCert = false
-			// When a certificate is provided with strict encryption, skip hostname validation
-			// The certificate itself will still be validated against the provided CA
-			if len(certificate) > 0 {
-				skipHostnameValidation = true
-			}
+		}
+		// When a certificate is provided with any encryption mode (strict, true/required, mandatory),
+		// skip hostname validation. The certificate itself will still be validated against the provided CA
+		if len(certificate) > 0 {
+			skipHostnameValidation = true
 		}
 		tlsConfig, err := SetupTLS(certificate, trustServerCert, host, tlsMin, skipHostnameValidation)
 		if err != nil {

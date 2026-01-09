@@ -379,10 +379,17 @@ QSkVdAJg8mHKYGNZ6pIYMFr7RoBLGqMnKLPMYn3VqFvMccPx7A0hKQFJBR/qV8lh
 f0kGHKQEAFYGJLqJdK4KsGQDKLfZr9fqvXCCAA==
 -----END CERTIFICATE-----`
 
-	pemfile, _ := os.CreateTemp("", "*.pem")
+	pemfile, err := os.CreateTemp("", "*.pem")
+	if err != nil {
+		t.Fatalf("failed to create temporary certificate file: %v", err)
+	}
 	defer os.Remove(pemfile.Name())
-	pemfile.WriteString(pemCert)
-	pemfile.Close()
+	if _, err := pemfile.WriteString(pemCert); err != nil {
+		t.Fatalf("failed to write certificate to file: %v", err)
+	}
+	if err := pemfile.Close(); err != nil {
+		t.Fatalf("failed to close certificate file: %v", err)
+	}
 
 	// Test 1: encrypt=strict with certificate should skip hostname validation
 	connStr := "server=differenthostname;encrypt=strict;certificate=" + pemfile.Name()
@@ -402,11 +409,13 @@ f0kGHKQEAFYGJLqJdK4KsGQDKLfZr9fqvXCCAA==
 	assert.NotNil(t, config2.TLSConfig, "Expected TLSConfig to be set")
 	assert.False(t, config2.TLSConfig.InsecureSkipVerify, "Expected InsecureSkipVerify to be false when no certificate is provided")
 
-	// Test 3: encrypt=required with certificate should still validate hostname
+	// Test 3: encrypt=required with certificate should also skip hostname validation
 	connStr3 := "server=somehost;encrypt=true;certificate=" + pemfile.Name()
 	config3, err := Parse(connStr3)
 	assert.Nil(t, err, "Expected no error parsing connection string")
 	assert.Equal(t, Encryption(EncryptionRequired), config3.Encryption, "Expected EncryptionRequired")
 	assert.NotNil(t, config3.TLSConfig, "Expected TLSConfig to be set")
-	assert.False(t, config3.TLSConfig.InsecureSkipVerify, "Expected InsecureSkipVerify to be false for encrypt=true")
+	// When a certificate is provided, hostname validation is skipped for any encryption mode
+	assert.False(t, config3.TLSConfig.InsecureSkipVerify, "Expected InsecureSkipVerify to be false")
+	assert.NotNil(t, config3.TLSConfig.VerifyConnection, "Expected VerifyConnection callback to be set for encrypt=true with certificate")
 }
