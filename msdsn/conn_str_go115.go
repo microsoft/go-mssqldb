@@ -73,50 +73,38 @@ func setupTLSCommonName(config *tls.Config, pem []byte) error {
 // setupTLSCertificateOnly validates the certificate chain without checking the hostname
 func setupTLSCertificateOnly(config *tls.Config, pem []byte) error {
 	// To skip hostname validation while still validating the certificate chain,
-	// we must use InsecureSkipVerify=true with a VerifyPeerCertificate callback.
-	// This is the only way to skip hostname checks in Go's TLS implementation.
-	// 
-	// Security note: InsecureSkipVerify is safe here because:
-	// 1. The VerifyPeerCertificate callback performs full certificate chain validation
-	// 2. The certificate must be signed by the user-provided CA (in pem)
-	// 3. Only hostname verification is skipped, which is the intended behavior
+	// we use the VerifyConnection callback (available in Go 1.15+).
+	// This allows us to perform custom certificate chain verification while leaving
+	// the default TLS verification pipeline intact, without needing InsecureSkipVerify.
+	// By not setting DNSName in VerifyOptions, we intentionally omit hostname verification.
 	
 	// Create a certificate pool with the provided certificate as the root CA
 	roots := x509.NewCertPool()
 	roots.AppendCertsFromPEM(pem)
 	
-	// nosemgrep: go.lang.security.audit.net.use-tls.use-tls
-	config.InsecureSkipVerify = true
-	config.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
-		if len(rawCerts) == 0 {
+	config.VerifyConnection = func(cs tls.ConnectionState) error {
+		if len(cs.PeerCertificates) == 0 {
 			return fmt.Errorf("no peer certificates provided")
 		}
 		
-		// Parse the peer certificate
-		cert, err := x509.ParseCertificate(rawCerts[0])
-		if err != nil {
-			return fmt.Errorf("failed to parse certificate: %w", err)
-		}
+		// Extract the leaf certificate
+		cert := cs.PeerCertificates[0]
 		
-		// Build intermediates pool from the peer certificates (excluding the first one which is the server cert)
+		// Build intermediates pool from remaining peer certificates
 		intermediates := x509.NewCertPool()
-		if len(rawCerts) > 1 {
-			for i := 1; i < len(rawCerts); i++ {
-				intermediateCert, err := x509.ParseCertificate(rawCerts[i])
-				if err != nil {
-					return fmt.Errorf("failed to parse intermediate certificate: %w", err)
-				}
-				intermediates.AddCert(intermediateCert)
+		if len(cs.PeerCertificates) > 1 {
+			for i := 1; i < len(cs.PeerCertificates); i++ {
+				intermediates.AddCert(cs.PeerCertificates[i])
 			}
 		}
 		
 		// Verify the certificate chain against the provided root CA
-		// Note: We do NOT check the hostname here - that's intentional for this use case
+		// Note: We do NOT set DNSName here - that's intentional to skip hostname verification
 		opts := x509.VerifyOptions{
 			Roots:         roots,
 			Intermediates: intermediates,
 		}
-		_, err = cert.Verify(opts)
+		_, err := cert.Verify(opts)
 		return err
 	}
 	return nil
