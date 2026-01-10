@@ -1,6 +1,7 @@
 package msdsn
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -239,6 +240,44 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 		config.RootCAs = certs
 	}
 	return &config, nil
+}
+
+// setupTLSCertificateOnly validates that the server certificate matches the provided certificate
+func setupTLSCertificateOnly(config *tls.Config, pemData []byte) error {
+	// To match the behavior of Microsoft.Data.SqlClient, we simply compare the raw bytes
+	// of the server's certificate with the provided certificate file. This approach:
+	// - Does not validate certificate chain, expiry, or subject
+	// - Only checks that the server's certificate exactly matches the provided certificate
+	// - Skips hostname validation (which is the intended behavior)
+	//
+	// We use InsecureSkipVerify=true with VerifyPeerCertificate callback because
+	// VerifyConnection runs AFTER standard verification (including hostname check).
+	
+	// Parse the expected certificate from the PEM data
+	block, _ := pem.Decode(pemData)
+	if block == nil {
+		return fmt.Errorf("failed to decode PEM certificate")
+	}
+	// Store the raw certificate bytes (DER format) for comparison
+	expectedCertBytes := block.Bytes
+	
+	config.InsecureSkipVerify = true
+	config.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+		if len(rawCerts) == 0 {
+			return fmt.Errorf("no peer certificates provided")
+		}
+		
+		// Compare the server's certificate bytes with the expected certificate bytes
+		// This matches the Microsoft.Data.SqlClient behavior: just compare raw bytes
+		serverCertBytes := rawCerts[0]
+		
+		if !bytes.Equal(serverCertBytes, expectedCertBytes) {
+			return fmt.Errorf("server certificate doesn't match the provided certificate")
+		}
+		
+		return nil
+	}
+	return nil
 }
 
 // Parse and handle encryption parameters. If encryption is desired, it returns the corresponding tls.Config object.
