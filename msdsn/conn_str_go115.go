@@ -4,8 +4,10 @@
 package msdsn
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 )
 
@@ -70,21 +72,24 @@ func setupTLSCommonName(config *tls.Config, pem []byte) error {
 	return nil
 }
 
-// setupTLSCertificateOnly validates the certificate chain without checking the hostname
-func setupTLSCertificateOnly(config *tls.Config, pem []byte) error {
-	// To skip hostname validation while still validating the certificate chain,
-	// we must use InsecureSkipVerify=true with VerifyPeerCertificate callback.
-	// VerifyConnection runs AFTER standard verification (including hostname check),
-	// so it cannot be used to skip hostname validation. VerifyPeerCertificate runs
-	// when InsecureSkipVerify=true and allows us to perform custom verification.
-	// 
-	// Security note: This is safe because VerifyPeerCertificate performs full
-	// certificate chain validation against the user-provided CA. Only hostname
-	// verification is skipped, which is the intended behavior.
+// setupTLSCertificateOnly validates that the server certificate matches the provided certificate
+func setupTLSCertificateOnly(config *tls.Config, pemData []byte) error {
+	// To match the behavior of Microsoft.Data.SqlClient, we simply compare the raw bytes
+	// of the server's certificate with the provided certificate file. This approach:
+	// - Does not validate certificate chain, expiry, or subject
+	// - Only checks that the server's certificate exactly matches the provided certificate
+	// - Skips hostname validation (which is the intended behavior)
+	//
+	// We use InsecureSkipVerify=true with VerifyPeerCertificate callback because
+	// VerifyConnection runs AFTER standard verification (including hostname check).
 	
-	// Create a certificate pool with the provided certificate as the root CA
-	roots := x509.NewCertPool()
-	roots.AppendCertsFromPEM(pem)
+	// Parse the expected certificate from the PEM data
+	block, _ := pem.Decode(pemData)
+	if block == nil {
+		return fmt.Errorf("failed to decode PEM certificate")
+	}
+	// Store the raw certificate bytes (DER format) for comparison
+	expectedCertBytes := block.Bytes
 	
 	config.InsecureSkipVerify = true
 	config.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
@@ -92,32 +97,15 @@ func setupTLSCertificateOnly(config *tls.Config, pem []byte) error {
 			return fmt.Errorf("no peer certificates provided")
 		}
 		
-		// Parse the peer certificate
-		cert, err := x509.ParseCertificate(rawCerts[0])
-		if err != nil {
-			return fmt.Errorf("failed to parse certificate: %w", err)
+		// Compare the server's certificate bytes with the expected certificate bytes
+		// This matches the Microsoft.Data.SqlClient behavior: just compare raw bytes
+		serverCertBytes := rawCerts[0]
+		
+		if !bytes.Equal(serverCertBytes, expectedCertBytes) {
+			return fmt.Errorf("server certificate doesn't match the provided certificate")
 		}
 		
-		// Build intermediates pool from the peer certificates (excluding the first one which is the server cert)
-		intermediates := x509.NewCertPool()
-		if len(rawCerts) > 1 {
-			for i := 1; i < len(rawCerts); i++ {
-				intermediateCert, err := x509.ParseCertificate(rawCerts[i])
-				if err != nil {
-					return fmt.Errorf("failed to parse intermediate certificate: %w", err)
-				}
-				intermediates.AddCert(intermediateCert)
-			}
-		}
-		
-		// Verify the certificate chain against the provided root CA
-		// Note: We do NOT set DNSName here - that's intentional to skip hostname verification
-		opts := x509.VerifyOptions{
-			Roots:         roots,
-			Intermediates: intermediates,
-		}
-		_, err = cert.Verify(opts)
-		return err
+		return nil
 	}
 	return nil
 }
