@@ -73,28 +73,40 @@ func setupTLSCommonName(config *tls.Config, pem []byte) error {
 // setupTLSCertificateOnly validates the certificate chain without checking the hostname
 func setupTLSCertificateOnly(config *tls.Config, pem []byte) error {
 	// To skip hostname validation while still validating the certificate chain,
-	// we use the VerifyConnection callback (available in Go 1.15+).
-	// This allows us to perform custom certificate chain verification while leaving
-	// the default TLS verification pipeline intact, without needing InsecureSkipVerify.
-	// By not setting DNSName in VerifyOptions, we intentionally omit hostname verification.
+	// we must use InsecureSkipVerify=true with VerifyPeerCertificate callback.
+	// VerifyConnection runs AFTER standard verification (including hostname check),
+	// so it cannot be used to skip hostname validation. VerifyPeerCertificate runs
+	// when InsecureSkipVerify=true and allows us to perform custom verification.
+	// 
+	// Security note: This is safe because VerifyPeerCertificate performs full
+	// certificate chain validation against the user-provided CA. Only hostname
+	// verification is skipped, which is the intended behavior.
 	
 	// Create a certificate pool with the provided certificate as the root CA
 	roots := x509.NewCertPool()
 	roots.AppendCertsFromPEM(pem)
 	
-	config.VerifyConnection = func(cs tls.ConnectionState) error {
-		if len(cs.PeerCertificates) == 0 {
+	config.InsecureSkipVerify = true
+	config.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+		if len(rawCerts) == 0 {
 			return fmt.Errorf("no peer certificates provided")
 		}
 		
-		// Extract the leaf certificate
-		cert := cs.PeerCertificates[0]
+		// Parse the peer certificate
+		cert, err := x509.ParseCertificate(rawCerts[0])
+		if err != nil {
+			return fmt.Errorf("failed to parse certificate: %w", err)
+		}
 		
-		// Build intermediates pool from remaining peer certificates
+		// Build intermediates pool from the peer certificates (excluding the first one which is the server cert)
 		intermediates := x509.NewCertPool()
-		if len(cs.PeerCertificates) > 1 {
-			for i := 1; i < len(cs.PeerCertificates); i++ {
-				intermediates.AddCert(cs.PeerCertificates[i])
+		if len(rawCerts) > 1 {
+			for i := 1; i < len(rawCerts); i++ {
+				intermediateCert, err := x509.ParseCertificate(rawCerts[i])
+				if err != nil {
+					return fmt.Errorf("failed to parse intermediate certificate: %w", err)
+				}
+				intermediates.AddCert(intermediateCert)
 			}
 		}
 		
@@ -104,7 +116,7 @@ func setupTLSCertificateOnly(config *tls.Config, pem []byte) error {
 			Roots:         roots,
 			Intermediates: intermediates,
 		}
-		_, err := cert.Verify(opts)
+		_, err = cert.Verify(opts)
 		return err
 	}
 	return nil
