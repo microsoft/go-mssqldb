@@ -581,6 +581,13 @@ func parseFeatureExtAck(r *tdsBuffer) featureExtAck {
 
 			}
 			ack[feature] = colAck
+		case featExtJSONSUPPORT:
+			// JSON support acknowledgement contains a version byte
+			if length >= 1 {
+				version := r.byte()
+				length--
+				ack[feature] = version
+			}
 		}
 
 		// Skip unprocessed bytes

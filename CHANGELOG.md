@@ -1,4 +1,14 @@
 # Changelog
+
+## Unreleased
+
+### Features
+
+* Add `mssql.JSON` and `mssql.NullJSON` types for working with JSON data
+  - Uses native JSON type (0xF4) on SQL Server 2025+ and Azure SQL Database
+  - Automatically falls back to `nvarchar(max)` on SQL Server 2016-2022 for seamless compatibility
+  - Works with SQL Server's built-in JSON functions (JSON_VALUE, JSON_QUERY, ISJSON, etc.) on all supported SQL Server versions (2016+)
+
 ## 1.9.3
 
 ### Bug fixes

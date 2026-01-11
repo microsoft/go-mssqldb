@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         go: ['1.24']
-        sqlImage: ['2019-latest','2022-latest']
+        sqlImage: ['2019-latest','2022-latest','2025-latest']
     steps:
     - uses: actions/checkout@v2
     - name: Setup go
