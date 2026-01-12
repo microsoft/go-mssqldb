@@ -26,10 +26,14 @@ jobs:
         export SQLUSER=sa
         export SQLPASSWORD=$SQLCMDPASSWORD
         export DATABASE=master
-        export HOST=.
-        # SQL 2017 requires trusting its self-signed certificate
+        export HOST=localhost
+        # Build connection string - SQL 2017 requires trusting its self-signed certificate
         if [ "${{ matrix.sqlImage }}" = "2017-latest" ]; then
           export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
+          # SQL 2017's certificate has a negative serial number which Go 1.23+ rejects by default
+          export GODEBUG=x509negativeserial=1
+        else
+          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}"
         fi
         docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver -p:1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD mcr.microsoft.com/mssql/server:${{ matrix.sqlImage }}
         sleep 10
