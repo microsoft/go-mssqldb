@@ -5,13 +5,13 @@
 
 * Certificate-based server validation now skips hostname validation when a certificate is provided with encryption enabled, matching Microsoft.Data.SqlClient behavior. The driver validates the server's certificate by byte-for-byte comparison with the provided certificate file, allowing connections where the hostname doesn't match the certificate CN/SAN. (#xxx)
 
-## 1.9.5
+## 1.9.3
 
 ### Bug fixes
 
 * Fix parsing of ADO connection strings with double-quoted values containing semicolons (#282)
 
-## 1.9.4
+## 1.9.2
 
 ### Bug fixes
 
