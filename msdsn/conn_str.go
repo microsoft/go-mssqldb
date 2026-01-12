@@ -597,7 +597,12 @@ func (p Config) URL() *url.URL {
 		}
 	}
 	if p.Port > 0 {
-		host = fmt.Sprintf("%s:%d", host, p.Port)
+		// IPv6 addresses need brackets when combined with a port
+		if strings.Contains(host, ":") {
+			host = fmt.Sprintf("[%s]:%d", host, p.Port)
+		} else {
+			host = fmt.Sprintf("%s:%d", host, p.Port)
+		}
 	}
 	q.Add(DisableRetry, fmt.Sprintf("%t", p.DisableRetry))
 	protocolParam, ok := p.Parameters[Protocol]
