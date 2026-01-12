@@ -6,6 +6,7 @@ package msdsn
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 )
 
@@ -32,7 +33,7 @@ func setupTLSCommonName(config *tls.Config, pem []byte) error {
 	config.InsecureSkipVerify = true
 	config.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 		if len(rawCerts) == 0 {
-			return fmt.Errorf("no peer certificates provided")
+			return errors.New("no peer certificates provided")
 		}
 		
 		// Parse the peer certificate

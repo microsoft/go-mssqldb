@@ -256,7 +256,7 @@ func setupTLSCertificateOnly(config *tls.Config, pemData []byte) error {
 	// Parse the expected certificate from the PEM data
 	block, _ := pem.Decode(pemData)
 	if block == nil {
-		return fmt.Errorf("failed to decode PEM certificate")
+		return errors.New("failed to decode PEM certificate")
 	}
 	// Store the raw certificate bytes (DER format) for comparison
 	expectedCertBytes := block.Bytes
@@ -264,7 +264,7 @@ func setupTLSCertificateOnly(config *tls.Config, pemData []byte) error {
 	config.InsecureSkipVerify = true
 	config.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 		if len(rawCerts) == 0 {
-			return fmt.Errorf("no peer certificates provided")
+			return errors.New("no peer certificates provided")
 		}
 		
 		// Compare the server's certificate bytes with the expected certificate bytes
@@ -272,7 +272,7 @@ func setupTLSCertificateOnly(config *tls.Config, pemData []byte) error {
 		serverCertBytes := rawCerts[0]
 		
 		if !bytes.Equal(serverCertBytes, expectedCertBytes) {
-			return fmt.Errorf("server certificate doesn't match the provided certificate")
+			return errors.New("server certificate doesn't match the provided certificate")
 		}
 		
 		return nil
