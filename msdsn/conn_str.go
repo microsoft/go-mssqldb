@@ -66,6 +66,7 @@ const (
 	Port                   = "port"
 	TrustServerCertificate = "trustservercertificate"
 	Certificate            = "certificate"
+	ServerCertificate      = "servercertificate"
 	TLSMin                 = "tlsmin"
 	PacketSize             = "packet size"
 	LogParam               = "log"
@@ -194,7 +195,9 @@ func readCertificate(certificate string) ([]byte, error) {
 }
 
 // Build a tls.Config object from the supplied certificate.
-func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate string, minTLSVersion string, skipHostnameValidation bool) (*tls.Config, error) {
+// serverCertificate is used for byte-comparison validation (skips chain validation and hostname validation)
+// certificate is used for traditional chain validation
+func SetupTLS(certificate string, serverCertificate string, insecureSkipVerify bool, hostInCertificate string, minTLSVersion string) (*tls.Config, error) {
 	config := tls.Config{
 		ServerName:         hostInCertificate,
 		InsecureSkipVerify: insecureSkipVerify,
@@ -207,6 +210,19 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 		MinVersion:                  TLSVersionFromString(minTLSVersion),
 	}
 
+	// Handle serverCertificate parameter (byte-comparison validation)
+	if len(serverCertificate) > 0 {
+		pem, err := readCertificate(serverCertificate)
+		if err != nil {
+			return nil, fmt.Errorf("cannot read server certificate %q: %w", serverCertificate, err)
+		}
+		if err := setupTLSServerCertificateOnly(&config, pem); err != nil {
+			return nil, err
+		}
+		return &config, nil
+	}
+
+	// Handle certificate parameter (traditional chain validation)
 	if len(certificate) == 0 {
 		return &config, nil
 	}
@@ -215,35 +231,21 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 		return nil, fmt.Errorf("cannot read certificate %q: %w", certificate, err)
 	}
 
-	usedCustomVerification := false
-
-	// When skipHostnameValidation is true, we skip hostname checks but still validate the certificate chain
-	if skipHostnameValidation {
-		if err := setupTLSCertificateOnly(&config, pem); err != nil {
-			return nil, err
-		}
-		usedCustomVerification = true
-	} else if strings.Contains(config.ServerName, ":") && !insecureSkipVerify {
-		switch err := setupTLSCommonName(&config, pem); err {
-		case nil:
-			usedCustomVerification = true
-		case skipSetup:
-			// fall back to standard RootCAs handling below
-		default:
+	if strings.Contains(config.ServerName, ":") && !insecureSkipVerify {
+		err := setupTLSCommonName(&config, pem)
+		if err != skipSetup {
 			return &config, err
 		}
 	}
-
-	if !usedCustomVerification {
-		certs := x509.NewCertPool()
-		certs.AppendCertsFromPEM(pem)
-		config.RootCAs = certs
-	}
+	certs := x509.NewCertPool()
+	certs.AppendCertsFromPEM(pem)
+	config.RootCAs = certs
 	return &config, nil
 }
 
-// setupTLSCertificateOnly validates that the server certificate matches the provided certificate
-func setupTLSCertificateOnly(config *tls.Config, pemData []byte) error {
+// setupTLSServerCertificateOnly validates that the server certificate matches the provided certificate via byte comparison
+// This matches the behavior of Microsoft.Data.SqlClient
+func setupTLSServerCertificateOnly(config *tls.Config, pemData []byte) error {
 	// To match the behavior of Microsoft.Data.SqlClient, we simply compare the raw bytes
 	// of the server's certificate with the provided certificate file. This approach:
 	// - Does not validate certificate chain, expiry, or subject
@@ -314,18 +316,25 @@ func parseTLS(params map[string]string, host string) (Encryption, *tls.Config, e
 		}
 	}
 	certificate := params[Certificate]
+	serverCertificate := params[ServerCertificate]
+	hostInCertificate := params[HostNameInCertificate]
+	
+	// Validate parameter combinations
+	if len(serverCertificate) > 0 {
+		if len(certificate) > 0 {
+			return encryption, nil, errors.New("cannot specify both 'certificate' and 'serverCertificate' parameters")
+		}
+		if len(hostInCertificate) > 0 {
+			return encryption, nil, errors.New("cannot specify both 'serverCertificate' and 'hostnameincertificate' parameters")
+		}
+	}
+	
 	if encryption != EncryptionDisabled {
 		tlsMin := params[TLSMin]
-		skipHostnameValidation := false
 		if encrypt == "strict" {
 			trustServerCert = false
 		}
-		// When a certificate is provided with any encryption mode (strict, true/required, mandatory),
-		// skip hostname validation. The certificate itself will still be validated against the provided CA
-		if len(certificate) > 0 {
-			skipHostnameValidation = true
-		}
-		tlsConfig, err := SetupTLS(certificate, trustServerCert, host, tlsMin, skipHostnameValidation)
+		tlsConfig, err := SetupTLS(certificate, serverCertificate, trustServerCert, host, tlsMin)
 		if err != nil {
 			return encryption, nil, fmt.Errorf("failed to setup TLS: %w", err)
 		}

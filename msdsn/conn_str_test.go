@@ -391,31 +391,43 @@ f0kGHKQEAFYGJLqJdK4KsGQDKLfZr9fqvXCCAA==
 		t.Fatalf("failed to close certificate file: %v", err)
 	}
 
-	// Test 1: encrypt=strict with certificate should skip hostname validation
-	connStr := "server=differenthostname;encrypt=strict;certificate=" + pemfile.Name()
+	// Test 1: serverCertificate parameter with byte-comparison validation
+	connStr := "server=differenthostname;encrypt=strict;serverCertificate=" + pemfile.Name()
 	config, err := Parse(connStr)
 	assert.Nil(t, err, "Expected no error parsing connection string")
 	assert.Equal(t, Encryption(EncryptionStrict), config.Encryption, "Expected EncryptionStrict")
 	assert.NotNil(t, config.TLSConfig, "Expected TLSConfig to be set")
-	// When skipping hostname validation, InsecureSkipVerify is set with VerifyPeerCertificate callback
-	assert.True(t, config.TLSConfig.InsecureSkipVerify, "Expected InsecureSkipVerify to be true when certificate is provided")
+	// serverCertificate uses InsecureSkipVerify with VerifyPeerCertificate for byte comparison
+	assert.True(t, config.TLSConfig.InsecureSkipVerify, "Expected InsecureSkipVerify to be true when serverCertificate is provided")
 	assert.NotNil(t, config.TLSConfig.VerifyPeerCertificate, "Expected VerifyPeerCertificate callback to be set")
 
-	// Test 2: encrypt=strict without certificate should NOT skip hostname validation
-	connStr2 := "server=somehost;encrypt=strict"
+	// Test 2: certificate parameter with traditional chain validation (backward compatible)
+	connStr2 := "server=somehost;encrypt=true;certificate=" + pemfile.Name()
 	config2, err := Parse(connStr2)
 	assert.Nil(t, err, "Expected no error parsing connection string")
-	assert.Equal(t, Encryption(EncryptionStrict), config2.Encryption, "Expected EncryptionStrict")
+	assert.Equal(t, Encryption(EncryptionRequired), config2.Encryption, "Expected EncryptionRequired")
 	assert.NotNil(t, config2.TLSConfig, "Expected TLSConfig to be set")
-	assert.False(t, config2.TLSConfig.InsecureSkipVerify, "Expected InsecureSkipVerify to be false when no certificate is provided")
+	assert.NotNil(t, config2.TLSConfig.RootCAs, "Expected RootCAs to be set for certificate parameter")
+	// certificate parameter uses traditional chain validation, does NOT skip hostname by default
+	assert.Nil(t, config2.TLSConfig.VerifyPeerCertificate, "Expected no VerifyPeerCertificate callback for traditional certificate validation")
 
-	// Test 3: encrypt=required with certificate should also skip hostname validation
-	connStr3 := "server=somehost;encrypt=true;certificate=" + pemfile.Name()
+	// Test 3: encrypt=strict without certificate should NOT skip hostname validation
+	connStr3 := "server=somehost;encrypt=strict"
 	config3, err := Parse(connStr3)
 	assert.Nil(t, err, "Expected no error parsing connection string")
-	assert.Equal(t, Encryption(EncryptionRequired), config3.Encryption, "Expected EncryptionRequired")
+	assert.Equal(t, Encryption(EncryptionStrict), config3.Encryption, "Expected EncryptionStrict")
 	assert.NotNil(t, config3.TLSConfig, "Expected TLSConfig to be set")
-	// When a certificate is provided, hostname validation is skipped for any encryption mode
-	assert.True(t, config3.TLSConfig.InsecureSkipVerify, "Expected InsecureSkipVerify to be true when certificate is provided")
-	assert.NotNil(t, config3.TLSConfig.VerifyPeerCertificate, "Expected VerifyPeerCertificate callback to be set for encrypt=true with certificate")
+	assert.False(t, config3.TLSConfig.InsecureSkipVerify, "Expected InsecureSkipVerify to be false when no certificate is provided")
+
+	// Test 4: Cannot specify both certificate and serverCertificate
+	connStr4 := "server=somehost;encrypt=true;certificate=" + pemfile.Name() + ";serverCertificate=" + pemfile.Name()
+	_, err = Parse(connStr4)
+	assert.NotNil(t, err, "Expected error when both certificate and serverCertificate are specified")
+	assert.Contains(t, err.Error(), "cannot specify both", "Error should mention conflicting parameters")
+
+	// Test 5: Cannot specify serverCertificate with hostnameincertificate
+	connStr5 := "server=somehost;encrypt=true;serverCertificate=" + pemfile.Name() + ";hostnameincertificate=othername"
+	_, err = Parse(connStr5)
+	assert.NotNil(t, err, "Expected error when both serverCertificate and hostnameincertificate are specified")
+	assert.Contains(t, err.Error(), "cannot specify both", "Error should mention conflicting parameters")
 }

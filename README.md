@@ -58,8 +58,9 @@ Other supported formats are listed below.
 * `TrustServerCertificate`
   * false - Server certificate is checked. Default is false if encrypt is specified.
   * true - Server certificate is not checked. Default is true if encrypt is not specified. If trust server certificate is true, driver accepts any certificate presented by the server and any host name in that certificate. In this mode, TLS is susceptible to man-in-the-middle attacks. This should be used only for testing.
-* `certificate` - The file that contains the server's certificate for validation. The specified certificate overrides the go platform specific CA certificates. When provided with encryption enabled, the driver validates the server's certificate by comparing it byte-for-byte with the provided certificate, skipping hostname validation. This matches the behavior of other SQL Server drivers. Currently, certificates of PEM and DER types are supported.
-* `hostNameInCertificate` - Specifies the Common Name (CN) in the server certificate. Default value is the server host. Not required when using the `certificate` parameter.
+* `certificate` - The file path to a certificate authority (CA) certificate or server certificate for traditional X.509 chain validation. The specified certificate overrides the go platform specific CA certificates. The driver validates the certificate chain, expiry, and hostname. Supports PEM and DER formats.
+* `serverCertificate` - The file path to a server certificate for byte-for-byte comparison validation (new in v1.9.6). The driver validates that the server's certificate exactly matches this file, skipping chain validation, expiry checks, and hostname validation. This matches Microsoft.Data.SqlClient behavior. Cannot be used with `certificate` or `hostnameincertificate`. Supports PEM and DER formats.
+* `hostNameInCertificate` - Specifies the Common Name (CN) in the server certificate. Default value is the server host. Used with the `certificate` parameter, not applicable for `serverCertificate`.
 * `tlsmin` - Specifies the minimum TLS version for negotiating encryption with the server. Recognized values are `1.0`, `1.1`, `1.2`, `1.3`. If not set to a recognized value the default value for the `tls` package will be used. The default is currently `1.2`. 
 * `ServerSPN` - The kerberos SPN (Service Principal Name) for the server. Default is MSSQLSvc/host:port.
 * `Workstation ID` - The workstation name (default is the host name)
@@ -206,12 +207,29 @@ For further information on usage:
 
 ### Using server certificates with encryption
 
-When connecting to a SQL Server with encryption enabled, you can provide the server's certificate for validation. The driver will compare the server's certificate byte-for-byte with the provided certificate file, allowing the connection to succeed even if the hostname doesn't match the certificate's Common Name (CN) or Subject Alternative Names (SAN).
+The driver supports two ways to validate server certificates:
 
-This approach matches the behavior of other SQL Server drivers like Microsoft.Data.SqlClient and is useful when:
+#### 1. `serverCertificate` - Byte-for-byte certificate comparison (New in v1.9.6)
+
+When you provide a `serverCertificate` parameter, the driver validates the server by comparing the certificate bytes exactly with the provided file. This:
+- Skips hostname validation (allows mismatched hostnames)
+- Skips certificate chain validation and expiry checks
+- Only accepts connections where the server's certificate exactly matches the provided file
+- Matches the behavior of Microsoft.Data.SqlClient
+
+This is useful when:
 - The server's DNS name doesn't match the certificate CN/SAN
-- You want to validate against a specific certificate without requiring hostname validation
+- You want to validate against a specific certificate without hostname validation
 - You're connecting through proxies or load balancers with different hostnames
+
+**Restrictions**: `serverCertificate` cannot be used with `certificate` or `hostnameincertificate` parameters.
+
+#### 2. `certificate` - Traditional chain validation (Backward compatible)
+
+The `certificate` parameter performs standard X.509 certificate chain validation:
+- Validates the certificate chain against the provided CA certificate(s)
+- Checks certificate expiry and validity
+- Enforces hostname validation (unless `hostnameincertificate` is used)
 
 #### Obtaining the server certificate
 
@@ -221,19 +239,31 @@ You can obtain a copy of the server's certificate using OpenSSL:
 openssl s_client -connect server:1433 -showcerts </dev/null 2>/dev/null | openssl x509 -outform PEM > cert.pem
 ```
 
-#### Example connection strings with certificate
+#### Example connection strings
+
+Using `serverCertificate` for byte-comparison (skips hostname validation):
 
 URL format:
 ```
-sqlserver://username:password@host:1433?database=master&encrypt=true&certificate=/path/to/cert.pem
+sqlserver://username:password@host:1433?database=master&encrypt=true&serverCertificate=/path/to/cert.pem
 ```
 
 ADO format:
 ```
-server=myserver;user id=sa;password=mypass;database=master;encrypt=true;certificate=/path/to/cert.pem
+server=myserver;user id=sa;password=mypass;database=master;encrypt=true;serverCertificate=/path/to/cert.pem
 ```
 
-Note: When using the `certificate` parameter with encryption, the `hostNameInCertificate` parameter is not required as hostname validation is automatically skipped.
+Using `certificate` for traditional chain validation:
+
+URL format:
+```
+sqlserver://username:password@host:1433?database=master&encrypt=true&certificate=/path/to/ca.pem
+```
+
+ADO format:
+```
+server=myserver;user id=sa;password=mypass;database=master;encrypt=true;certificate=/path/to/ca.pem
+```
 
 ### Azure Active Directory authentication
 
