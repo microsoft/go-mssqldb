@@ -254,7 +254,7 @@ func setupTLSServerCertificateOnly(config *tls.Config, pemData []byte) error {
 	//
 	// We use InsecureSkipVerify=true with VerifyPeerCertificate callback because
 	// VerifyConnection runs AFTER standard verification (including hostname check).
-	
+
 	// Parse the expected certificate from the PEM data
 	block, _ := pem.Decode(pemData)
 	if block == nil {
@@ -262,21 +262,21 @@ func setupTLSServerCertificateOnly(config *tls.Config, pemData []byte) error {
 	}
 	// Store the raw certificate bytes (DER format) for comparison
 	expectedCertBytes := block.Bytes
-	
+
 	config.InsecureSkipVerify = true
 	config.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 		if len(rawCerts) == 0 {
 			return errors.New("no peer certificates provided")
 		}
-		
+
 		// Compare the server's certificate bytes with the expected certificate bytes
 		// This matches the Microsoft.Data.SqlClient behavior: just compare raw bytes
 		serverCertBytes := rawCerts[0]
-		
+
 		if !bytes.Equal(serverCertBytes, expectedCertBytes) {
 			return errors.New("server certificate doesn't match the provided certificate")
 		}
-		
+
 		return nil
 	}
 	return nil
@@ -318,7 +318,7 @@ func parseTLS(params map[string]string, host string) (Encryption, *tls.Config, e
 	certificate := params[Certificate]
 	serverCertificate := params[ServerCertificate]
 	hostInCertificate := params[HostNameInCertificate]
-	
+
 	// Validate parameter combinations
 	if len(serverCertificate) > 0 {
 		if len(certificate) > 0 {
@@ -328,7 +328,7 @@ func parseTLS(params map[string]string, host string) (Encryption, *tls.Config, e
 			return encryption, nil, errors.New("cannot specify both 'serverCertificate' and 'hostnameincertificate' parameters")
 		}
 	}
-	
+
 	if encryption != EncryptionDisabled {
 		tlsMin := params[TLSMin]
 		if encrypt == "strict" {
