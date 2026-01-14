@@ -66,6 +66,8 @@ const (
 	typeXml        = 0xf1
 	typeUdt        = 0xf0
 	typeTvp        = 0xf3
+	typeJsonN      = 0xf4 // SQL Server 2025+ JSON type
+	typeVectorN    = 0xf5 // SQL Server 2025+ Vector type
 
 	// long length types
 	typeText    = 0x23
@@ -254,6 +256,19 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodeParam
 			return
 		}
 		ti.Writer = writeLongLenType
+	case typeVectorN:
+		// Vector type (SQL Server 2025+) - uses short length prefix
+		if ti.Size > 8000 || ti.Size == 0 || out {
+			if err = binary.Write(w, binary.LittleEndian, uint16(0xffff)); err != nil {
+				return
+			}
+			ti.Writer = writePLPType
+		} else {
+			if err = binary.Write(w, binary.LittleEndian, uint16(ti.Size)); err != nil {
+				return
+			}
+			ti.Writer = writeVectorType
+		}
 	default:
 		panic("Invalid type")
 	}
@@ -538,6 +553,42 @@ func writeShortLenType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.Enco
 	}
 	err = binary.Write(w, binary.LittleEndian, uint16(ti.Size))
 	if err != nil {
+		return
+	}
+	_, err = w.Write(buf)
+	return
+}
+
+// readVectorType reads a Vector value from the TDS stream.
+// Vectors are stored as binary data with an 8-byte header followed by float32 values.
+func readVectorType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) interface{} {
+	var size uint16
+	if c != nil {
+		size = uint16(r.rsize)
+	} else {
+		size = r.uint16()
+	}
+	if size == 0xffff {
+		return nil
+	}
+	buf := make([]byte, size)
+	r.ReadFull(buf)
+
+	// Decode the vector from the binary representation
+	var v Vector
+	if err := v.decodeFromBytes(buf); err != nil {
+		badStreamPanicf("Failed to decode vector: %s", err.Error())
+	}
+	return v
+}
+
+// writeVectorType writes a Vector value to the TDS stream.
+func writeVectorType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error) {
+	if buf == nil {
+		err = binary.Write(w, binary.LittleEndian, uint16(0xffff))
+		return
+	}
+	if err = binary.Write(w, binary.LittleEndian, uint16(len(buf))); err != nil {
 		return
 	}
 	_, err = w.Write(buf)
@@ -874,6 +925,16 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		case typeVariant:
 			ti.Reader = readVariantTypeWithEncoding
 		}
+	case typeVectorN:
+		// Vector type (SQL Server 2025+)
+		// Read the size as a short (USHORT)
+		ti.Size = int(r.uint16())
+		if ti.Size == 0xffff {
+			ti.Reader = readPLPType
+		} else {
+			ti.Buffer = make([]byte, ti.Size)
+			ti.Reader = readVectorType
+		}
 	default:
 		badStreamPanicf("Invalid type %d", ti.TypeId)
 	}
@@ -1186,6 +1247,8 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 		return reflect.TypeOf(nil)
 	case typeUdt:
 		return reflect.TypeOf([]byte{})
+	case typeVectorN:
+		return reflect.TypeOf(Vector{})
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangScanType for type %d", ti.TypeId))
 	}
@@ -1308,6 +1371,11 @@ func makeDecl(ti typeInfo) string {
 			return fmt.Sprintf("%s.%s READONLY", ti.UdtInfo.SchemaName, ti.UdtInfo.TypeName)
 		}
 		return fmt.Sprintf("%s READONLY", ti.UdtInfo.TypeName)
+	case typeVectorN:
+		// Vector type (SQL Server 2025+)
+		// Size is total bytes including 8-byte header, each dimension is 4 bytes
+		dimensions := (ti.Size - vectorHeaderSize) / 4
+		return fmt.Sprintf("vector(%d)", dimensions)
 	default:
 		panic(fmt.Sprintf("not implemented makeDecl for type %#x", ti.TypeId))
 	}
@@ -1417,6 +1485,8 @@ func makeGoLangTypeName(ti typeInfo) string {
 		return "BINARY"
 	case typeUdt:
 		return strings.ToUpper(ti.UdtInfo.TypeName)
+	case typeVectorN:
+		return "VECTOR"
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypeName for type %d", ti.TypeId))
 	}
@@ -1552,6 +1622,10 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 		default:
 			panic(fmt.Sprintf("not implemented makeGoLangTypeLength for user defined type %s", ti.UdtInfo.TypeName))
 		}
+	case typeVectorN:
+		// Vector is variable length, return the number of dimensions as length
+		dimensions := (ti.Size - vectorHeaderSize) / 4
+		return int64(dimensions), true
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypeLength for type %d", ti.TypeId))
 	}
@@ -1667,6 +1741,8 @@ func makeGoLangTypePrecisionScale(ti typeInfo) (int64, int64, bool) {
 	case typeBigBinary:
 		return 0, 0, false
 	case typeUdt:
+		return 0, 0, false
+	case typeVectorN:
 		return 0, 0, false
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypePrecisionScale for type %d", ti.TypeId))

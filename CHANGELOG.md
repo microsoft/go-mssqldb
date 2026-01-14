@@ -1,4 +1,14 @@
 # Changelog
+## 1.9.4
+
+### Features
+
+* Add SQL Server 2025 Vector data type support with `Vector` and `NullVector` types for AI/ML workloads (#306)
+  - Supports float32 vectors up to 1998 dimensions
+  - Supports float16 vectors up to 3996 dimensions (preview feature, transmitted as JSON over TDS)
+  - Compatible with `VECTOR_DISTANCE` similarity search functions
+  - See [doc/how-to-use-vectors.md](doc/how-to-use-vectors.md) for usage guide
+
 ## 1.9.3
 
 ### Bug fixes

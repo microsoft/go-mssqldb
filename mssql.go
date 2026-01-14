@@ -1119,6 +1119,22 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		res.ti.Size = 8
 		res.buffer = []byte{}
 
+	case Vector:
+		// Send vectors as JSON string via nvarchar - SQL Server will convert to vector type
+		// This matches the backward compatibility approach used by Microsoft.Data.SqlClient
+		jsonStr := val.ToJSON()
+		res = makeStrParam(jsonStr)
+	case NullVector:
+		if val.Valid {
+			// Send vectors as JSON string via nvarchar
+			jsonStr := val.Vector.ToJSON()
+			res = makeStrParam(jsonStr)
+		} else {
+			res.ti.TypeId = typeNVarChar
+			res.buffer = nil
+			res.ti.Size = 8000
+		}
+
 	case []byte:
 		res.ti.TypeId = typeBigVarBin
 		res.ti.Size = len(val)

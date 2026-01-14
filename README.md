@@ -537,6 +537,7 @@ Constrain the provider to an allowed list of key vaults by appending vault host 
 * Supports query notifications
 * Supports Kerberos Authentication
 * Supports handling the `uniqueidentifier` data type with the `UniqueIdentifier` and `NullUniqueIdentifier` go types
+* Supports SQL Server 2025 Vector data type for AI/ML workloads with `Vector` and `NullVector` go types. See [How to use Vectors](doc/how-to-use-vectors.md)
 * Pluggable Dialer implementations through `msdsn.ProtocolParsers` and `msdsn.ProtocolDialers`
 * A `namedpipe` package to support connections using named pipes (np:) on Windows
 * A `sharedmemory` package to support connections using shared memory (lpc:) on Windows

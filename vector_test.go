@@ -1,0 +1,716 @@
+package mssql
+
+import (
+	"bytes"
+	"encoding/binary"
+	"math"
+	"testing"
+)
+
+func TestVectorElementTypeString(t *testing.T) {
+	testCases := []struct {
+		elementType VectorElementType
+		expected    string
+	}{
+		{VectorElementFloat32, "FLOAT32"},
+		{VectorElementFloat16, "FLOAT16"},
+		{VectorElementType(0xFF), "UNKNOWN(0xFF)"},
+	}
+
+	for _, tc := range testCases {
+		result := tc.elementType.String()
+		if result != tc.expected {
+			t.Errorf("String() for 0x%02X: got %q, want %q", tc.elementType, result, tc.expected)
+		}
+	}
+}
+
+func TestVectorElementTypeBytesPerElement(t *testing.T) {
+	if VectorElementFloat32.BytesPerElement() != 4 {
+		t.Errorf("Float32 bytes: got %d, want 4", VectorElementFloat32.BytesPerElement())
+	}
+	if VectorElementFloat16.BytesPerElement() != 2 {
+		t.Errorf("Float16 bytes: got %d, want 2", VectorElementFloat16.BytesPerElement())
+	}
+}
+
+func TestVectorElementTypeMaxDimensions(t *testing.T) {
+	if VectorElementFloat32.MaxDimensions() != 1998 {
+		t.Errorf("Float32 max dims: got %d, want 1998", VectorElementFloat32.MaxDimensions())
+	}
+	if VectorElementFloat16.MaxDimensions() != 3996 {
+		t.Errorf("Float16 max dims: got %d, want 3996", VectorElementFloat16.MaxDimensions())
+	}
+}
+
+func TestVectorEncodeDecode(t *testing.T) {
+	testCases := []struct {
+		name   string
+		vector Vector
+	}{
+		{
+			name:   "empty vector",
+			vector: Vector{ElementType: VectorElementFloat32, Data: []float32{}},
+		},
+		{
+			name:   "single element",
+			vector: Vector{ElementType: VectorElementFloat32, Data: []float32{1.0}},
+		},
+		{
+			name:   "three elements",
+			vector: Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, 2.0, 3.0}},
+		},
+		{
+			name:   "negative values",
+			vector: Vector{ElementType: VectorElementFloat32, Data: []float32{-1.0, -2.5, 3.75}},
+		},
+		{
+			name:   "small values",
+			vector: Vector{ElementType: VectorElementFloat32, Data: []float32{0.001, 0.002, 0.003}},
+		},
+		{
+			name:   "large values",
+			vector: Vector{ElementType: VectorElementFloat32, Data: []float32{1000000.0, 2000000.0, 3000000.0}},
+		},
+		{
+			name:   "mixed values",
+			vector: Vector{ElementType: VectorElementFloat32, Data: []float32{0.0, -0.5, 1.5, 100.0, -100.0}},
+		},
+		{
+			name:   "special values",
+			vector: Vector{ElementType: VectorElementFloat32, Data: []float32{float32(math.Inf(1)), float32(math.Inf(-1)), float32(math.NaN())}},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Encode
+			encoded, err := tc.vector.encodeToBytes()
+			if err != nil {
+				t.Fatalf("encodeToBytes failed: %v", err)
+			}
+
+			// Decode
+			var decoded Vector
+			err = decoded.decodeFromBytes(encoded)
+			if err != nil {
+				t.Fatalf("decodeFromBytes failed: %v", err)
+			}
+
+			// Compare element type
+			if decoded.ElementType != tc.vector.ElementType {
+				t.Fatalf("element type mismatch: got %v, want %v", decoded.ElementType, tc.vector.ElementType)
+			}
+
+			// Compare dimensions
+			if len(decoded.Data) != len(tc.vector.Data) {
+				t.Fatalf("length mismatch: got %d, want %d", len(decoded.Data), len(tc.vector.Data))
+			}
+
+			for i := range tc.vector.Data {
+				// Handle NaN specially
+				if math.IsNaN(float64(tc.vector.Data[i])) {
+					if !math.IsNaN(float64(decoded.Data[i])) {
+						t.Errorf("index %d: expected NaN, got %v", i, decoded.Data[i])
+					}
+				} else if decoded.Data[i] != tc.vector.Data[i] {
+					t.Errorf("index %d: got %v, want %v", i, decoded.Data[i], tc.vector.Data[i])
+				}
+			}
+		})
+	}
+}
+
+func TestVectorFloat16EncodeDecode(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    []float32
+		expected []float32 // Expected after round-trip (may differ due to precision)
+	}{
+		{
+			name:     "simple values",
+			input:    []float32{1.0, 2.0, -2.0, 0.5},
+			expected: []float32{1.0, 2.0, -2.0, 0.5},
+		},
+		{
+			name:     "zero values",
+			input:    []float32{0.0},
+			expected: []float32{0.0},
+		},
+		{
+			name:     "infinity",
+			input:    []float32{float32(math.Inf(1)), float32(math.Inf(-1))},
+			expected: []float32{float32(math.Inf(1)), float32(math.Inf(-1))},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := Vector{ElementType: VectorElementFloat16, Data: tc.input}
+
+			// Encode
+			encoded, err := v.encodeToBytes()
+			if err != nil {
+				t.Fatalf("encodeToBytes failed: %v", err)
+			}
+
+			// Verify header shows float16
+			if encoded[4] != byte(VectorElementFloat16) {
+				t.Errorf("element type byte: got 0x%02X, want 0x%02X", encoded[4], VectorElementFloat16)
+			}
+
+			// Decode
+			var decoded Vector
+			err = decoded.decodeFromBytes(encoded)
+			if err != nil {
+				t.Fatalf("decodeFromBytes failed: %v", err)
+			}
+
+			if decoded.ElementType != VectorElementFloat16 {
+				t.Fatalf("element type mismatch: got %v, want float16", decoded.ElementType)
+			}
+
+			if len(decoded.Data) != len(tc.expected) {
+				t.Fatalf("length mismatch: got %d, want %d", len(decoded.Data), len(tc.expected))
+			}
+
+			for i := range tc.expected {
+				if math.IsNaN(float64(tc.expected[i])) {
+					if !math.IsNaN(float64(decoded.Data[i])) {
+						t.Errorf("index %d: expected NaN, got %v", i, decoded.Data[i])
+					}
+				} else if math.IsInf(float64(tc.expected[i]), 0) {
+					if decoded.Data[i] != tc.expected[i] {
+						t.Errorf("index %d: got %v, want %v", i, decoded.Data[i], tc.expected[i])
+					}
+				} else if decoded.Data[i] != tc.expected[i] {
+					t.Errorf("index %d: got %v, want %v", i, decoded.Data[i], tc.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestFloat32ToFloat16Conversion(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    float32
+		expected uint16
+	}{
+		{"positive 1.0", 1.0, 0x3C00},
+		{"negative 2.0", -2.0, 0xC000},
+		{"half 0.5", 0.5, 0x3800},
+		{"zero", 0.0, 0x0000},
+		{"positive infinity", float32(math.Inf(1)), 0x7C00},
+		{"negative infinity", float32(math.Inf(-1)), 0xFC00},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := float32ToFloat16(tc.input)
+			if result != tc.expected {
+				t.Errorf("float32ToFloat16(%v): got 0x%04X, want 0x%04X", tc.input, result, tc.expected)
+			}
+		})
+	}
+
+	// Test NaN separately (multiple representations are valid)
+	nanResult := float32ToFloat16(float32(math.NaN()))
+	if nanResult != 0x7E00 {
+		t.Errorf("float32ToFloat16(NaN): got 0x%04X, want 0x7E00", nanResult)
+	}
+}
+
+func TestFloat16ToFloat32Conversion(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    uint16
+		expected float32
+	}{
+		{"positive 1.0", 0x3C00, 1.0},
+		{"negative 2.0", 0xC000, -2.0},
+		{"half 0.5", 0x3800, 0.5},
+		{"zero", 0x0000, 0.0},
+		{"positive infinity", 0x7C00, float32(math.Inf(1))},
+		{"negative infinity", 0xFC00, float32(math.Inf(-1))},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := float16ToFloat32(tc.input)
+			if result != tc.expected {
+				t.Errorf("float16ToFloat32(0x%04X): got %v, want %v", tc.input, result, tc.expected)
+			}
+		})
+	}
+
+	// Test NaN separately
+	nanResult := float16ToFloat32(0x7E00)
+	if !math.IsNaN(float64(nanResult)) {
+		t.Errorf("float16ToFloat32(0x7E00): got %v, want NaN", nanResult)
+	}
+}
+
+func TestVectorHeader(t *testing.T) {
+	v := Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, 2.0, 3.0}}
+	encoded, err := v.encodeToBytes()
+	if err != nil {
+		t.Fatalf("encodeToBytes failed: %v", err)
+	}
+
+	// Check header
+	if encoded[0] != vectorMagic {
+		t.Errorf("magic byte: got 0x%02X, want 0x%02X", encoded[0], vectorMagic)
+	}
+	if encoded[1] != vectorVersion {
+		t.Errorf("version byte: got 0x%02X, want 0x%02X", encoded[1], vectorVersion)
+	}
+
+	dimensions := binary.LittleEndian.Uint16(encoded[2:4])
+	if dimensions != 3 {
+		t.Errorf("dimensions: got %d, want 3", dimensions)
+	}
+
+	if encoded[4] != byte(VectorElementFloat32) {
+		t.Errorf("element type: got 0x%02X, want 0x%02X", encoded[4], VectorElementFloat32)
+	}
+
+	// Reserved bytes should be zero
+	if encoded[5] != 0 || encoded[6] != 0 || encoded[7] != 0 {
+		t.Errorf("reserved bytes should be zero: got 0x%02X 0x%02X 0x%02X", encoded[5], encoded[6], encoded[7])
+	}
+
+	// Check total size
+	expectedSize := vectorHeaderSize + 3*4 // 8 + 12 = 20 bytes
+	if len(encoded) != expectedSize {
+		t.Errorf("total size: got %d, want %d", len(encoded), expectedSize)
+	}
+}
+
+func TestVectorDecodeInvalidData(t *testing.T) {
+	testCases := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "too short for header",
+			data: []byte{0xA9, 0x01, 0x03, 0x00},
+		},
+		{
+			name: "wrong magic byte",
+			data: []byte{0xAA, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+		},
+		{
+			name: "wrong version",
+			data: []byte{0xA9, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+		},
+		{
+			name: "unsupported element type",
+			data: []byte{0xA9, 0x01, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // type 0x02 is not supported
+		},
+		{
+			name: "data too short for float32 dimensions",
+			data: []byte{0xA9, 0x01, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // says 3 dims but only 1 value
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var v Vector
+			err := v.decodeFromBytes(tc.data)
+			if err == nil {
+				t.Error("expected error but got nil")
+			}
+		})
+	}
+}
+
+func TestVectorNil(t *testing.T) {
+	v := Vector{Data: nil}
+
+	encoded, err := v.encodeToBytes()
+	if err != nil {
+		t.Fatalf("encodeToBytes failed: %v", err)
+	}
+	if encoded != nil {
+		t.Errorf("nil data vector should encode to nil, got %v", encoded)
+	}
+
+	var decoded Vector
+	err = decoded.decodeFromBytes(nil)
+	if err != nil {
+		t.Fatalf("decodeFromBytes(nil) failed: %v", err)
+	}
+	if decoded.Data != nil {
+		t.Errorf("decoded nil should have nil Data, got %v", decoded.Data)
+	}
+
+	err = decoded.decodeFromBytes([]byte{})
+	if err != nil {
+		t.Fatalf("decodeFromBytes([]) failed: %v", err)
+	}
+	if decoded.Data != nil {
+		t.Errorf("decoded empty should have nil Data, got %v", decoded.Data)
+	}
+}
+
+func TestVectorIsNull(t *testing.T) {
+	v := Vector{}
+	if !v.IsNull() {
+		t.Error("empty Vector should be null")
+	}
+
+	v = Vector{Data: nil}
+	if !v.IsNull() {
+		t.Error("Vector with nil Data should be null")
+	}
+
+	v = Vector{ElementType: VectorElementFloat32, Data: []float32{1.0}}
+	if v.IsNull() {
+		t.Error("Vector with data should not be null")
+	}
+}
+
+func TestVectorValue(t *testing.T) {
+	v := Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, 2.0, 3.0}}
+
+	val, err := v.Value()
+	if err != nil {
+		t.Fatalf("Value() failed: %v", err)
+	}
+
+	// Value() returns a JSON string for SQL Server parameter binding
+	jsonStr, ok := val.(string)
+	if !ok {
+		t.Fatalf("Value() should return string, got %T", val)
+	}
+
+	expectedJSON := "[1, 2, 3]"
+	if jsonStr != expectedJSON {
+		t.Errorf("Value() returned %q, expected %q", jsonStr, expectedJSON)
+	}
+
+	// Test that the JSON can be decoded back to a Vector
+	var decoded Vector
+	err = decoded.decodeFromJSON(jsonStr)
+	if err != nil {
+		t.Fatalf("decodeFromJSON failed: %v", err)
+	}
+
+	if len(decoded.Data) != len(v.Data) {
+		t.Fatalf("length mismatch: got %d, want %d", len(decoded.Data), len(v.Data))
+	}
+
+	for i := range v.Data {
+		if decoded.Data[i] != v.Data[i] {
+			t.Errorf("index %d: got %v, want %v", i, decoded.Data[i], v.Data[i])
+		}
+	}
+}
+
+func TestVectorScan(t *testing.T) {
+	original := Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, 2.0, 3.0}}
+	encoded, _ := original.encodeToBytes()
+
+	var v Vector
+	err := v.Scan(encoded)
+	if err != nil {
+		t.Fatalf("Scan failed: %v", err)
+	}
+
+	if len(v.Data) != len(original.Data) {
+		t.Fatalf("length mismatch: got %d, want %d", len(v.Data), len(original.Data))
+	}
+
+	for i := range original.Data {
+		if v.Data[i] != original.Data[i] {
+			t.Errorf("index %d: got %v, want %v", i, v.Data[i], original.Data[i])
+		}
+	}
+
+	// Scan nil
+	err = v.Scan(nil)
+	if err != nil {
+		t.Fatalf("Scan(nil) failed: %v", err)
+	}
+	if v.Data != nil {
+		t.Errorf("Scan(nil) should set Data to nil")
+	}
+}
+
+func TestNullVector(t *testing.T) {
+	// Valid value
+	nv := NullVector{
+		Vector: Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, 2.0, 3.0}},
+		Valid:  true,
+	}
+
+	val, err := nv.Value()
+	if err != nil {
+		t.Fatalf("Value() failed: %v", err)
+	}
+	if val == nil {
+		t.Error("Value() should not be nil for valid NullVector")
+	}
+
+	// Null value
+	nv = NullVector{Valid: false}
+	val, err = nv.Value()
+	if err != nil {
+		t.Fatalf("Value() failed: %v", err)
+	}
+	if val != nil {
+		t.Error("Value() should be nil for invalid NullVector")
+	}
+
+	// Scan valid
+	encoded, _ := (Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, 2.0}}).encodeToBytes()
+	err = nv.Scan(encoded)
+	if err != nil {
+		t.Fatalf("Scan failed: %v", err)
+	}
+	if !nv.Valid {
+		t.Error("NullVector should be valid after scanning data")
+	}
+	if len(nv.Vector.Data) != 2 {
+		t.Errorf("Vector length: got %d, want 2", len(nv.Vector.Data))
+	}
+
+	// Scan nil
+	err = nv.Scan(nil)
+	if err != nil {
+		t.Fatalf("Scan(nil) failed: %v", err)
+	}
+	if nv.Valid {
+		t.Error("NullVector should not be valid after scanning nil")
+	}
+}
+
+func TestVectorString(t *testing.T) {
+	testCases := []struct {
+		vector   Vector
+		expected string
+	}{
+		{Vector{}, "NULL"},
+		{Vector{Data: nil}, "NULL"},
+		{Vector{ElementType: VectorElementFloat32, Data: []float32{}}, "VECTOR(FLOAT32, 0) : []"},
+		{Vector{ElementType: VectorElementFloat32, Data: []float32{1.0}}, "VECTOR(FLOAT32, 1) : [1]"},
+		{Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, 2.0, 3.0}}, "VECTOR(FLOAT32, 3) : [1, 2, 3]"},
+		{Vector{ElementType: VectorElementFloat16, Data: []float32{1.5, -2.5}}, "VECTOR(FLOAT16, 2) : [1.5, -2.5]"},
+	}
+
+	for _, tc := range testCases {
+		result := tc.vector.String()
+		if result != tc.expected {
+			t.Errorf("String() for %v: got %q, want %q", tc.vector, result, tc.expected)
+		}
+	}
+}
+
+func TestVectorDimensions(t *testing.T) {
+	testCases := []struct {
+		vector   Vector
+		expected int
+	}{
+		{Vector{}, 0},
+		{Vector{Data: nil}, 0},
+		{Vector{ElementType: VectorElementFloat32, Data: []float32{}}, 0},
+		{Vector{ElementType: VectorElementFloat32, Data: []float32{1.0}}, 1},
+		{Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, 2.0, 3.0}}, 3},
+	}
+
+	for _, tc := range testCases {
+		result := tc.vector.Dimensions()
+		if result != tc.expected {
+			t.Errorf("Dimensions() for %v: got %d, want %d", tc.vector, result, tc.expected)
+		}
+	}
+}
+
+func TestNewVector(t *testing.T) {
+	values := []float32{1.0, 2.0, 3.0}
+	v, err := NewVector(values)
+	if err != nil {
+		t.Fatalf("NewVector failed: %v", err)
+	}
+
+	if len(v.Data) != len(values) {
+		t.Fatalf("length mismatch: got %d, want %d", len(v.Data), len(values))
+	}
+
+	if v.ElementType != VectorElementFloat32 {
+		t.Errorf("element type: got %v, want float32", v.ElementType)
+	}
+
+	// Verify it's a copy
+	values[0] = 999.0
+	if v.Data[0] == 999.0 {
+		t.Error("NewVector should create a copy of the slice")
+	}
+}
+
+func TestNewVectorWithType(t *testing.T) {
+	values := []float32{1.0, 2.0, 3.0}
+
+	v, err := NewVectorWithType(VectorElementFloat16, values)
+	if err != nil {
+		t.Fatalf("NewVectorWithType failed: %v", err)
+	}
+
+	if v.ElementType != VectorElementFloat16 {
+		t.Errorf("element type: got %v, want float16", v.ElementType)
+	}
+
+	if len(v.Data) != len(values) {
+		t.Fatalf("length mismatch: got %d, want %d", len(v.Data), len(values))
+	}
+}
+
+func TestNewVectorFromFloat64(t *testing.T) {
+	values := []float64{1.0, 2.0, 3.0}
+	v, err := NewVectorFromFloat64(values)
+	if err != nil {
+		t.Fatalf("NewVectorFromFloat64 failed: %v", err)
+	}
+
+	if len(v.Data) != len(values) {
+		t.Fatalf("length mismatch: got %d, want %d", len(v.Data), len(values))
+	}
+
+	if v.ElementType != VectorElementFloat32 {
+		t.Errorf("element type: got %v, want float32", v.ElementType)
+	}
+
+	for i, val := range values {
+		if v.Data[i] != float32(val) {
+			t.Errorf("index %d: got %v, want %v", i, v.Data[i], float32(val))
+		}
+	}
+}
+
+func TestVectorToFloat64(t *testing.T) {
+	v := Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, 2.0, 3.0}}
+	result := v.ToFloat64()
+
+	if len(result) != len(v.Data) {
+		t.Fatalf("length mismatch: got %d, want %d", len(result), len(v.Data))
+	}
+
+	for i, val := range v.Data {
+		if result[i] != float64(val) {
+			t.Errorf("index %d: got %v, want %v", i, result[i], float64(val))
+		}
+	}
+
+	// nil data vector
+	nilV := Vector{}
+	nilResult := nilV.ToFloat64()
+	if nilResult != nil {
+		t.Error("ToFloat64() for nil data vector should return nil")
+	}
+}
+
+func TestVectorValues(t *testing.T) {
+	original := []float32{1.0, 2.0, 3.0}
+	v := Vector{ElementType: VectorElementFloat32, Data: original}
+
+	values := v.Values()
+
+	if len(values) != len(original) {
+		t.Fatalf("length mismatch: got %d, want %d", len(values), len(original))
+	}
+
+	// Verify it's a copy
+	values[0] = 999.0
+	if v.Data[0] == 999.0 {
+		t.Error("Values() should return a copy")
+	}
+
+	// nil data
+	nilV := Vector{}
+	if nilV.Values() != nil {
+		t.Error("Values() for nil data should return nil")
+	}
+}
+
+func TestVectorMaxDimensions(t *testing.T) {
+	// Test at maximum allowed for float32
+	maxValues := make([]float32, vectorMaxDimensionsFloat32)
+	v, err := NewVector(maxValues)
+	if err != nil {
+		t.Fatalf("NewVector at max dimensions failed: %v", err)
+	}
+	if len(v.Data) != vectorMaxDimensionsFloat32 {
+		t.Errorf("length: got %d, want %d", len(v.Data), vectorMaxDimensionsFloat32)
+	}
+
+	// Test exceeding maximum for float32
+	tooManyValues := make([]float32, vectorMaxDimensionsFloat32+1)
+	_, err = NewVector(tooManyValues)
+	if err == nil {
+		t.Error("NewVector should fail when exceeding max dimensions")
+	}
+
+	// Test at maximum allowed for float16
+	maxFloat16 := make([]float32, vectorMaxDimensionsFloat16)
+	v, err = NewVectorWithType(VectorElementFloat16, maxFloat16)
+	if err != nil {
+		t.Fatalf("NewVectorWithType(float16) at max dimensions failed: %v", err)
+	}
+
+	// Test encode with oversized vector
+	oversizedVector := Vector{ElementType: VectorElementFloat32, Data: tooManyValues}
+	_, err = oversizedVector.encodeToBytes()
+	if err == nil {
+		t.Error("encodeToBytes should fail when exceeding max dimensions")
+	}
+}
+
+func TestVectorBinaryFormat(t *testing.T) {
+	// Test that encoding matches expected TDS format
+	v := Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, 2.0}}
+	encoded, err := v.encodeToBytes()
+	if err != nil {
+		t.Fatalf("encodeToBytes failed: %v", err)
+	}
+
+	// Expected format:
+	// Header: A9 01 02 00 00 00 00 00 (magic, version, 2 dims, float32 type, 3 reserved)
+	// Data: 00 00 80 3F (1.0 as float32 LE), 00 00 00 40 (2.0 as float32 LE)
+	expected := []byte{
+		0xA9, 0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, // Header
+		0x00, 0x00, 0x80, 0x3F, // 1.0f
+		0x00, 0x00, 0x00, 0x40, // 2.0f
+	}
+
+	if !bytes.Equal(encoded, expected) {
+		t.Errorf("binary format mismatch:\ngot:  %v\nwant: %v", encoded, expected)
+	}
+}
+
+func TestVectorFloat16BinaryFormat(t *testing.T) {
+	// Test float16 binary encoding
+	v := Vector{ElementType: VectorElementFloat16, Data: []float32{1.0, 2.0}}
+	encoded, err := v.encodeToBytes()
+	if err != nil {
+		t.Fatalf("encodeToBytes failed: %v", err)
+	}
+
+	// Expected format:
+	// Header: A9 01 02 00 01 00 00 00 (magic, version, 2 dims, float16 type=0x01, 3 reserved)
+	// Data: 00 3C (1.0 as float16 LE), 00 40 (2.0 as float16 LE)
+	expected := []byte{
+		0xA9, 0x01, 0x02, 0x00, 0x01, 0x00, 0x00, 0x00, // Header
+		0x00, 0x3C, // 1.0 as float16
+		0x00, 0x40, // 2.0 as float16
+	}
+
+	if !bytes.Equal(encoded, expected) {
+		t.Errorf("float16 binary format mismatch:\ngot:  %v\nwant: %v", encoded, expected)
+	}
+
+	// Verify total size (8 header + 2*2 data = 12 bytes)
+	if len(encoded) != 12 {
+		t.Errorf("total size: got %d, want 12", len(encoded))
+	}
+}
