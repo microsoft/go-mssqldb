@@ -561,6 +561,8 @@ func writeShortLenType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.Enco
 
 // readVectorType reads a Vector value from the TDS stream.
 // Vectors are stored as binary data with an 8-byte header followed by float32 values.
+// Returns []float32 by default for better framework compatibility (e.g., GORM).
+// Applications can still scan directly to Vector or NullVector types.
 func readVectorType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) interface{} {
 	var size uint16
 	if c != nil {
@@ -579,7 +581,8 @@ func readVectorType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msds
 	if err := v.decodeFromBytes(buf); err != nil {
 		badStreamPanicf("Failed to decode vector: %s", err.Error())
 	}
-	return v
+	// Return []float32 for better framework compatibility
+	return v.Data
 }
 
 // writeVectorType writes a Vector value to the TDS stream.
@@ -1248,7 +1251,9 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 	case typeUdt:
 		return reflect.TypeOf([]byte{})
 	case typeVectorN:
-		return reflect.TypeOf(Vector{})
+		// Return []float32 by default for better framework compatibility (e.g., GORM).
+		// Applications can still scan directly to Vector or NullVector types.
+		return reflect.TypeOf([]float32{})
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangScanType for type %d", ti.TypeId))
 	}

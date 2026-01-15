@@ -133,7 +133,16 @@ func (v *Vector) Scan(src interface{}) error {
 		return nil
 	case []float32:
 		v.ElementType = VectorElementFloat32
-		v.Data = val
+		v.Data = make([]float32, len(val))
+		copy(v.Data, val)
+		return nil
+	case []float64:
+		// Convert float64 to float32 (may lose precision)
+		v.ElementType = VectorElementFloat32
+		v.Data = make([]float32, len(val))
+		for i, f := range val {
+			v.Data[i] = float32(f)
+		}
 		return nil
 	case string:
 		// Handle JSON array format: "[1.0, 2.0, 3.0]"

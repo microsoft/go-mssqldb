@@ -214,10 +214,12 @@ func TestFloat32ToFloat16Conversion(t *testing.T) {
 		})
 	}
 
-	// Test NaN separately (multiple representations are valid)
+	// Test NaN separately - IEEE 754 allows multiple valid NaN representations.
+	// Any value with exponent=0x1F (all ones) and non-zero fraction is a valid NaN.
+	// Positive NaN: 0x7C01-0x7FFF, Negative NaN: 0xFC01-0xFFFF
 	nanResult := float32ToFloat16(float32(math.NaN()))
-	if nanResult != 0x7E00 {
-		t.Errorf("float32ToFloat16(NaN): got 0x%04X, want 0x7E00", nanResult)
+	if (nanResult&0x7C00) != 0x7C00 || (nanResult&0x03FF) == 0 {
+		t.Errorf("float32ToFloat16(NaN): got 0x%04X, want any NaN (exp=0x1F, non-zero fraction)", nanResult)
 	}
 }
 
@@ -435,6 +437,46 @@ func TestVectorScan(t *testing.T) {
 	}
 	if v.Data != nil {
 		t.Errorf("Scan(nil) should set Data to nil")
+	}
+}
+
+func TestVectorScanFromFloat64Slice(t *testing.T) {
+	// Test scanning from []float64 to Vector
+	float64Values := []float64{1.5, 2.5, 3.5}
+	var v Vector
+	err := v.Scan(float64Values)
+	if err != nil {
+		t.Fatalf("Scan([]float64) failed: %v", err)
+	}
+
+	if len(v.Data) != len(float64Values) {
+		t.Fatalf("length mismatch: got %d, want %d", len(v.Data), len(float64Values))
+	}
+
+	for i, val := range float64Values {
+		if v.Data[i] != float32(val) {
+			t.Errorf("index %d: got %v, want %v", i, v.Data[i], float32(val))
+		}
+	}
+}
+
+func TestVectorScanFromFloat32Slice(t *testing.T) {
+	// Test scanning from []float32 to Vector (should copy, not reference)
+	float32Values := []float32{1.0, 2.0, 3.0}
+	var v Vector
+	err := v.Scan(float32Values)
+	if err != nil {
+		t.Fatalf("Scan([]float32) failed: %v", err)
+	}
+
+	if len(v.Data) != len(float32Values) {
+		t.Fatalf("length mismatch: got %d, want %d", len(v.Data), len(float32Values))
+	}
+
+	// Modify original - should not affect scanned value
+	float32Values[0] = 999.0
+	if v.Data[0] == 999.0 {
+		t.Error("Scan([]float32) should copy the slice, not reference it")
 	}
 }
 

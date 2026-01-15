@@ -6,11 +6,30 @@
 *.log
 *.swp
 *~
+
+# Test outputs and coverage
 coverage.json
 coverage.txt
 coverage.xml
 testresults.xml
+
+# Test binaries (Go test -c output)
+*.test
+*.test.exe
+
+# Profiling output (Go test -cpuprofile, -memprofile, etc.)
+*.prof
+*.pprof
+*.out
+cpu.out
+mem.out
+
+# Connection strings and secrets
 .azureconnstr
+*.connstr
+.env
+.env.*
+!.env.example
 
 # Example binaries  
 examples/*/simple

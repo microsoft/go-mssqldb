@@ -1134,6 +1134,20 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 			res.buffer = nil
 			res.ti.Size = 8000
 		}
+	case []float32:
+		// Allow inserting []float32 directly as a vector - convenient for frameworks
+		v, err := NewVector(val)
+		if err != nil {
+			return res, err
+		}
+		res = makeStrParam(v.ToJSON())
+	case []float64:
+		// Allow inserting []float64 directly as a vector - float64 is the default float type in Go
+		v, err := NewVectorFromFloat64(val)
+		if err != nil {
+			return res, err
+		}
+		res = makeStrParam(v.ToJSON())
 
 	case []byte:
 		res.ti.TypeId = typeBigVarBin

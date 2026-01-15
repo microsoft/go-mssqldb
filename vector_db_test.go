@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"os"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // vectorTestDB holds the shared test database state for vector tests.
@@ -50,7 +52,8 @@ func setupVectorTestDB(t *testing.T, conn *sql.DB) {
 		}
 
 		// We need to use a test database
-		vectorTestDBName = "go_mssqldb_vector_test"
+		// Use a unique name with timestamp and PID to avoid conflicts in concurrent test runs
+		vectorTestDBName = fmt.Sprintf("go_mssqldb_vector_test_%d_%d", time.Now().Unix(), os.Getpid())
 		t.Logf("Connected to system database '%s', will use test database '%s'", currentDB, vectorTestDBName)
 
 		// Check if the test database already exists
@@ -85,10 +88,14 @@ func setupVectorTestDB(t *testing.T, conn *sql.DB) {
 
 // cleanupVectorTestDB drops the test database if we created one.
 // Call this in TestMain or at the end of tests.
-func cleanupVectorTestDB(conn *sql.DB) {
+func cleanupVectorTestDB(conn *sql.DB, t *testing.T) {
 	if vectorTestDBCreated && vectorTestDBName != "" {
-		conn.Exec("USE master")
-		conn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", vectorTestDBName))
+		if _, err := conn.Exec("USE master"); err != nil {
+			t.Logf("Warning: Could not switch to master during cleanup: %v", err)
+		}
+		if _, err := conn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS [%s]", vectorTestDBName)); err != nil {
+			t.Logf("Warning: Could not drop test database during cleanup: %v", err)
+		}
 	}
 }
 
@@ -671,6 +678,178 @@ func TestVectorBatchInsert(t *testing.T) {
 	t.Logf("Batch inserted %d vectors successfully", count)
 }
 
+// TestVectorSliceFloat32Insert tests inserting []float32 directly without wrapping in Vector.
+// This provides better framework compatibility (e.g., GORM) per shueybubbles' feedback.
+func TestVectorSliceFloat32Insert(t *testing.T) {
+	conn, _ := open(t)
+	defer conn.Close()
+	skipIfVectorNotSupported(t, conn)
+
+	tx, err := conn.Begin()
+	if err != nil {
+		t.Fatal("Begin transaction failed:", err)
+	}
+	defer tx.Rollback()
+
+	tableName := "#test_vector_slice32"
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT IDENTITY(1,1) PRIMARY KEY,
+			embedding VECTOR(3) NOT NULL
+		)
+	`, tableName))
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert using []float32 directly (not wrapped in Vector type)
+	values := []float32{1.0, 2.0, 3.0}
+	_, err = tx.Exec(
+		fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", tableName),
+		values,
+	)
+	if err != nil {
+		t.Fatalf("Failed to insert []float32: %v", err)
+	}
+
+	// Read back as []float32 (the default scan type)
+	var readValues []float32
+	err = tx.QueryRow(
+		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 1", tableName),
+	).Scan(&readValues)
+	if err != nil {
+		t.Fatalf("Failed to scan to []float32: %v", err)
+	}
+
+	if len(readValues) != len(values) {
+		t.Fatalf("Expected %d values, got %d", len(values), len(readValues))
+	}
+
+	for i, val := range values {
+		if readValues[i] != val {
+			t.Errorf("Value %d: expected %f, got %f", i, val, readValues[i])
+		}
+	}
+	t.Logf("Successfully round-tripped []float32: %v", readValues)
+}
+
+// TestVectorSliceFloat64Insert tests inserting []float64 directly.
+// float64 is the default float type in Go, so this is important for convenience.
+func TestVectorSliceFloat64Insert(t *testing.T) {
+	conn, _ := open(t)
+	defer conn.Close()
+	skipIfVectorNotSupported(t, conn)
+
+	tx, err := conn.Begin()
+	if err != nil {
+		t.Fatal("Begin transaction failed:", err)
+	}
+	defer tx.Rollback()
+
+	tableName := "#test_vector_slice64"
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT IDENTITY(1,1) PRIMARY KEY,
+			embedding VECTOR(3) NOT NULL
+		)
+	`, tableName))
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert using []float64 directly (Go's default float type)
+	values := []float64{1.5, 2.5, 3.5}
+	_, err = tx.Exec(
+		fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", tableName),
+		values,
+	)
+	if err != nil {
+		t.Fatalf("Failed to insert []float64: %v", err)
+	}
+
+	// Read back as Vector to verify the values
+	var v Vector
+	err = tx.QueryRow(
+		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 1", tableName),
+	).Scan(&v)
+	if err != nil {
+		t.Fatalf("Failed to scan to Vector: %v", err)
+	}
+
+	if v.Dimensions() != len(values) {
+		t.Fatalf("Expected %d dimensions, got %d", len(values), v.Dimensions())
+	}
+
+	for i, val := range values {
+		if !floatsEqualVector(v.Data[i], float32(val)) {
+			t.Errorf("Value %d: expected %f, got %f", i, val, v.Data[i])
+		}
+	}
+	t.Logf("Successfully round-tripped []float64 -> Vector: %v", v.Data)
+}
+
+// TestVectorScanToInterface tests that scanning to interface{} returns []float32.
+// This enables frameworks like GORM to work without special Vector type handling.
+func TestVectorScanToInterface(t *testing.T) {
+	conn, _ := open(t)
+	defer conn.Close()
+	skipIfVectorNotSupported(t, conn)
+
+	tx, err := conn.Begin()
+	if err != nil {
+		t.Fatal("Begin transaction failed:", err)
+	}
+	defer tx.Rollback()
+
+	tableName := "#test_vector_interface"
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT IDENTITY(1,1) PRIMARY KEY,
+			embedding VECTOR(3) NOT NULL
+		)
+	`, tableName))
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert a vector
+	v := mustNewVector([]float32{1.0, 2.0, 3.0})
+	_, err = tx.Exec(
+		fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", tableName),
+		v,
+	)
+	if err != nil {
+		t.Fatalf("Failed to insert vector: %v", err)
+	}
+
+	// Scan to interface{} - should get []float32
+	var result interface{}
+	err = tx.QueryRow(
+		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 1", tableName),
+	).Scan(&result)
+	if err != nil {
+		t.Fatalf("Failed to scan to interface{}: %v", err)
+	}
+
+	// Verify we got []float32
+	floatSlice, ok := result.([]float32)
+	if !ok {
+		t.Fatalf("Expected []float32, got %T", result)
+	}
+
+	if len(floatSlice) != 3 {
+		t.Fatalf("Expected 3 values, got %d", len(floatSlice))
+	}
+
+	expected := []float32{1.0, 2.0, 3.0}
+	for i, val := range expected {
+		if floatSlice[i] != val {
+			t.Errorf("Value %d: expected %f, got %f", i, val, floatSlice[i])
+		}
+	}
+	t.Logf("Scan to interface{} returned []float32: %v", floatSlice)
+}
+
 // TestVectorFloat16 tests float16 vector support (preview feature).
 // This test requires SQL Server 2025+ with PREVIEW_FEATURES enabled.
 func TestVectorFloat16(t *testing.T) {
@@ -801,11 +980,15 @@ func TestVectorFloat16(t *testing.T) {
 		t.Fatalf("Failed to scan precision test vector: %v", err)
 	}
 
-	// float16 has ~3 decimal digits of precision, values should be close but may differ slightly
+	// IEEE 754 float16 has a 10-bit significand (~3 decimal digits of precision).
+	// The ULP near 1.0 is 2^-10 ≈ 9.8e-4, so for values in the 1–3 range we expect
+	// absolute conversion error to be on the order of a few 1e-3. We therefore use
+	// a conservative 0.01 absolute tolerance here to allow for implementation-
+	// specific details while still catching excessive precision loss.
 	t.Logf("Precision test - input: %v, output: %v", precisionTestValues, readVector2.Data)
 	for i, val := range readVector2.Data {
 		diff := math.Abs(float64(val - precisionTestValues[i]))
-		if diff > 0.01 { // float16 should be accurate to ~0.1% for these values
+		if diff > 0.01 {
 			t.Errorf("Dimension %d: precision loss too high, expected ~%f, got %f (diff: %f)",
 				i, precisionTestValues[i], val, diff)
 		}

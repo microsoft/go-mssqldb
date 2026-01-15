@@ -44,7 +44,7 @@ nullNv := mssql.NullVector{
 
 ## Inserting Vectors
 
-Vectors can be passed directly as parameters to INSERT statements:
+Vectors can be passed directly as parameters to INSERT statements. You can use `Vector` types or plain Go slices:
 
 ```go
 db, err := sql.Open("sqlserver", "sqlserver://user:password@server/database")
@@ -64,20 +64,29 @@ if err != nil {
     log.Fatal(err)
 }
 
-// Insert a vector
+// Option 1: Insert using Vector type
 v, _ := mssql.NewVector([]float32{1.0, 2.0, 3.0})
 _, err = db.Exec(
     "INSERT INTO embeddings (name, embedding) VALUES (@p1, @p2)",
-    "example", v,
+    "example1", v,
 )
-if err != nil {
-    log.Fatal(err)
-}
+
+// Option 2: Insert using []float32 directly (convenient for frameworks)
+_, err = db.Exec(
+    "INSERT INTO embeddings (name, embedding) VALUES (@p1, @p2)",
+    "example2", []float32{4.0, 5.0, 6.0},
+)
+
+// Option 3: Insert using []float64 (Go's default float type)
+_, err = db.Exec(
+    "INSERT INTO embeddings (name, embedding) VALUES (@p1, @p2)",
+    "example3", []float64{7.0, 8.0, 9.0},
+)
 ```
 
 ## Reading Vectors
 
-Vectors can be scanned from query results using the `Vector` or `NullVector` types:
+Vectors can be scanned from query results using the `Vector` type, `NullVector` type, or plain Go slices:
 
 ```go
 rows, err := db.Query("SELECT id, name, embedding FROM embeddings")
@@ -89,6 +98,7 @@ defer rows.Close()
 for rows.Next() {
     var id int
     var name string
+    // Option 1: Scan to Vector type (provides metadata like ElementType)
     var embedding mssql.Vector
 
     if err := rows.Scan(&id, &name, &embedding); err != nil {
@@ -98,6 +108,25 @@ for rows.Next() {
     fmt.Printf("ID: %d, Name: %s, Dimensions: %d\n", id, name, embedding.Dimensions())
     fmt.Printf("Values: %v\n", embedding.Values())
 }
+```
+
+### Scanning to Native Go Slices
+
+For better framework compatibility (e.g., GORM), vectors can be scanned directly to `[]float32`:
+
+```go
+var embedding []float32
+err := row.Scan(&embedding)
+// embedding is now a []float32 with the vector values
+```
+
+When scanning to `interface{}`, the driver returns `[]float32` by default:
+
+```go
+var result interface{}
+err := row.Scan(&result)
+// result is []float32, which works well with frameworks like GORM
+floats := result.([]float32)
 ```
 
 ### Reading Nullable Vectors
