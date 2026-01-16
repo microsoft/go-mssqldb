@@ -1672,9 +1672,19 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 	case typeVectorN:
 		// Vector is variable length, return the number of dimensions as length
 		// Scale: 0 = float32 (4 bytes), 1 = float16 (2 bytes)
-		bytesPerElement := 4
-		if ti.Scale == 1 {
+		var bytesPerElement int
+		switch ti.Scale {
+		case 0:
+			bytesPerElement = 4
+		case 1:
 			bytesPerElement = 2
+		default:
+			// Unknown scale, return 0
+			return 0, false
+		}
+		// Validate size to avoid underflow
+		if ti.Size < vectorHeaderSize {
+			return 0, false
 		}
 		dimensions := (ti.Size - vectorHeaderSize) / bytesPerElement
 		return int64(dimensions), true

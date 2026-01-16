@@ -35,6 +35,9 @@ func SetVectorPrecisionWarnings(enabled bool) {
 
 var vectorPrecisionMu sync.Mutex
 
+// defaultPrecisionLossHandler is the default handler that logs precision loss warnings.
+// Users who want to integrate with their own logging framework should set
+// VectorPrecisionLossHandler to a custom function or nil to disable warnings.
 func defaultPrecisionLossHandler(index int, original float64, converted float32) {
 	log.Printf("mssql: vector precision loss at index %d: float64(%v) -> float32(%v)", index, original, converted)
 }
@@ -238,10 +241,10 @@ func (v Vector) String() string {
 	}
 
 	// Use strings.Builder for better performance with large vectors.
-	// Capacity estimate: ~12 chars per float covers most cases (e.g., "-123.456789,").
-	// Scientific notation values may exceed this, but Builder handles reallocation.
+	// Capacity estimate: ~16 chars per float to account for scientific notation
+	// (e.g., "-1.2345679e+38,"); Builder will still grow if this is exceeded.
 	var sb strings.Builder
-	sb.Grow(len(v.Data)*12 + 30) // 12 chars/float + prefix overhead
+	sb.Grow(len(v.Data)*16 + 30) // ~16 chars/float + prefix overhead
 	sb.WriteString("VECTOR(")
 	sb.WriteString(v.ElementType.String())
 	sb.WriteString(", ")

@@ -1367,10 +1367,17 @@ initiate_connection:
 						}
 					case featExtVECTORSUPPORT:
 						// Server acknowledged vector support
-						if version, ok := v.(byte); ok && version > 0 {
-							sess.vectorSupported = true
-							if uint64(p.LogFlags)&logDebug != 0 {
-								logger.Log(ctx, msdsn.LogDebug, "Server supports native vector format")
+						if version, ok := v.(byte); ok {
+							if version == 1 {
+								sess.vectorSupported = true
+								if uint64(p.LogFlags)&logDebug != 0 {
+									logger.Log(ctx, msdsn.LogDebug, "Server supports native vector format (version 1)")
+								}
+							} else if version > 1 {
+								// Future protocol version: do not enable, log warning
+								if uint64(p.LogFlags)&logDebug != 0 {
+									logger.Log(ctx, msdsn.LogDebug, fmt.Sprintf("Server advertised vector support version %d (newer than supported version 1); native vector format disabled", version))
+								}
 							}
 						}
 					}
