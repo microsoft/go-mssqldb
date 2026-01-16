@@ -66,6 +66,8 @@ const (
 	typeXml        = 0xf1
 	typeUdt        = 0xf0
 	typeTvp        = 0xf3
+	typeJsonN      = 0xf4 // SQL Server 2025+ JSON type (reserved; not currently implemented)
+	typeVectorN    = 0xf5 // SQL Server 2025+ Vector type
 
 	// long length types
 	typeText    = 0x23
@@ -254,6 +256,28 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodeParam
 			return
 		}
 		ti.Writer = writeLongLenType
+	case typeVectorN:
+		// Vector type (SQL Server 2025+)
+		// Format: maxLength (USHORT) + scaleByte (BYTE for element type)
+		if ti.Size > 8000 || ti.Size == 0 || out {
+			if err = binary.Write(w, binary.LittleEndian, uint16(0xffff)); err != nil {
+				return
+			}
+			// Write scale byte (element type: 0=FLOAT32, 1=FLOAT16)
+			if err = binary.Write(w, binary.LittleEndian, ti.Scale); err != nil {
+				return
+			}
+			ti.Writer = writePLPType
+		} else {
+			if err = binary.Write(w, binary.LittleEndian, uint16(ti.Size)); err != nil {
+				return
+			}
+			// Write scale byte (element type: 0=FLOAT32, 1=FLOAT16)
+			if err = binary.Write(w, binary.LittleEndian, ti.Scale); err != nil {
+				return
+			}
+			ti.Writer = writeVectorType
+		}
 	default:
 		panic("Invalid type")
 	}
@@ -544,6 +568,45 @@ func writeShortLenType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.Enco
 	return
 }
 
+// readVectorType reads a Vector value from the TDS stream.
+// Vectors are stored as binary data with an 8-byte header followed by float32 values.
+// Returns []float32 by default for better framework compatibility (e.g., GORM).
+// Applications can still scan directly to Vector or NullVector types.
+func readVectorType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) interface{} {
+	var size uint16
+	if c != nil {
+		size = uint16(r.rsize)
+	} else {
+		size = r.uint16()
+	}
+	if size == 0xffff {
+		return nil
+	}
+	buf := make([]byte, size)
+	r.ReadFull(buf)
+
+	// Decode the vector from the binary representation
+	var v Vector
+	if err := v.decodeFromBytes(buf); err != nil {
+		badStreamPanicf("Failed to decode vector: %s", err.Error())
+	}
+	// Return []float32 for better framework compatibility
+	return v.Data
+}
+
+// writeVectorType writes a Vector value to the TDS stream.
+func writeVectorType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error) {
+	if buf == nil {
+		err = binary.Write(w, binary.LittleEndian, uint16(0xffff))
+		return
+	}
+	if err = binary.Write(w, binary.LittleEndian, uint16(len(buf))); err != nil {
+		return
+	}
+	_, err = w.Write(buf)
+	return
+}
+
 func readLongLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) interface{} {
 	// information about this format can be found here:
 	// http://msdn.microsoft.com/en-us/library/dd304783.aspx
@@ -751,6 +814,13 @@ func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.E
 		return decodeNChar(bytesToDecode)
 	case typeUdt:
 		return decodeUdt(*ti, bytesToDecode)
+	case typeVectorN:
+		// Vector type in PLP format
+		var v Vector
+		if err := v.decodeFromBytes(bytesToDecode); err != nil {
+			badStreamPanicf("Failed to decode vector: %s", err.Error())
+		}
+		return v.Data
 	}
 	panic("shouldn't get here")
 }
@@ -873,6 +943,29 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 			ti.Reader = readLongLenType
 		case typeVariant:
 			ti.Reader = readVariantTypeWithEncoding
+		}
+	case typeVectorN:
+		// Vector type (SQL Server 2025+)
+		// Format: maxLength (USHORT) + scaleByte (BYTE)
+		// When vector feature extension is negotiated, server sends binary format
+		ti.Size = int(r.uint16())
+		scaleByte := r.byte() // dimension type: 0=FLOAT32, 1=FLOAT16
+		ti.Scale = scaleByte
+		// Calculate bytes per dimension from scale
+		// scaleByte 0 = FLOAT32 (4 bytes), scaleByte 1 = FLOAT16 (2 bytes)
+		bytesPerDim := 4
+		if scaleByte == 1 {
+			bytesPerDim = 2
+		}
+		if ti.Size > 0 && ti.Size != 0xffff {
+			// precision = (maxLength - 8) / bytesPerDim  (8 bytes for header)
+			ti.Prec = uint8((ti.Size - 8) / bytesPerDim)
+		}
+		if ti.Size == 0xffff {
+			ti.Reader = readPLPType
+		} else {
+			ti.Buffer = make([]byte, ti.Size)
+			ti.Reader = readVectorType
 		}
 	default:
 		badStreamPanicf("Invalid type %d", ti.TypeId)
@@ -1186,6 +1279,10 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 		return reflect.TypeOf(nil)
 	case typeUdt:
 		return reflect.TypeOf([]byte{})
+	case typeVectorN:
+		// Return []float32 by default for better framework compatibility (e.g., GORM).
+		// Applications can still scan directly to Vector or NullVector types.
+		return reflect.TypeOf([]float32{})
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangScanType for type %d", ti.TypeId))
 	}
@@ -1308,6 +1405,24 @@ func makeDecl(ti typeInfo) string {
 			return fmt.Sprintf("%s.%s READONLY", ti.UdtInfo.SchemaName, ti.UdtInfo.TypeName)
 		}
 		return fmt.Sprintf("%s READONLY", ti.UdtInfo.TypeName)
+	case typeVectorN:
+		// Vector type (SQL Server 2025+)
+		// Size is total bytes including 8-byte header
+		// Scale: 0 = float32 (4 bytes), 1 = float16 (2 bytes)
+		bytesPerElement := 4
+		if ti.Scale == 1 {
+			bytesPerElement = 2
+		}
+		// Validate size to avoid underflow and nonsensical dimensions
+		if ti.Size < vectorHeaderSize {
+			return "vector"
+		}
+		payloadSize := ti.Size - vectorHeaderSize
+		if payloadSize == 0 || payloadSize%bytesPerElement != 0 {
+			return "vector"
+		}
+		dimensions := payloadSize / bytesPerElement
+		return fmt.Sprintf("vector(%d)", dimensions)
 	default:
 		panic(fmt.Sprintf("not implemented makeDecl for type %#x", ti.TypeId))
 	}
@@ -1417,6 +1532,8 @@ func makeGoLangTypeName(ti typeInfo) string {
 		return "BINARY"
 	case typeUdt:
 		return strings.ToUpper(ti.UdtInfo.TypeName)
+	case typeVectorN:
+		return "VECTOR"
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypeName for type %d", ti.TypeId))
 	}
@@ -1552,6 +1669,25 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 		default:
 			panic(fmt.Sprintf("not implemented makeGoLangTypeLength for user defined type %s", ti.UdtInfo.TypeName))
 		}
+	case typeVectorN:
+		// Vector is variable length, return the number of dimensions as length
+		// Scale: 0 = float32 (4 bytes), 1 = float16 (2 bytes)
+		var bytesPerElement int
+		switch ti.Scale {
+		case 0:
+			bytesPerElement = 4
+		case 1:
+			bytesPerElement = 2
+		default:
+			// Unknown scale, return 0
+			return 0, false
+		}
+		// Validate size to avoid underflow
+		if ti.Size < vectorHeaderSize {
+			return 0, false
+		}
+		dimensions := (ti.Size - vectorHeaderSize) / bytesPerElement
+		return int64(dimensions), true
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypeLength for type %d", ti.TypeId))
 	}
@@ -1667,6 +1803,8 @@ func makeGoLangTypePrecisionScale(ti typeInfo) (int64, int64, bool) {
 	case typeBigBinary:
 		return 0, 0, false
 	case typeUdt:
+		return 0, 0, false
+	case typeVectorN:
 		return 0, 0, false
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypePrecisionScale for type %d", ti.TypeId))
