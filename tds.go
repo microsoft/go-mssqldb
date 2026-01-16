@@ -177,8 +177,8 @@ type tdsSession struct {
 	activityid      UniqueIdentifier
 	encoding        msdsn.EncodeParameters
 	// vectorSupported indicates if the server supports native vector binary format.
-	// TODO: Use this to enable binary vector parameters instead of JSON when server supports it.
-	// Currently vectors are always sent as JSON for backward compatibility.
+	// TODO: Extend native binary vector parameter support to float16 vectors when server supports it.
+	// Currently, float32 vectors use binary format when vectorSupported is true, while float16 vectors are sent as JSON.
 	vectorSupported bool
 }
 

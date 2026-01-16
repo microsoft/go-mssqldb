@@ -237,9 +237,9 @@ CREATE TABLE embeddings (
 );
 ```
 
-> **Note:** The element type is determined by the SQL Server column definition (e.g., `VECTOR(3)` for float32, `VECTOR(3, float16)` for float16), not by the Go-side `Vector` struct. When inserting vectors from Go, they are transmitted as JSON strings, and SQL Server converts them to the column's declared element type.
+> **Note:** The element type is determined by the SQL Server column definition (e.g., `VECTOR(3)` for float32, `VECTOR(3, float16)` for float16), not by the Go-side `Vector` struct. When inserting vectors from Go, they are typically transmitted using the binary vector format; if binary vector parameters aren't supported for a given element type (such as float16 in the current preview), they are sent as JSON strings and SQL Server converts them to the column's declared element type.
 >
-> **float16 TDS Limitation:** Currently, float16 vectors are transmitted as JSON over TDS. Binary transport for float16 is not yet available in drivers. This driver can read float16 vectors from SQL Server, which are returned as JSON and converted to float32 values in Go.
+> **float16 TDS Limitation:** Currently, float16 vector parameters are sent as JSON over TDS because a binary parameter format for float16 is not yet available. The driver still reads float16 vectors from SQL Server using the binary vector format and converts them to float32 values in Go.
 
 
 

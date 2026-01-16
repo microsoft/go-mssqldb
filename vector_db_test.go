@@ -66,21 +66,10 @@ func setupVectorTestDB(t *testing.T, conn *sql.DB) {
 		}
 		t.Logf("Created test database '%s'", vectorTestDBName)
 		vectorTestDBCreated = true
-
-		// Register cleanup to drop the database when tests complete
-		// This runs even if tests fail, ensuring we clean up after ourselves
-		t.Cleanup(func() {
-			// Switch to master and drop the test database
-			if _, err := conn.Exec("USE master"); err != nil {
-				t.Logf("Cleanup: Could not switch to master: %v", err)
-				return
-			}
-			if _, err := conn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS [%s]", vectorTestDBName)); err != nil {
-				t.Logf("Cleanup: Could not drop test database: %v", err)
-			} else {
-				t.Logf("Cleanup: Dropped test database '%s'", vectorTestDBName)
-			}
-		})
+		// Note: We don't use t.Cleanup() here because sync.Once ties it to the first
+		// test that runs, which would try to drop the database while other tests are
+		// still using it. Instead, we rely on drop-before-create at the start of each
+		// test run to clean up any leftover databases from previous runs.
 	})
 
 	// Switch to test database if we're using one
@@ -88,22 +77,6 @@ func setupVectorTestDB(t *testing.T, conn *sql.DB) {
 		_, err := conn.Exec(fmt.Sprintf("USE [%s]", vectorTestDBName))
 		if err != nil {
 			t.Fatalf("Could not switch to test database: %v", err)
-		}
-	}
-}
-
-// cleanupVectorTestDB drops the test database if we created one.
-// Note: Cleanup is handled automatically via t.Cleanup() when the test database
-// is created, so this function is typically not needed. It's kept for:
-// 1. Drop-before-create at start of each run (handles failed previous runs)
-// 2. Explicit cleanup if t.Cleanup() doesn't run (e.g., process killed)
-func cleanupVectorTestDB(conn *sql.DB, t *testing.T) {
-	if vectorTestDBCreated && vectorTestDBName != "" {
-		if _, err := conn.Exec("USE master"); err != nil {
-			t.Logf("Warning: Could not switch to master during cleanup: %v", err)
-		}
-		if _, err := conn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS [%s]", vectorTestDBName)); err != nil {
-			t.Logf("Warning: Could not drop test database during cleanup: %v", err)
 		}
 	}
 }

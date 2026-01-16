@@ -503,7 +503,7 @@ func float32ToFloat16(value float32) uint16 {
 		}
 	}
 
-	return uint16((sign << 15) | (uint32(halfExponent) << 10) | mant)
+	return uint16((uint32(sign) << 15) | (uint32(halfExponent) << 10) | uint32(mant))
 }
 
 // float16ToFloat32 converts a float16 (IEEE 754 half-precision) value to float32.
