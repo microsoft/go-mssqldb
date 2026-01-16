@@ -30,7 +30,8 @@ jobs:
         # Build connection string - SQL 2017 requires trusting its self-signed certificate
         if [ "${{ matrix.sqlImage }}" = "2017-latest" ]; then
           export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
-          # SQL 2017's certificate has a negative serial number which Go 1.23+ rejects by default
+          # SQL 2017's self-signed certificate has a negative serial number that Go 1.23+ rejects by default.
+          # This GODEBUG override is only for CI testing against SQL Server 2017 and MUST NOT be used in production.
           export GODEBUG=x509negativeserial=1
         else
           export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}"
