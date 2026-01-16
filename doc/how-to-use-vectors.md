@@ -77,7 +77,8 @@ _, err = db.Exec(
     "example2", []float32{4.0, 5.0, 6.0},
 )
 
-// Option 3: Insert using []float64 (Go's default float type)
+// Option 3: Insert using []float64 (converted to float32 with possible precision loss)
+// Useful when working with Go libraries that use float64 (e.g., gonum)
 _, err = db.Exec(
     "INSERT INTO embeddings (name, embedding) VALUES (@p1, @p2)",
     "example3", []float64{7.0, 8.0, 9.0},
@@ -147,16 +148,15 @@ if nullableEmbedding.Valid {
 
 ## Vector Similarity Search with VECTOR_DISTANCE
 
-SQL Server 2025 provides the `VECTOR_DISTANCE` function for similarity search. When using vectors as parameters to `VECTOR_DISTANCE`, you must cast the parameter to the appropriate vector type:
+SQL Server 2025 provides the `VECTOR_DISTANCE` function for similarity search:
 
 ```go
 // Create query vector
 queryVector, _ := mssql.NewVector([]float32{1.0, 0.0, 0.0})
 
 // Search for similar vectors using cosine distance
-// Note: CAST is required when using a parameter in VECTOR_DISTANCE
 rows, err := db.Query(`
-    SELECT TOP 10 name, VECTOR_DISTANCE('cosine', embedding, CAST(@p1 AS VECTOR(3))) as distance
+    SELECT TOP 10 name, VECTOR_DISTANCE('cosine', embedding, @p1) as distance
     FROM embeddings
     ORDER BY distance
 `, queryVector)
@@ -198,7 +198,8 @@ dims := v.Dimensions() // 3
 // Get the values as float32 slice
 values := v.Values() // []float32{1.0, 2.0, 3.0}
 
-// Get values as float64 slice (for higher precision operations)
+// Get values as float64 slice (convenient for Go libraries that use float64)
+// Note: This is a widening conversion from the stored float32 values
 float64Values := v.ToFloat64() // []float64{1.0, 2.0, 3.0}
 
 // Get element type
@@ -216,6 +217,8 @@ SQL Server 2025 supports two element types:
 |------|----------|-------|----------------|-------|
 | float32 | `VectorElementFloat32` | 4 | 1998 | Default, fully supported |
 | float16 | `VectorElementFloat16` | 2 | 3996 | Preview feature (see below) |
+
+> **Precision Note:** SQL Server vectors store 32-bit or 16-bit floating-point values, not 64-bit. When inserting `[]float64` from Go, values are converted to float32 which may lose precision. For example, `0.123456789012345` becomes `0.12345679`. Most ML embedding models produce float32 values, so this is typically not an issue.
 
 ### float16 Preview Feature
 
@@ -292,18 +295,33 @@ if err := tx.Commit(); err != nil {
 
 ## Limitations
 
-1. **VECTOR_DISTANCE parameters**: When passing a Go Vector as a parameter to `VECTOR_DISTANCE`, you must use `CAST(@param AS VECTOR(N))` to convert it to the appropriate vector type.
+1. **Maximum dimensions**: Vectors are limited to 1998 dimensions for float32 and 3996 dimensions for float16.
 
-2. **Column type metadata**: When using `ColumnTypes()`, vector columns may report as `NVARCHAR` due to how parameters are encoded. The actual data is still properly handled as vectors.
+2. **Always Encrypted**: The Vector data type is not supported with Always Encrypted. This is a SQL Server limitation. See [Always Encrypted limitations](https://learn.microsoft.com/sql/relational-databases/security/encryption/always-encrypted-database-engine#limitations).
 
-3. **Maximum dimensions**: Vectors are limited to 1998 dimensions for float32 and 3996 dimensions for float16.
+## Precision Loss Warnings
 
-4. **Always Encrypted**: The Vector data type is not supported with Always Encrypted. This is a SQL Server limitation. See [Always Encrypted limitations](https://learn.microsoft.com/sql/relational-databases/security/encryption/always-encrypted-database-engine#limitations).
+When inserting `[]float64` values, they are converted to float32, which may lose precision. You can enable warnings to detect when this occurs:
+
+```go
+// Option 1: Enable default logging (logs to standard logger)
+mssql.SetVectorPrecisionWarnings(true)
+
+// Option 2: Use a custom handler for integration with your logging framework
+mssql.VectorPrecisionLossHandler = func(index int, original float64, converted float32) {
+    slog.Warn("vector precision loss", 
+        "index", index,
+        "original", original, 
+        "converted", converted)
+}
+```
+
+For performance, only the first precision loss per vector is reported.
 
 ## Requirements
 
 - SQL Server 2025 or later
-- go-mssqldb driver version 1.9.4 or later
+- go-mssqldb driver version 1.9.5 or later
 
 ## See Also
 

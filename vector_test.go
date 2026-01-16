@@ -756,3 +756,54 @@ func TestVectorFloat16BinaryFormat(t *testing.T) {
 		t.Errorf("total size: got %d, want 12", len(encoded))
 	}
 }
+
+func TestVectorPrecisionLossWarning(t *testing.T) {
+	// Track precision loss warnings
+	var warnings []struct {
+		index     int
+		original  float64
+		converted float32
+	}
+
+	// Set custom handler
+	oldHandler := VectorPrecisionLossHandler
+	VectorPrecisionLossHandler = func(index int, original float64, converted float32) {
+		warnings = append(warnings, struct {
+			index     int
+			original  float64
+			converted float32
+		}{index, original, converted})
+	}
+	defer func() { VectorPrecisionLossHandler = oldHandler }()
+
+	// Test with value that loses precision
+	preciseValue := 0.123456789012345 // More precision than float32 can hold
+	_, err := NewVectorFromFloat64([]float64{1.0, preciseValue, 3.0})
+	if err != nil {
+		t.Fatalf("NewVectorFromFloat64 failed: %v", err)
+	}
+
+	// Should have exactly one warning (only first precision loss reported)
+	if len(warnings) != 1 {
+		t.Errorf("expected 1 warning, got %d", len(warnings))
+	}
+	if len(warnings) > 0 && warnings[0].index != 1 {
+		t.Errorf("expected warning at index 1, got %d", warnings[0].index)
+	}
+
+	// Test with values that don't lose precision
+	warnings = nil
+	_, err = NewVectorFromFloat64([]float64{1.0, 2.0, 3.0})
+	if err != nil {
+		t.Fatalf("NewVectorFromFloat64 failed: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("expected no warnings for exact values, got %d", len(warnings))
+	}
+
+	// Test SetVectorPrecisionWarnings
+	SetVectorPrecisionWarnings(false)
+	if VectorPrecisionLossHandler != nil {
+		t.Error("SetVectorPrecisionWarnings(false) should set handler to nil")
+	}
+}

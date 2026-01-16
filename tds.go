@@ -156,6 +156,7 @@ const (
 	featExtAZURESQLSUPPORT    byte = 0x08
 	featExtDATACLASSIFICATION byte = 0x09
 	featExtUTF8SUPPORT        byte = 0x0A
+	featExtVECTORSUPPORT      byte = 0x0E
 	featExtTERMINATOR         byte = 0xFF
 )
 
@@ -175,6 +176,10 @@ type tdsSession struct {
 	connid          UniqueIdentifier
 	activityid      UniqueIdentifier
 	encoding        msdsn.EncodeParameters
+	// vectorSupported indicates if the server supports native vector binary format.
+	// TODO: Use this to enable binary vector parameters instead of JSON when server supports it.
+	// Currently vectors are always sent as JSON for backward compatibility.
+	vectorSupported bool
 }
 
 type alwaysEncryptedSettings struct {
@@ -422,7 +427,9 @@ type login struct {
 }
 
 type featureExts struct {
-	features map[byte]featureExt
+	// features is a slice (not a map) to ensure deterministic ordering in TDS packets.
+	// This is important for consistent wire protocol behavior and easier debugging.
+	features []featureExt
 }
 
 type featureExt interface {
@@ -435,14 +442,13 @@ func (e *featureExts) Add(f featureExt) error {
 		return nil
 	}
 	id := f.featureID()
-	if _, exists := e.features[id]; exists {
-		f := "login error: Feature with ID '%v' is already present in FeatureExt block"
-		return fmt.Errorf(f, id)
+	for _, existing := range e.features {
+		if existing.featureID() == id {
+			errMsg := "login error: Feature with ID '%v' is already present in FeatureExt block"
+			return fmt.Errorf(errMsg, id)
+		}
 	}
-	if e.features == nil {
-		e.features = make(map[byte]featureExt)
-	}
-	e.features[id] = f
+	e.features = append(e.features, f)
 	return nil
 }
 
@@ -451,11 +457,11 @@ func (e featureExts) toBytes() []byte {
 		return nil
 	}
 	var d []byte
-	for featureID, f := range e.features {
+	for _, f := range e.features {
 		featureData := f.toBytes()
 
 		hdr := make([]byte, 5)
-		hdr[0] = featureID                                               // FedAuth feature extension BYTE
+		hdr[0] = f.featureID()                                           // Feature ID BYTE
 		binary.LittleEndian.PutUint32(hdr[1:], uint32(len(featureData))) // FeatureDataLen DWORD
 		d = append(d, hdr...)
 
@@ -1062,6 +1068,8 @@ func prepareLogin(ctx context.Context, c *Connector, p msdsn.Config, logger Cont
 	if p.ColumnEncryption {
 		_ = l.FeatureExt.Add(&featureExtColumnEncryption{})
 	}
+	// Always request vector support - server will ack if it supports it
+	_ = l.FeatureExt.Add(&featureExtVector{})
 	switch {
 	case fe.FedAuthLibrary == FedAuthLibrarySecurityToken:
 		if uint64(p.LogFlags)&logDebug != 0 {
@@ -1342,13 +1350,23 @@ initiate_connection:
 				sess.loginAck = token
 				loginAck = true
 			case featureExtAck:
-				for _, v := range token {
-					switch v := v.(type) {
-					case colAckStruct:
-						if v.Version <= 2 && v.Version > 0 {
-							sess.alwaysEncrypted = true
-							if len(v.EnclaveType) > 0 {
-								sess.aeSettings.enclaveType = string(v.EnclaveType)
+				for id, v := range token {
+					switch id {
+					case featExtCOLUMNENCRYPTION:
+						if colAck, ok := v.(colAckStruct); ok {
+							if colAck.Version <= 2 && colAck.Version > 0 {
+								sess.alwaysEncrypted = true
+								if len(colAck.EnclaveType) > 0 {
+									sess.aeSettings.enclaveType = string(colAck.EnclaveType)
+								}
+							}
+						}
+					case featExtVECTORSUPPORT:
+						// Server acknowledged vector support
+						if version, ok := v.(byte); ok && version > 0 {
+							sess.vectorSupported = true
+							if uint64(p.LogFlags)&logDebug != 0 {
+								logger.Log(ctx, msdsn.LogDebug, "Server supports native vector format")
 							}
 						}
 					}
@@ -1399,6 +1417,18 @@ func (f *featureExtColumnEncryption) toBytes() []byte {
 		with the additional ability to cache column encryption keys that are to be sent to the enclave
 		and the ability to retry queries when the keys sent by the client do not match what is needed for the query to run.
 	*/
+	return []byte{0x01}
+}
+
+// featureExtVector requests vector support from the server
+type featureExtVector struct{}
+
+func (f *featureExtVector) featureID() byte {
+	return featExtVECTORSUPPORT
+}
+
+func (f *featureExtVector) toBytes() []byte {
+	// Version 1 of vector support (float32 vectors)
 	return []byte{0x01}
 }
 

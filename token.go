@@ -581,6 +581,11 @@ func parseFeatureExtAck(r *tdsBuffer) featureExtAck {
 
 			}
 			ack[feature] = colAck
+		case featExtVECTORSUPPORT:
+			// Vector support ack contains a single byte indicating the version
+			version := r.byte()
+			length--
+			ack[feature] = version
 		}
 
 		// Skip unprocessed bytes

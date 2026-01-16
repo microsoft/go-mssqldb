@@ -6,10 +6,57 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 )
+
+// VectorPrecisionLossHandler is a callback function that is invoked when float64 to float32
+// conversion results in precision loss. The callback receives the index of the value,
+// the original float64 value, and the converted float32 value.
+// Set this to a custom handler to log or track precision loss warnings.
+// By default, no handler is set (warnings are silent).
+var VectorPrecisionLossHandler func(index int, original float64, converted float32)
+
+// SetVectorPrecisionWarnings enables or disables precision loss warnings when converting
+// float64 values to float32 for vector operations. When enabled, warnings are logged
+// to the standard logger for each value that loses precision.
+func SetVectorPrecisionWarnings(enabled bool) {
+	vectorPrecisionMu.Lock()
+	defer vectorPrecisionMu.Unlock()
+	if enabled {
+		VectorPrecisionLossHandler = defaultPrecisionLossHandler
+	} else {
+		VectorPrecisionLossHandler = nil
+	}
+}
+
+var vectorPrecisionMu sync.Mutex
+
+func defaultPrecisionLossHandler(index int, original float64, converted float32) {
+	log.Printf("mssql: vector precision loss at index %d: float64(%v) -> float32(%v)", index, original, converted)
+}
+
+// checkFloat64PrecisionLoss checks if converting float64 to float32 loses precision
+// and invokes VectorPrecisionLossHandler on the first value that loses precision.
+// Only reports the first loss for performance with large vectors.
+func checkFloat64PrecisionLoss(values []float64, converted []float32) {
+	vectorPrecisionMu.Lock()
+	handler := VectorPrecisionLossHandler
+	vectorPrecisionMu.Unlock()
+	if handler == nil {
+		return
+	}
+	for i, orig := range values {
+		// Check if round-trip conversion loses precision
+		if float64(converted[i]) != orig && !math.IsNaN(orig) {
+			handler(i, orig, converted[i])
+			return // Only report first precision loss
+		}
+	}
+}
 
 // VectorElementType represents the element type of a SQL Server Vector.
 // SQL Server 2025 supports float32 (default) and float16.
@@ -143,6 +190,7 @@ func (v *Vector) Scan(src interface{}) error {
 		for i, f := range val {
 			v.Data[i] = float32(f)
 		}
+		checkFloat64PrecisionLoss(val, v.Data)
 		return nil
 	case string:
 		// Handle JSON array format: "[1.0, 2.0, 3.0]"
@@ -209,11 +257,12 @@ func (v Vector) String() string {
 
 // ToJSON returns the Vector as a JSON array string suitable for SQL Server parameter binding.
 // Format: "[1.0, 2.0, 3.0]"
+// Returns an empty string for nil/NULL vectors.
 // This format is used when sending vectors as parameters via RPC calls,
 // following the backward compatibility approach used by SqlClient.
 func (v Vector) ToJSON() string {
 	if v.Data == nil {
-		return "[]"
+		return ""
 	}
 
 	// Use strings.Builder for better performance with large vectors
@@ -533,6 +582,8 @@ func NewVectorWithType(elementType VectorElementType, values []float32) (Vector,
 
 // NewVectorFromFloat64 creates a new Vector with float32 element type from a slice of float64 values.
 // The values are converted to float32, which may result in precision loss.
+// If VectorPrecisionLossHandler is set or SetVectorPrecisionWarnings(true) was called,
+// a warning will be generated for the first value that loses precision.
 // Returns an error if the number of dimensions exceeds the maximum allowed.
 func NewVectorFromFloat64(values []float64) (Vector, error) {
 	if len(values) > vectorMaxDimensionsFloat32 {
@@ -543,6 +594,7 @@ func NewVectorFromFloat64(values []float64) (Vector, error) {
 	for i, val := range values {
 		data[i] = float32(val)
 	}
+	checkFloat64PrecisionLoss(values, data)
 	return Vector{
 		ElementType: VectorElementFloat32,
 		Data:        data,
@@ -550,7 +602,8 @@ func NewVectorFromFloat64(values []float64) (Vector, error) {
 }
 
 // ToFloat64 returns the vector values as a slice of float64.
-// This is useful for interfacing with libraries that use float64.
+// This is a widening conversion from the stored float32 values.
+// Useful for interfacing with Go libraries that use float64 (e.g., gonum).
 func (v Vector) ToFloat64() []float64 {
 	if v.Data == nil {
 		return nil

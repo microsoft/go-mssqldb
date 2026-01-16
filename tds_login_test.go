@@ -147,11 +147,14 @@ func TestLoginWithSQLServerAuth(t *testing.T) {
 			fmt.Sprintf("12 01 00 2f 00 00 01 00  00 00 1a 00 06 01 00 20\n"+
 				"00 01 02 00 21 00 01 03  00 22 00 04 04 00 26 00\n"+
 				"01 ff %s             00 00  00 00 00 00 00 00 00\n", v),
-			fmt.Sprintf("10 01 00 c6 00 00 01 00  be 00 00 00 04 00 00 74\n"+
+			// Login packet with vector feature extension (packet size 0xD1, login length 0xC9)
+			// OptionFlags3 now includes fExtension bit, extension offset at 0xBE points to 0xC2
+			// Feature extension: 0E (vector) + 01000000 (len=1) + 01 (version) + FF (terminator)
+			fmt.Sprintf("10 01 00 d1 00 00 01 00  c9 00 00 00 04 00 00 74\n"+
 				"00 10 00 00 %s           %s 00 00 00 00\n"+
-				"A0 02 00 00 00 00 00 00  00 00 00 00 5e 00 09 00\n"+
+				"A0 02 00 10 00 00 00 00  00 00 00 00 5e 00 09 00\n"+
 				"70 00 04 00 78 00 06 00  84 00 0a 00 98 00 09 00\n"+
-				"00 00 00 00 aa 00 0a 00  be 00 00 00 be 00 00 00\n"+
+				"be 00 04 00 aa 00 0a 00  be 00 00 00 be 00 00 00\n"+
 				"%s be 00  00 00 be 00 00 00 be 00\n"+
 				"00 00 00 00 00 00 6c 00  6f 00 63 00 61 00 6c 00\n"+
 				"68 00 6f 00 73 00 74 00  74 00 65 00 73 00 74 00\n"+
@@ -159,7 +162,8 @@ func TestLoginWithSQLServerAuth(t *testing.T) {
 				"2d 00 6d 00 73 00 73 00  71 00 6c 00 64 00 62 00\n"+
 				"6c 00 6f 00 63 00 61 00  6c 00 68 00 6f 00 73 00\n"+
 				"74 00 67 00 6f 00 2d 00  6d 00 73 00 73 00 71 00\n"+
-				"6c 00 64 00 62 00\n", v, pid, clientIdToHexString()),
+				"6c 00 64 00 62 00 c2 00  00 00 0e 01 00 00 00 01\n"+
+				"ff\n", v, pid, clientIdToHexString()),
 		},
 		[]string{
 			"  04 01 00 20  00 00 01 00   00 00 10 00  06 01 00 16\n" +
@@ -210,7 +214,9 @@ func TestLoginWithSecurityTokenAuth(t *testing.T) {
 				"00 01 02 00 26 00 01 03  00 27 00 04 04 00 2B 00\n"+
 				"01 06 00 2c 00 01 ff %s           00 00 00 00 00\n"+
 				"00 00 00 00 01\n", v),
-			fmt.Sprintf("10 01 00 CF 00 00 01 00  C7 00 00 00 04 00 00 74\n"+
+			// Login packet with vector feature extension (packet size 0xD5, login length 0xCD)
+			// Vector feature ext (0E 01000000 01) is added before fed auth feature
+			fmt.Sprintf("10 01 00 D5 00 00 01 00  CD 00 00 00 04 00 00 74\n"+
 				"00 10 00 00 %s           %s 00 00 00 00\n"+
 				"A0 02 00 10 00 00 00 00  00 00 00 00 5E 00 09 00\n"+
 				"70 00 00 00 70 00 00 00  70 00 0A 00 84 00 09 00\n"+
@@ -221,8 +227,9 @@ func TestLoginWithSecurityTokenAuth(t *testing.T) {
 				"73 00 73 00 71 00 6C 00  64 00 62 00 6C 00 6F 00\n"+
 				"63 00 61 00 6C 00 68 00  6F 00 73 00 74 00 67 00\n"+
 				"6F 00 2D 00 6D 00 73 00  73 00 71 00 6C 00 64 00\n"+
-				"62 00 AE 00 00 00 02 13  00 00 00 03 0E 00 00 00\n"+
-				"3C 00 74 00 6F 00 6B 00  65 00 6E 00 3E 00 FF\n", v, pid, clientIdToHexString()),
+				"62 00 AE 00 00 00 0E 01  00 00 00 01 02 13 00 00\n"+
+				"00 03 0E 00 00 00 3C 00  74 00 6F 00 6B 00 65 00\n"+
+				"6E 00 3E 00 FF\n", v, pid, clientIdToHexString()),
 		},
 		[]string{
 			"  04 01 00 20  00 00 01 00   00 00 10 00  06 01 00 16\n" +
@@ -275,7 +282,9 @@ func TestLoginWithADALUsernamePasswordAuth(t *testing.T) {
 				"00 01 02 00 26 00 01 03  00 27 00 04 04 00 2B 00\n"+
 				"01 06 00 2C 00 01 ff %s  00 00 00 00 00\n"+
 				"00 00 00 00 01\n", v),
-			fmt.Sprintf("10 01 00 BE 00 00 01 00  b6 00 00 00 04 00 00 74\n"+
+			// Login packet with vector feature extension (packet size 0xC4, login length 0xBC)
+			// Vector feature ext (0E 01000000 01) is added before ADAL feature
+			fmt.Sprintf("10 01 00 C4 00 00 01 00  bc 00 00 00 04 00 00 74\n"+
 				"00 10 00 00 %s           %s 00 00 00 00\n"+
 				"A0 02 00 10 00 00 00 00  00 00 00 00 5e 00 09 00\n"+
 				"70 00 00 00 70 00 00 00  70 00 0a 00 84 00 09 00\n"+
@@ -286,7 +295,8 @@ func TestLoginWithADALUsernamePasswordAuth(t *testing.T) {
 				"73 00 73 00 71 00 6c 00  64 00 62 00 6c 00 6f 00\n"+
 				"63 00 61 00 6c 00 68 00  6f 00 73 00 74 00 67 00\n"+
 				"6f 00 2d 00 6d 00 73 00  73 00 71 00 6c 00 64 00\n"+
-				"62 00 AE 00 00 00 02 02  00 00  00 05 01 ff\n", v, pid, clientIdToHexString()),
+				"62 00 AE 00 00 00 0E 01  00 00 00 01 02 02 00 00\n"+
+				"00 05 01 ff\n", v, pid, clientIdToHexString()),
 			"  08 01 00 1e 00 00 01 00  12 00 00 00 0e 00 00 00\n" +
 				"3c 00 74 00 6f 00 6b 00  65 00 6e 00 3e 00\n",
 		},
@@ -352,7 +362,9 @@ func TestLoginWithADALManagedIdentityAuth(t *testing.T) {
 				"00 01 02 00 26 00 01 03  00 27 00 04 04 00 2B 00\n"+
 				"01 06 00 2C 00 01 ff %s           00 00 00 00 00\n"+
 				"00 00 00 00 01\n", v),
-			fmt.Sprintf("10 01 00 be 00 00 01 00  b6 00 00 00 04 00 00 74\n"+
+			// Login packet with vector feature extension (packet size 0xC4, login length 0xBC)
+			// Vector feature ext (0E 01000000 01) is added before ADAL feature
+			fmt.Sprintf("10 01 00 C4 00 00 01 00  bc 00 00 00 04 00 00 74\n"+
 				"00 10 00 00 %s           %s 00 00 00 00\n"+
 				"A0 02 00 10 00 00 00 00  00 00 00 00 5e 00 09 00\n"+
 				"70 00 00 00 70 00 00 00  70 00 0a 00 84 00 09 00\n"+
@@ -363,7 +375,8 @@ func TestLoginWithADALManagedIdentityAuth(t *testing.T) {
 				"73 00 73 00 71 00 6c 00  64 00 62 00 6c 00 6f 00\n"+
 				"63 00 61 00 6c 00 68 00  6f 00 73 00 74 00 67 00\n"+
 				"6f 00 2d 00 6d 00 73 00  73 00 71 00 6c 00 64 00\n"+
-				"62 00 AE 00 00 00 02 02  00 00 00 05 03 ff\n", v, pid, clientIdToHexString()),
+				"62 00 AE 00 00 00 0E 01  00 00 00 01 02 02 00 00\n"+
+				"00 05 03 ff\n", v, pid, clientIdToHexString()),
 			"  08 01 00 1e 00 00 01 00  12 00 00 00 0e 00 00 00\n" +
 				"3c 00 74 00 6f 00 6b 00  65 00 6e 00 3e 00\n",
 		},
