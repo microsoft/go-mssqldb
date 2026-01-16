@@ -22,3 +22,5 @@ examples/*/tvp
 examples/*/aws-rds-proxy-iam-auth
 examples/*/azuread-accesstoken
 examples/*/azuread-service-principal-authtoken
+go-mssqldb.test.exe
+coverage.out

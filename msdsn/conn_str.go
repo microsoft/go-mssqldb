@@ -159,8 +159,17 @@ type Config struct {
 	// When true, no connection id or trace id value is sent in the prelogin packet.
 	// Some cloud servers may block connections that lack such values.
 	NoTraceID bool
-	// TrustServerCertificate controls whether the client verifies the server certificate.
-	// When true, the server certificate is accepted without validation.
+	// TrustServerCertificate controls whether the driver verifies the TLS server certificate.
+	// When true, the server certificate is accepted without validation. This typically results in
+	// certificate verification being disabled on the effective TLS configuration (for example, by
+	// setting tls.Config.InsecureSkipVerify), regardless of the certificate chain or hostname.
+	//
+	// This option is provided to mirror SQL Server / ADO.NET "TrustServerCertificate" semantics and
+	// is separate from supplying a custom TLSConfig. Applications that also provide TLSConfig should
+	// be aware that enabling TrustServerCertificate may override normal certificate validation
+	// expectations. Enabling this option significantly weakens transport security and makes the
+	// connection vulnerable to man-in-the-middle attacks; it should only be used in controlled
+	// environments (for example, during development or with dedicated, trusted networks).
 	TrustServerCertificate bool
 	// Parameters related to type encoding
 	Encoding EncodeParameters
@@ -326,10 +335,10 @@ func parseTLS(params map[string]string, host string) (Encryption, *tls.Config, b
 	// Validate parameter combinations
 	if len(serverCertificate) > 0 {
 		if len(certificate) > 0 {
-			return encryption, nil, errors.New("cannot specify both 'certificate' and 'serverCertificate' parameters")
+			return encryption, nil, false, errors.New("cannot specify both 'certificate' and 'serverCertificate' parameters")
 		}
 		if len(hostInCertificate) > 0 {
-			return encryption, nil, errors.New("cannot specify both 'serverCertificate' and 'hostnameincertificate' parameters")
+			return encryption, nil, false, errors.New("cannot specify both 'serverCertificate' and 'hostnameincertificate' parameters")
 		}
 	}
 

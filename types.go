@@ -1205,11 +1205,11 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 
 func makeDecl(ti typeInfo) string {
 	// Use DeclTypeId if set, otherwise use TypeId
-	typeId := ti.TypeId
+	effectiveTypeId := ti.TypeId
 	if ti.DeclTypeId != 0 {
-		typeId = ti.DeclTypeId
+		effectiveTypeId = ti.DeclTypeId
 	}
-	switch typeId {
+	switch effectiveTypeId {
 	case typeNull:
 		// maybe we should use something else here
 		// this is tested in TestNull
