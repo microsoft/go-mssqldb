@@ -150,6 +150,8 @@ func TestLoginWithSQLServerAuth(t *testing.T) {
 			// Login packet with vector feature extension (packet size 0xD1, login length 0xC9)
 			// OptionFlags3 now includes fExtension bit, extension offset at 0xBE points to 0xC2
 			// Feature extension: 0E (vector) + 01000000 (len=1) + 01 (version) + FF (terminator)
+			// NOTE: These hard-coded bytes assume a stable feature extension ordering in featureExts;
+			// if the order of feature extensions changes, update this expected packet accordingly.
 			fmt.Sprintf("10 01 00 d1 00 00 01 00  c9 00 00 00 04 00 00 74\n"+
 				"00 10 00 00 %s           %s 00 00 00 00\n"+
 				"A0 02 00 10 00 00 00 00  00 00 00 00 5e 00 09 00\n"+

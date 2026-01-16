@@ -1051,9 +1051,16 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 			//   INSERT INTO dbo.Docs(Embedding) VALUES (@p);
 			// where @p is a NullVector{Valid: false} will be sent as nvarchar(1) NULL
 			// and will succeed even when Embedding is declared as VECTOR(1536).
-			// We can't use the native VECTOR parameter type here because SQL Server
-			// requires the parameter to have matching dimensions with the column,
-			// even when the value is NULL.
+			//
+			// This is a workaround for a current SQL Server limitation: native VECTOR
+			// parameters must have explicit dimensions that match the target column,
+			// even when the parameter value is NULL, so we cannot use the native
+			// VECTOR parameter type here for a dimension-agnostic NULL.
+			//
+			// If a future SQL Server version allows NULL VECTOR parameters without
+			// requiring matching dimensions (for example, by permitting a NULL-valued
+			// VECTOR parameter without dimension metadata), this behavior can be
+			// revisited to use the native VECTOR type instead of nvarchar(1) NULL.
 			res.ti.TypeId = typeNVarChar
 			res.buffer = nil
 			res.ti.Size = 2 // nvarchar(1) = 2 bytes

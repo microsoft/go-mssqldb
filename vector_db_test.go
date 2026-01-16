@@ -57,7 +57,7 @@ func setupVectorTestDB(t *testing.T, conn *sql.DB) {
 		// Drop any existing test database from previous runs, then create fresh
 		// This ensures a clean state and prevents accumulation of test databases
 		if _, err := conn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS [%s]", vectorTestDBName)); err != nil {
-			t.Logf("Warning: Could not drop existing test database: %v", err)
+			t.Fatalf("Failed to drop existing test database %q: %v", vectorTestDBName, err)
 		}
 
 		// Create the test database

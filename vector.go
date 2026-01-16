@@ -511,7 +511,9 @@ func float32ToFloat16(value float32) uint16 {
 	// Normal number
 	mant := mantissa >> 13
 
-	// Rounding
+	// Rounding: check bit 12 (first discarded bit) and lower 12 bits (0xFFF mask).
+	// The 0xFFF mask captures the 12 bits that are lost when truncating from
+	// float32's 23-bit mantissa to float16's 10-bit mantissa.
 	roundBit := (mantissa >> 12) & 1
 	lostBits := mantissa & 0xFFF
 
