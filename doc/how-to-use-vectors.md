@@ -299,6 +299,8 @@ if err := tx.Commit(); err != nil {
 
 2. **Always Encrypted**: The Vector data type is not supported with Always Encrypted. This is a SQL Server limitation. See [Always Encrypted limitations](https://learn.microsoft.com/sql/relational-databases/security/encryption/always-encrypted-database-engine#limitations).
 
+3. **NULL vector dimension matching**: When inserting a NULL vector using `NullVector{Valid: false}`, SQL Server requires the parameter declaration to match the column's dimension count. The driver handles this automatically when the column metadata is available, but for raw SQL queries you may need to ensure the types align.
+
 ## Precision Loss Warnings
 
 When inserting `[]float64` values, they are converted to float32, which may lose precision. You can enable warnings to detect when this occurs:

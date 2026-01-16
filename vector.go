@@ -237,9 +237,11 @@ func (v Vector) String() string {
 		return "NULL"
 	}
 
-	// Use strings.Builder for better performance with large vectors
+	// Use strings.Builder for better performance with large vectors.
+	// Capacity estimate: ~12 chars per float covers most cases (e.g., "-123.456789,").
+	// Scientific notation values may exceed this, but Builder handles reallocation.
 	var sb strings.Builder
-	sb.Grow(len(v.Data)*12 + 30) // Estimate: ~12 chars per float + prefix
+	sb.Grow(len(v.Data)*12 + 30) // 12 chars/float + prefix overhead
 	sb.WriteString("VECTOR(")
 	sb.WriteString(v.ElementType.String())
 	sb.WriteString(", ")
@@ -434,6 +436,24 @@ func (v *Vector) decodeFromJSON(jsonStr string) error {
 
 // float32ToFloat16 converts a float32 value to float16 (IEEE 754 half-precision).
 // This follows the same algorithm used by JDBC's VectorUtils.floatToFloat16().
+//
+// IEEE 754 half-precision format (16 bits):
+//   - Sign: 1 bit (bit 15)
+//   - Exponent: 5 bits (bits 10-14), bias = 15
+//   - Mantissa: 10 bits (bits 0-9)
+//
+// Constants used:
+//   - float16ExpMax (31): Maximum exponent value (all 1s = infinity/NaN)
+//   - float16InfBits (0x7C00): Positive infinity bit pattern
+//   - float16NaNBits (0x7E00): Quiet NaN bit pattern (canonical form)
+//   - float16MantissaMask (0x03FF): Mask for 10-bit mantissa
+const (
+	float16ExpMax       = 31     // Maximum exponent value (5 bits all 1s)
+	float16InfBits      = 0x7C00 // Positive infinity: sign=0, exp=11111, mant=0
+	float16NaNBits      = 0x7E00 // Quiet NaN: sign=0, exp=11111, mant=1000000000
+	float16MantissaMask = 0x03FF // 10-bit mantissa mask
+)
+
 func float32ToFloat16(value float32) uint16 {
 	bits := math.Float32bits(value)
 
@@ -444,9 +464,9 @@ func float32ToFloat16(value float32) uint16 {
 	// NaN or Infinity
 	if exponent == 0xFF {
 		if mantissa != 0 {
-			return uint16((sign << 15) | 0x7E00) // NaN
+			return uint16((sign << 15) | float16NaNBits) // NaN
 		}
-		return uint16((sign << 15) | 0x7C00) // Infinity
+		return uint16((sign << 15) | float16InfBits) // Infinity
 	}
 
 	// Zero (preserve signed zero)
@@ -458,8 +478,8 @@ func float32ToFloat16(value float32) uint16 {
 	halfExponent := exponent - 127 + 15
 
 	// Overflow → Infinity
-	if halfExponent >= 31 {
-		return uint16((sign << 15) | 0x7C00)
+	if halfExponent >= float16ExpMax {
+		return uint16((sign << 15) | float16InfBits)
 	}
 
 	// Underflow → Subnormal or Zero
@@ -497,8 +517,8 @@ func float32ToFloat16(value float32) uint16 {
 		if mant == 0x400 { // Mantissa overflow
 			mant = 0
 			halfExponent++
-			if halfExponent >= 31 {
-				return uint16((sign << 15) | 0x7C00)
+			if halfExponent >= float16ExpMax {
+				return uint16((sign << 15) | float16InfBits)
 			}
 		}
 	}

@@ -218,7 +218,8 @@ func TestFloat32ToFloat16Conversion(t *testing.T) {
 	// Any value with exponent=0x1F (all ones) and non-zero fraction is a valid NaN.
 	// Positive NaN: 0x7C01-0x7FFF, Negative NaN: 0xFC01-0xFFFF
 	nanResult := float32ToFloat16(float32(math.NaN()))
-	if (nanResult&0x7C00) != 0x7C00 || (nanResult&0x03FF) == 0 {
+	// Use float16InfBits (0x7C00) as exponent mask and float16MantissaMask (0x03FF) for fraction
+	if (nanResult&float16InfBits) != float16InfBits || (nanResult&float16MantissaMask) == 0 {
 		t.Errorf("float32ToFloat16(NaN): got 0x%04X, want any NaN (exp=0x1F, non-zero fraction)", nanResult)
 	}
 }

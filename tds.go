@@ -428,10 +428,11 @@ type login struct {
 
 type featureExts struct {
 	// features is a slice (not a map) so that feature extensions are sent in the
-	// exact order they are added (FIFO). This change from the previous map-based
-	// implementation is required to preserve TDS protocol compatibility, since
-	// the server can depend on a specific feature ordering on the wire, and it
-	// also makes packet contents deterministic and easier to debug.
+	// exact order they are added (FIFO). While TDS LOGIN7 feature extensions are
+	// typically defined as order-independent in Microsoft's documentation, using
+	// a slice preserves insertion order, which makes packet contents deterministic
+	// (especially for tests) and easier to debug, and avoids any surprises if
+	// specific server features ever start to depend on ordering in practice.
 	features []featureExt
 }
 

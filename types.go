@@ -1413,7 +1413,15 @@ func makeDecl(ti typeInfo) string {
 		if ti.Scale == 1 {
 			bytesPerElement = 2
 		}
-		dimensions := (ti.Size - vectorHeaderSize) / bytesPerElement
+		// Validate size to avoid underflow and nonsensical dimensions
+		if ti.Size < vectorHeaderSize {
+			return "vector"
+		}
+		payloadSize := ti.Size - vectorHeaderSize
+		if payloadSize == 0 || payloadSize%bytesPerElement != 0 {
+			return "vector"
+		}
+		dimensions := payloadSize / bytesPerElement
 		return fmt.Sprintf("vector(%d)", dimensions)
 	default:
 		panic(fmt.Sprintf("not implemented makeDecl for type %#x", ti.TypeId))

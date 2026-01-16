@@ -56,7 +56,9 @@ func setupVectorTestDB(t *testing.T, conn *sql.DB) {
 
 		// Drop any existing test database from previous runs, then create fresh
 		// This ensures a clean state and prevents accumulation of test databases
-		_, _ = conn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS [%s]", vectorTestDBName))
+		if _, err := conn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS [%s]", vectorTestDBName)); err != nil {
+			t.Logf("Warning: Could not drop existing test database: %v", err)
+		}
 
 		// Create the test database
 		_, err = conn.Exec(fmt.Sprintf("CREATE DATABASE [%s]", vectorTestDBName))
@@ -872,18 +874,40 @@ func TestVectorFloat16(t *testing.T) {
 		t.Fatalf("Could not switch to database %s: %v", targetDB, err)
 	}
 
-	// Enable preview features for float16 support
-	// This must be run while in the target database context
-	_, err = singleConn.ExecContext(ctx, "ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON")
+	// Track original PREVIEW_FEATURES state so we can restore it later.
+	var previewWasOn bool
+	var previewToggled bool
+
+	// Query the current PREVIEW_FEATURES configuration.
+	// value is stored as sql_variant, we query its string representation.
+	var configValue string
+	err = singleConn.QueryRowContext(ctx,
+		"SELECT CAST(value AS NVARCHAR(10)) FROM sys.database_scoped_configurations WHERE name = 'PREVIEW_FEATURES'").Scan(&configValue)
 	if err != nil {
-		t.Skipf("Could not enable PREVIEW_FEATURES (may not be supported): %v", err)
+		// PREVIEW_FEATURES config may not exist on older servers
+		t.Skipf("Could not query PREVIEW_FEATURES state (may not be supported): %v", err)
+	}
+	previewWasOn = configValue == "1"
+
+	// Enable preview features for float16 support if not already enabled.
+	// This must be run while in the target database context.
+	if !previewWasOn {
+		_, err = singleConn.ExecContext(ctx, "ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON")
+		if err != nil {
+			t.Skipf("Could not enable PREVIEW_FEATURES (may not be supported): %v", err)
+		}
+		previewToggled = true
 	}
 
-	// Ensure we disable preview features when done
+	// Ensure we restore PREVIEW_FEATURES to its original state when done.
 	defer func() {
+		if !previewToggled {
+			// We did not change the configuration; nothing to restore.
+			return
+		}
 		_, err := singleConn.ExecContext(ctx, "ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = OFF")
 		if err != nil {
-			t.Logf("Warning: Could not disable PREVIEW_FEATURES: %v", err)
+			t.Logf("Warning: Could not restore PREVIEW_FEATURES to OFF: %v", err)
 		}
 	}()
 
