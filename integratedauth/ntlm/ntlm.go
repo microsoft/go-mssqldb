@@ -70,7 +70,11 @@ type Auth struct {
 }
 
 func (auth *Auth) SetChannelBinding(channelBinding *integratedauth.ChannelBindings) {
-	auth.ChannelBinding = channelBinding.Md5Hash()
+	if channelBinding.Type == integratedauth.ChannelBindingsTypeTLSExporter {
+		auth.ChannelBinding = channelBinding.ApplicationData
+	} else {
+		auth.ChannelBinding = channelBinding.Md5Hash()
+	}
 }
 
 // getAuth returns an authentication handle Auth to provide authentication content

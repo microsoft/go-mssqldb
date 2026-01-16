@@ -9,6 +9,14 @@ import (
 	"fmt"
 )
 
+type ChannelBindingsType uint32
+const (
+	ChannelBindingsTypeTLSExporter = 0
+	ChannelBindingsTypeTLSUnique   = 1
+	ChannelBindingsTypeTLSServerEndPoint = 2
+	ChannelBindingsTypeEmpty = 3
+)
+
 const (
 	// https://datatracker.ietf.org/doc/rfc9266/
 	TLS_EXPORTER_PREFIX     = "tls-exporter:"
@@ -22,6 +30,7 @@ const (
 // gss_channel_bindings_struct: https://docs.oracle.com/cd/E19683-01/816-1331/overview-52/index.html
 // gss_buffer_desc: https://docs.oracle.com/cd/E19683-01/816-1331/reference-21/index.html
 type ChannelBindings struct {
+	Type ChannelBindingsType
 	InitiatorAddrType uint32
 	InitiatorAddress  []byte
 	AcceptorAddrType  uint32
@@ -40,6 +49,15 @@ type SEC_CHANNEL_BINDINGS struct {
 	CbApplicationDataLength uint32
 	DwApplicationDataOffset uint32
 	Data                    []byte
+}
+
+var EmptyChannelBindings = &ChannelBindings{
+	Type: ChannelBindingsTypeEmpty,
+	InitiatorAddrType: 0,
+	InitiatorAddress:  nil,
+	AcceptorAddrType:  0,
+	AcceptorAddress:   nil,
+	ApplicationData:   nil,
 }
 
 // ToBytes converts a ChannelBindings struct to a byte slice as it would be gss_channel_bindings_struct structure in GSSAPI.
@@ -79,6 +97,11 @@ func (cb *ChannelBindings) ToBytes() []byte {
 // Returns:
 // - a byte slice
 func (cb *ChannelBindings) Md5Hash() []byte {
+	if cb.Type == ChannelBindingsTypeEmpty {
+		// generate a slize with zeros
+		zeros := make([]byte, 16)
+		return zeros
+	}
 	hash := md5.New()
 	hash.Write(cb.ToBytes())
 	return hash.Sum(nil)
@@ -148,6 +171,7 @@ func GenerateCBTFromTLSUnique(tlsUnique []byte) (*ChannelBindings, error) {
 		return nil, fmt.Errorf("tlsUnique is empty")
 	}
 	return &ChannelBindings{
+		Type: ChannelBindingsTypeTLSUnique,
 		InitiatorAddrType: 0,
 		InitiatorAddress:  nil,
 		AcceptorAddrType:  0,
@@ -166,11 +190,8 @@ func GenerateCBTFromTLSUnique(tlsUnique []byte) (*ChannelBindings, error) {
 func GenerateCBTFromTLSConnState(state tls.ConnectionState) (*ChannelBindings, error) {
 	switch state.Version {
 	case tls.VersionTLS13:
-		exporterKey, err := state.ExportKeyingMaterial(TLS_EXPORTER_EKM_LABEL, nil, TLS_EXPORTER_EKM_LENGTH)
-		if err != nil {
-			return nil, fmt.Errorf("error exporting keying material: %w", err)
-		}
-		return GenerateCBTFromTLSExporter(exporterKey)
+		// We don't support generating Channel Bindings from TLS 1.3 yet
+		return nil, nil
 	default:
 		return GenerateCBTFromTLSUnique(state.TLSUnique)
 	}
@@ -187,6 +208,7 @@ func GenerateCBTFromTLSExporter(exporterKey []byte) (*ChannelBindings, error) {
 	}
 
 	return &ChannelBindings{
+		Type: ChannelBindingsTypeTLSExporter,
 		InitiatorAddrType: 0,
 		InitiatorAddress:  nil,
 		AcceptorAddrType:  0,
@@ -221,6 +243,7 @@ func GenerateCBTFromServerCert(cert *x509.Certificate) *ChannelBindings {
 	_, _ = h.Write(cert.Raw)
 	certHash = h.Sum(nil)
 	return &ChannelBindings{
+		Type: ChannelBindingsTypeTLSServerEndPoint,
 		InitiatorAddrType: 0,
 		InitiatorAddress:  nil,
 		AcceptorAddrType:  0,
