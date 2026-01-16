@@ -1061,6 +1061,10 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 			// requiring matching dimensions (for example, by permitting a NULL-valued
 			// VECTOR parameter without dimension metadata), this behavior can be
 			// revisited to use the native VECTOR type instead of nvarchar(1) NULL.
+			//
+			// This behavior has been validated against SQL Server 2025, and is covered
+			// by the TestVectorNullInsertAndSelect integration test to guard against
+			// regressions in how NULL VECTOR parameters are handled.
 			res.ti.TypeId = typeNVarChar
 			res.buffer = nil
 			res.ti.Size = 2 // nvarchar(1) = 2 bytes

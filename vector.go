@@ -220,8 +220,14 @@ func (nv *NullVector) Scan(src interface{}) error {
 		return nil
 	}
 
+	if err := nv.Vector.Scan(src); err != nil {
+		// Ensure the NullVector remains invalid on scan failure.
+		nv.Valid = false
+		return err
+	}
+
 	nv.Valid = true
-	return nv.Vector.Scan(src)
+	return nil
 }
 
 // Value implements the driver.Valuer interface for NullVector.
