@@ -111,12 +111,12 @@ func TestValidConnectionString(t *testing.T) {
 		{"MultiSubnetFailover=false", func(p Config) bool { return !p.MultiSubnetFailover }},
 		{"timezone=Asia/Shanghai", func(p Config) bool { return p.Encoding.Timezone.String() == "Asia/Shanghai" }},
 		{"Pwd=placeholder", func(p Config) bool { return p.Password == "placeholder" }},
-		
+
 		// ADO connection string tests with double-quoted values containing semicolons
 		{"server=test;password=\"pass;word\"", func(p Config) bool { return p.Host == "test" && p.Password == "pass;word" }},
 		{"password=\"[2+R2B6O:fF/[;]cJsr\"", func(p Config) bool { return p.Password == "[2+R2B6O:fF/[;]cJsr" }},
-		{"server=host;user id=user;password=\"complex;pass=word\"", func(p Config) bool { 
-			return p.Host == "host" && p.User == "user" && p.Password == "complex;pass=word" 
+		{"server=host;user id=user;password=\"complex;pass=word\"", func(p Config) bool {
+			return p.Host == "host" && p.User == "user" && p.Password == "complex;pass=word"
 		}},
 		{"password=\"value with \"\"quotes\"\" inside\"", func(p Config) bool { return p.Password == "value with \"quotes\" inside" }},
 		{"server=test;password=\"simple\"", func(p Config) bool { return p.Host == "test" && p.Password == "simple" }},
@@ -125,19 +125,19 @@ func TestValidConnectionString(t *testing.T) {
 			return p.Host == "sql.database.windows.net" && p.Database == "MyDatabase" && p.User == "testadmin@sql.database.windows.net" && p.Password == "[2+R2B6O:fF/[;]cJsr"
 		}},
 		// Additional edge cases for double-quoted values
-		{"password=\"\"", func(p Config) bool { return p.Password == "" }}, // Empty quoted password
-		{"password=\";\"", func(p Config) bool { return p.Password == ";" }}, // Just a semicolon
-		{"password=\";;\"", func(p Config) bool { return p.Password == ";;" }}, // Multiple semicolons
+		{"password=\"\"", func(p Config) bool { return p.Password == "" }},                                                                 // Empty quoted password
+		{"password=\";\"", func(p Config) bool { return p.Password == ";" }},                                                               // Just a semicolon
+		{"password=\";;\"", func(p Config) bool { return p.Password == ";;" }},                                                             // Multiple semicolons
 		{"server=\"host;name\";password=\"pass;word\"", func(p Config) bool { return p.Host == "host;name" && p.Password == "pass;word" }}, // Multiple quoted values
-		
+
 		// Test cases with multibyte UTF-8 characters
-		{"password=\"пароль;test\"", func(p Config) bool { return p.Password == "пароль;test" }}, // Cyrillic characters with semicolon
+		{"password=\"пароль;test\"", func(p Config) bool { return p.Password == "пароль;test" }},                                     // Cyrillic characters with semicolon
 		{"server=\"服务器;name\";password=\"密码;word\"", func(p Config) bool { return p.Host == "服务器;name" && p.Password == "密码;word" }}, // Chinese characters
-		{"password=\"🔐;secret;🗝️\"", func(p Config) bool { return p.Password == "🔐;secret;🗝️" }}, // Emoji characters with semicolons
-		{"user id=\"用户名\";password=\"пароль\"", func(p Config) bool { return p.User == "用户名" && p.Password == "пароль" }}, // Mixed multibyte chars
-		{"password=\"测试\"\"密码\"\"\"", func(p Config) bool { return p.Password == "测试\"密码\"" }}, // Chinese chars with escaped quotes
-		{"password=\"café;naïve;résumé\"", func(p Config) bool { return p.Password == "café;naïve;résumé" }}, // Accented characters
-		
+		{"password=\"🔐;secret;🗝️\"", func(p Config) bool { return p.Password == "🔐;secret;🗝️" }},                                     // Emoji characters with semicolons
+		{"user id=\"用户名\";password=\"пароль\"", func(p Config) bool { return p.User == "用户名" && p.Password == "пароль" }},            // Mixed multibyte chars
+		{"password=\"测试\"\"密码\"\"\"", func(p Config) bool { return p.Password == "测试\"密码\"" }},                                       // Chinese chars with escaped quotes
+		{"password=\"café;naïve;résumé\"", func(p Config) bool { return p.Password == "café;naïve;résumé" }},                         // Accented characters
+
 		// those are supported currently, but maybe should not be
 		{"someparam", func(p Config) bool { return true }},
 		{";;=;", func(p Config) bool { return true }},
@@ -360,4 +360,74 @@ func TestReadCertificate(t *testing.T) {
 	cert, err = readCertificate(bakfile.Name())
 	assert.NotNil(t, err, "Expected error while reading certificate, found nil")
 	assert.Nil(t, cert, "Expected certificate to be nil, found %v", cert)
+}
+
+// TestStrictEncryptionWithCertificate tests that hostname validation is skipped
+// when a certificate is provided with encrypt=strict
+func TestStrictEncryptionWithCertificate(t *testing.T) {
+	// Create a temporary certificate file for testing
+	// This is a minimal self-signed certificate for testing purposes
+	pemCert := `-----BEGIN CERTIFICATE-----
+MIIBkTCB+wIJAKHHCgVZU1tZMA0GCSqGSIb3DQEBBQUAMBExDzANBgNVBAMMBnNl
+cnZlcjAeFw0yMjA0MDQxMTIxNTNaFw0zMjA0MDExMTIxNTNaMBExDzANBgNVBAMM
+BnNlcnZlcjCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEAuTU1euiQCmLQG0z8
+b/5pXNlWM6gGAMJklwO9jN8vGiWQGbQXPOMPqK8xDQqLOQnVEXrKJSfF2blHRneC
+qVmMNL7YSUEMxWdVaW3mQ4MzC6JgmWsxVrJeQEDZLdYVbQPXMGh5YtH5Ih8qTqJy
+e4MJwPMXEKlYVPJ3LE3E8pD6vXkCAwEAATANBgkqhkiG9w0BAQUFAAOBgQBHCqVT
+tZhWYXPHQFQgbKh6yvmhZfF8ZXHgZMhQQQwvqc0i5mvFpJpCQUQXAOkPGNPJANcV
+QSkVdAJg8mHKYGNZ6pIYMFr7RoBLGqMnKLPMYn3VqFvMccPx7A0hKQFJBR/qV8lh
+f0kGHKQEAFYGJLqJdK4KsGQDKLfZr9fqvXCCAA==
+-----END CERTIFICATE-----`
+
+	pemfile, err := os.CreateTemp("", "*.pem")
+	if err != nil {
+		t.Fatalf("failed to create temporary certificate file: %v", err)
+	}
+	defer os.Remove(pemfile.Name())
+	if _, err := pemfile.WriteString(pemCert); err != nil {
+		t.Fatalf("failed to write certificate to file: %v", err)
+	}
+	if err := pemfile.Close(); err != nil {
+		t.Fatalf("failed to close certificate file: %v", err)
+	}
+
+	// Test 1: serverCertificate parameter with byte-comparison validation
+	connStr := "server=differenthostname;encrypt=strict;serverCertificate=" + pemfile.Name()
+	config, err := Parse(connStr)
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.Equal(t, Encryption(EncryptionStrict), config.Encryption, "Expected EncryptionStrict")
+	assert.NotNil(t, config.TLSConfig, "Expected TLSConfig to be set")
+	// serverCertificate uses InsecureSkipVerify with VerifyPeerCertificate for byte comparison
+	assert.True(t, config.TLSConfig.InsecureSkipVerify, "Expected InsecureSkipVerify to be true when serverCertificate is provided")
+	assert.NotNil(t, config.TLSConfig.VerifyPeerCertificate, "Expected VerifyPeerCertificate callback to be set")
+
+	// Test 2: certificate parameter with traditional chain validation (backward compatible)
+	connStr2 := "server=somehost;encrypt=true;certificate=" + pemfile.Name()
+	config2, err := Parse(connStr2)
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.Equal(t, Encryption(EncryptionRequired), config2.Encryption, "Expected EncryptionRequired")
+	assert.NotNil(t, config2.TLSConfig, "Expected TLSConfig to be set")
+	assert.NotNil(t, config2.TLSConfig.RootCAs, "Expected RootCAs to be set for certificate parameter")
+	// certificate parameter uses traditional chain validation, does NOT skip hostname by default
+	assert.Nil(t, config2.TLSConfig.VerifyPeerCertificate, "Expected no VerifyPeerCertificate callback for traditional certificate validation")
+
+	// Test 3: encrypt=strict without certificate should NOT skip hostname validation
+	connStr3 := "server=somehost;encrypt=strict"
+	config3, err := Parse(connStr3)
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.Equal(t, Encryption(EncryptionStrict), config3.Encryption, "Expected EncryptionStrict")
+	assert.NotNil(t, config3.TLSConfig, "Expected TLSConfig to be set")
+	assert.False(t, config3.TLSConfig.InsecureSkipVerify, "Expected InsecureSkipVerify to be false when no certificate is provided")
+
+	// Test 4: Cannot specify both certificate and serverCertificate
+	connStr4 := "server=somehost;encrypt=true;certificate=" + pemfile.Name() + ";serverCertificate=" + pemfile.Name()
+	_, err = Parse(connStr4)
+	assert.NotNil(t, err, "Expected error when both certificate and serverCertificate are specified")
+	assert.Contains(t, err.Error(), "cannot specify both", "Error should mention conflicting parameters")
+
+	// Test 5: Cannot specify serverCertificate with hostnameincertificate
+	connStr5 := "server=somehost;encrypt=true;serverCertificate=" + pemfile.Name() + ";hostnameincertificate=othername"
+	_, err = Parse(connStr5)
+	assert.NotNil(t, err, "Expected error when both serverCertificate and hostnameincertificate are specified")
+	assert.Contains(t, err.Error(), "cannot specify both", "Error should mention conflicting parameters")
 }

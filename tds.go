@@ -1121,7 +1121,7 @@ func getTLSConn(conn *timeoutConn, p msdsn.Config, alpnSeq string) (tlsConn *tls
 		config = pc
 	}
 	if config == nil {
-		config, err = msdsn.SetupTLS("", false, p.Host, "")
+		config, err = msdsn.SetupTLS("", "", false, p.Host, "")
 		if err != nil {
 			return nil, err
 		}
@@ -1233,7 +1233,7 @@ initiate_connection:
 				}
 			}
 			if config == nil {
-				config, err = msdsn.SetupTLS("", false, p.Host, "")
+				config, err = msdsn.SetupTLS("", "", false, p.Host, "")
 				if err != nil {
 					return nil, err
 				}
