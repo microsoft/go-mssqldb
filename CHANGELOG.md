@@ -8,6 +8,13 @@
   - Uses native JSON type (0xF4) on SQL Server 2025+ and Azure SQL Database
   - Automatically falls back to `nvarchar(max)` on SQL Server 2016-2022 for seamless compatibility
   - Works with SQL Server's built-in JSON functions (JSON_VALUE, JSON_QUERY, ISJSON, etc.) on all supported SQL Server versions (2016+)
+## 1.9.6
+
+### Features
+
+* Added new `serverCertificate` connection parameter for byte-for-byte certificate validation, matching Microsoft.Data.SqlClient behavior. This parameter skips hostname validation, chain validation, and expiry checks, only verifying that the server's certificate exactly matches the provided file. This is useful when the server's hostname doesn't match the certificate CN/SAN. (#304)
+* The existing `certificate` parameter maintains backward compatibility with traditional X.509 chain validation including hostname checks, expiry validation, and chain-of-trust verification.
+* `serverCertificate` cannot be used with `certificate` or `hostnameincertificate` parameters to prevent conflicting validation methods.
 
 ## 1.9.3
 
