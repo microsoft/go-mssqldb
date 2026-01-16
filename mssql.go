@@ -1045,9 +1045,15 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 			// Use JSON for float16 or when native binary is not supported
 			res = makeStrParam(valuer.Vector.ToJSON())
 		} else {
-			// For NULL vectors, use nvarchar(1) NULL which SQL Server will accept
-			// for any vector column. We can't use native vector type because
-			// SQL Server requires matching dimensions even for NULL values.
+			// For NULL vectors, send an nvarchar(1) parameter with a NULL value.
+			// SQL Server accepts this for any VECTOR(...) column regardless of
+			// its dimensionality. For example:
+			//   INSERT INTO dbo.Docs(Embedding) VALUES (@p);
+			// where @p is a NullVector{Valid: false} will be sent as nvarchar(1) NULL
+			// and will succeed even when Embedding is declared as VECTOR(1536).
+			// We can't use the native VECTOR parameter type here because SQL Server
+			// requires the parameter to have matching dimensions with the column,
+			// even when the value is NULL.
 			res.ti.TypeId = typeNVarChar
 			res.buffer = nil
 			res.ti.Size = 2 // nvarchar(1) = 2 bytes

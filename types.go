@@ -66,7 +66,7 @@ const (
 	typeXml        = 0xf1
 	typeUdt        = 0xf0
 	typeTvp        = 0xf3
-	typeJsonN      = 0xf4 // SQL Server 2025+ JSON type
+	typeJsonN      = 0xf4 // TODO: SQL Server 2025+ JSON type (not yet implemented)
 	typeVectorN    = 0xf5 // SQL Server 2025+ Vector type
 
 	// long length types
