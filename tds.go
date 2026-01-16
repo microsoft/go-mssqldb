@@ -427,8 +427,11 @@ type login struct {
 }
 
 type featureExts struct {
-	// features is a slice (not a map) to ensure deterministic ordering in TDS packets.
-	// This is important for consistent wire protocol behavior and easier debugging.
+	// features is a slice (not a map) so that feature extensions are sent in the
+	// exact order they are added (FIFO). This change from the previous map-based
+	// implementation is required to preserve TDS protocol compatibility, since
+	// the server can depend on a specific feature ordering on the wire, and it
+	// also makes packet contents deterministic and easier to debug.
 	features []featureExt
 }
 

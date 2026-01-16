@@ -5,11 +5,9 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
-	"os"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 )
 
 // vectorTestDB holds the shared test database state for vector tests.
@@ -52,29 +50,37 @@ func setupVectorTestDB(t *testing.T, conn *sql.DB) {
 		}
 
 		// We need to use a test database
-		// Use a unique name with timestamp and PID to avoid conflicts in concurrent test runs
-		vectorTestDBName = fmt.Sprintf("go_mssqldb_vector_test_%d_%d", time.Now().Unix(), os.Getpid())
+		// Use a fixed name - each test run drops and recreates to ensure clean state
+		vectorTestDBName = "go_mssqldb_vector_test"
 		t.Logf("Connected to system database '%s', will use test database '%s'", currentDB, vectorTestDBName)
 
-		// Check if the test database already exists
-		var dbExists int
-		err = conn.QueryRow("SELECT COUNT(*) FROM sys.databases WHERE name = @p1", vectorTestDBName).Scan(&dbExists)
-		if err != nil {
-			t.Logf("Warning: Could not check if test database exists: %v", err)
-		}
+		// Drop any existing test database from previous runs, then create fresh
+		// This ensures a clean state and prevents accumulation of test databases
+		_, _ = conn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS [%s]", vectorTestDBName))
 
-		if dbExists == 0 {
-			// Create the test database
-			_, err = conn.Exec(fmt.Sprintf("CREATE DATABASE [%s]", vectorTestDBName))
-			if err != nil {
-				t.Logf("Warning: Could not create test database: %v", err)
+		// Create the test database
+		_, err = conn.Exec(fmt.Sprintf("CREATE DATABASE [%s]", vectorTestDBName))
+		if err != nil {
+			t.Logf("Warning: Could not create test database: %v", err)
+			return
+		}
+		t.Logf("Created test database '%s'", vectorTestDBName)
+		vectorTestDBCreated = true
+
+		// Register cleanup to drop the database when tests complete
+		// This runs even if tests fail, ensuring we clean up after ourselves
+		t.Cleanup(func() {
+			// Switch to master and drop the test database
+			if _, err := conn.Exec("USE master"); err != nil {
+				t.Logf("Cleanup: Could not switch to master: %v", err)
 				return
 			}
-			t.Logf("Created test database '%s'", vectorTestDBName)
-		} else {
-			t.Logf("Test database '%s' already exists, reusing it", vectorTestDBName)
-		}
-		vectorTestDBCreated = true
+			if _, err := conn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS [%s]", vectorTestDBName)); err != nil {
+				t.Logf("Cleanup: Could not drop test database: %v", err)
+			} else {
+				t.Logf("Cleanup: Dropped test database '%s'", vectorTestDBName)
+			}
+		})
 	})
 
 	// Switch to test database if we're using one
@@ -87,7 +93,10 @@ func setupVectorTestDB(t *testing.T, conn *sql.DB) {
 }
 
 // cleanupVectorTestDB drops the test database if we created one.
-// Call this in TestMain or at the end of tests.
+// Note: Cleanup is handled automatically via t.Cleanup() when the test database
+// is created, so this function is typically not needed. It's kept for:
+// 1. Drop-before-create at start of each run (handles failed previous runs)
+// 2. Explicit cleanup if t.Cleanup() doesn't run (e.g., process killed)
 func cleanupVectorTestDB(conn *sql.DB, t *testing.T) {
 	if vectorTestDBCreated && vectorTestDBName != "" {
 		if _, err := conn.Exec("USE master"); err != nil {
