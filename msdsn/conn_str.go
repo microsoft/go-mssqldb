@@ -650,7 +650,7 @@ func Parse(dsn string) (Config, error) {
 	switch strings.ToLower(epaString) {
 	case "true", "1", "enabled", "yes", "y":
 		p.EpaEnabled = true
-	case "false", "0", "disabled", "no", "n":
+	case "", "false", "0", "disabled", "no", "n":
 		p.EpaEnabled = false
 	default:
 		return p, fmt.Errorf("invalid epa enabled value '%s'", epaString)
