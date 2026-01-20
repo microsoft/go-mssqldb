@@ -643,17 +643,17 @@ func Parse(dsn string) (Config, error) {
 		p.Encoding.GuidConversion = false
 	}
 
+	p.EpaEnabled = false
 	epaString, ok := params[EpaEnabled]
 	if !ok {
 		epaString = os.Getenv("MSSQL_USE_EPA")
 	}
-	switch strings.ToLower(epaString) {
-	case "true", "1", "enabled", "yes", "y":
-		p.EpaEnabled = true
-	case "", "false", "0", "disabled", "no", "n":
-		p.EpaEnabled = false
-	default:
-		return p, fmt.Errorf("invalid epa enabled value '%s'", epaString)
+	if epaString !=  "" {
+		epaEnabled, err := strconv.ParseBool(epaString)
+		if err != nil {
+			return p, fmt.Errorf("invalid epa enabled value '%s': %v", epaString, err)
+		}
+		p.EpaEnabled = epaEnabled
 	}
 
 	return p, nil
