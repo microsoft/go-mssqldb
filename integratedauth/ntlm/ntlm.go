@@ -270,8 +270,9 @@ func negotiateExtendedSessionSecurity(flags uint32, message []byte, challenge [8
 
 		if len(channelBinding) > 0 {
 			av_pair_cb := make([]byte, 4)
-			// AvId
-			// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-nlmp/83f5e789-660d-4781-8491-5f8c6641f75e
+			// Create the AV_PAIR structure for channel bindings as specified in MS-NLMP.
+			// Set AvId to MsvAvChannelBindings and AvLen to the length of the channel binding data.
+			// See: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-nlmp/83f5e789-660d-4781-8491-5f8c6641f75e
 			binary.LittleEndian.PutUint16(av_pair_cb[0:2], AV_PAIR_MsvAvChannelBindings)
 			binary.LittleEndian.PutUint16(av_pair_cb[2:4], uint16(len(channelBinding)))
 			av_pair_cb = append(av_pair_cb, channelBinding...)
