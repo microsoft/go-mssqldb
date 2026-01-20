@@ -98,7 +98,7 @@ func (cb *ChannelBindings) ToBytes() []byte {
 // - a byte slice
 func (cb *ChannelBindings) Md5Hash() []byte {
 	if cb.Type == ChannelBindingsTypeEmpty {
-		// generate a slize with zeros
+		// generate a slice with zeros
 		zeros := make([]byte, 16)
 		return zeros
 	}
