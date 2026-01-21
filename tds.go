@@ -1283,7 +1283,9 @@ initiate_connection:
 	if auth != nil {
 		defer auth.Free()
 		if cbt != nil {
-			auth.SetChannelBinding(cbt)
+			if authWithEPA, ok := auth.(integratedauth.AuthenticatorWithEPA); ok {
+				authWithEPA.SetChannelBinding(cbt)
+			}
 		}
 	}
 

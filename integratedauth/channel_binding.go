@@ -9,6 +9,10 @@ import (
 	"fmt"
 )
 
+type AuthenticatorWithEPA interface {
+	SetChannelBinding(*ChannelBindings)
+}
+
 type ChannelBindingsType uint32
 const (
 	ChannelBindingsTypeTLSExporter = 0

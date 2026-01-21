@@ -23,7 +23,6 @@ type (
 	Encryption int
 	Log        uint64
 	BrowserMsg byte
-	EpaMode    string
 )
 
 const (
