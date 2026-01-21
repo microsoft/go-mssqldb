@@ -561,6 +561,7 @@ func TestParams(t *testing.T) {
 		"",
 		[]byte{1, 2, 3},
 		[]byte{},
+		float32(1.12313),
 		float64(1.12313554),
 		true,
 		false,
@@ -594,21 +595,22 @@ func TestParams(t *testing.T) {
 				}
 			case time.Time:
 				same = decodedval.UTC() == val
-			case int64:
-				switch intVal := val.(type) {
-				case int16:
-					same = decodedval == int64(intVal)
-				case int32:
-					same = decodedval == int64(intVal)
+			default:
+				rettype := reflect.TypeOf(retval)
+				switch origval := val.(type) {
 				case int8:
-					same = decodedval == int64(intVal)
+					same = rettype.Kind() == reflect.Int64 && decodedval == int64(origval)
+				case int16:
+					same = rettype.Kind() == reflect.Int64 && decodedval == int64(origval)
+				case int32:
+					same = rettype.Kind() == reflect.Int64 && decodedval == int64(origval)
 				case int:
-					same = decodedval == int64(intVal)
+					same = rettype.Kind() == reflect.Int64 && decodedval == int64(origval)
+				case float32:
+					same = rettype.Kind() == reflect.Float64 && decodedval == float64(origval)
 				default:
 					same = retval == val
 				}
-			default:
-				same = retval == val
 			}
 			if !same {
 				t.Error("Value don't match", retval, val)
