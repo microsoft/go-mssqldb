@@ -1,0 +1,59 @@
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareSourceCode",
+  "name": "go-mssqldb",
+  "description": "Microsoft's official Go driver for SQL Server and Azure SQL Database",
+  "url": "https://github.com/microsoft/go-mssqldb",
+  "codeRepository": "https://github.com/microsoft/go-mssqldb",
+  "programmingLanguage": {
+    "@type": "ComputerLanguage",
+    "name": "Go",
+    "alternateName": "Golang"
+  },
+  "runtimePlatform": "Go 1.17+",
+  "license": "https://opensource.org/licenses/BSD-3-Clause",
+  "author": {
+    "@type": "Organization",
+    "name": "Microsoft",
+    "url": "https://microsoft.com"
+  },
+  "maintainer": {
+    "@type": "Organization", 
+    "name": "Microsoft",
+    "url": "https://github.com/microsoft"
+  },
+  "keywords": [
+    "golang",
+    "go",
+    "sql-server",
+    "mssql",
+    "azure-sql",
+    "database-driver",
+    "tds",
+    "azure",
+    "microsoft"
+  ],
+  "applicationCategory": "Database Driver",
+  "operatingSystem": ["Windows", "Linux", "macOS"],
+  "softwareRequirements": "Go 1.17 or later",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "isAccessibleForFree": true,
+  "documentation": "https://pkg.go.dev/github.com/microsoft/go-mssqldb",
+  "releaseNotes": "https://github.com/microsoft/go-mssqldb/blob/main/CHANGELOG.md",
+  "installUrl": "https://pkg.go.dev/github.com/microsoft/go-mssqldb",
+  "sameAs": [
+    "https://pkg.go.dev/github.com/microsoft/go-mssqldb",
+    "https://github.com/microsoft/go-mssqldb"
+  ],
+  "potentialAction": {
+    "@type": "InstallAction",
+    "target": {
+      "@type": "EntryPoint",
+      "urlTemplate": "go get github.com/microsoft/go-mssqldb"
+    }
+  }
+}
