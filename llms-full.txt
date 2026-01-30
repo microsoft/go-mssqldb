@@ -86,7 +86,7 @@ odbc:server=localhost;user id=sa;password=secret;database=mydb
 | `user id` | Username (DOMAIN\User for Windows auth) | - |
 | `password` | Password | - |
 | `encrypt` | `true`, `false`, `strict`, `disable` | `false` |
-| `TrustServerCertificate` | Skip cert verification | `false` |
+| `TrustServerCertificate` | Skip cert verification | `true` (when encrypt not specified) |
 | `connection timeout` | Seconds (0=no timeout) | 0 |
 | `app name` | Application name | go-mssqldb |
 | `authenticator` | `ntlm`, `winsspi`, `krb5` | platform default |

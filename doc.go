@@ -9,7 +9,7 @@
 //
 //	sqlserver: uses native "@" parameter placeholder names and does no pre-processing.
 //
-// Use "sqlserver" as the driver name with [database/sql.Open]:
+// Use "sqlserver" as the driver name with database/sql.Open:
 //
 //	db, err := sql.Open("sqlserver", "sqlserver://user:password@localhost:1433?database=mydb")
 //

@@ -10,7 +10,7 @@
     "name": "Go",
     "alternateName": "Golang"
   },
-  "runtimePlatform": "Go 1.17+",
+  "runtimePlatform": "Go 1.21+",
   "license": "https://opensource.org/licenses/BSD-3-Clause",
   "author": {
     "@type": "Organization",
@@ -35,7 +35,7 @@
   ],
   "applicationCategory": "Database Driver",
   "operatingSystem": ["Windows", "Linux", "macOS"],
-  "softwareRequirements": "Go 1.17 or later",
+  "softwareRequirements": "Go 1.21 or later",
   "offers": {
     "@type": "Offer",
     "price": "0",

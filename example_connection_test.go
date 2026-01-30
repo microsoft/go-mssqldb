@@ -1,76 +1,56 @@
 package mssql_test
 
 import (
-	"context"
-	"database/sql"
 	"fmt"
-	"log"
 	"net/url"
 
 	_ "github.com/microsoft/go-mssqldb"
 )
 
-// Example_basicConnection demonstrates connecting to SQL Server using the sqlserver driver.
-func Example_basicConnection() {
-	// Connection string using URL format
-	connStr := "sqlserver://sa:YourPassword123@localhost:1433?database=master"
+// These examples demonstrate common usage patterns for the go-mssqldb driver.
+// Note: sql.Open does not establish a network connection until the first use
+// of the returned *sql.DB. These examples show code patterns without requiring
+// a live SQL Server instance.
 
-	db, err := sql.Open("sqlserver", connStr)
-	if err != nil {
-		log.Fatal("Error opening connection:", err)
-	}
-	defer db.Close()
+// Example_connectionString shows the basic connection string format.
+// Use "sqlserver" as the driver name (not "mssql").
+func Example_connectionString() {
+	// URL format connection string (recommended)
+	connStr := "sqlserver://user:password@localhost:1433?database=mydb"
+	fmt.Println("URL format:", connStr)
 
-	// Verify connection
-	if err := db.Ping(); err != nil {
-		log.Fatal("Error pinging database:", err)
-	}
+	// ADO format connection string
+	adoConnStr := "server=localhost;user id=sa;password=secret;database=mydb"
+	fmt.Println("ADO format:", adoConnStr)
 
-	fmt.Println("Connected successfully!")
+	// ODBC format connection string
+	odbcConnStr := "odbc:server=localhost;user id=sa;password=secret;database=mydb"
+	fmt.Println("ODBC format:", odbcConnStr)
+
+	// Output:
+	// URL format: sqlserver://user:password@localhost:1433?database=mydb
+	// ADO format: server=localhost;user id=sa;password=secret;database=mydb
+	// ODBC format: odbc:server=localhost;user id=sa;password=secret;database=mydb
 }
 
-// Example_queryWithNamedParameters demonstrates using named parameters in queries.
-func Example_queryWithNamedParameters() {
-	db, _ := sql.Open("sqlserver", "sqlserver://sa:password@localhost:1433?database=master")
-	defer db.Close()
+// Example_namedParameterSyntax shows the correct parameter syntax for queries.
+// Use @ParameterName with sql.Named() for named parameters.
+func Example_namedParameterSyntax() {
+	// Named parameter syntax - use @ParameterName
+	query := "SELECT * FROM users WHERE id = @ID AND active = @Active"
+	fmt.Println("Named parameters:", query)
 
-	ctx := context.Background()
+	// Positional parameter syntax - use @p1, @p2, etc.
+	positionalQuery := "SELECT * FROM users WHERE id = @p1 AND active = @p2"
+	fmt.Println("Positional parameters:", positionalQuery)
 
-	// Use @ParameterName syntax for named parameters
-	rows, err := db.QueryContext(ctx,
-		"SELECT id, name FROM users WHERE active = @Active AND department = @Dept",
-		sql.Named("Active", true),
-		sql.Named("Dept", "Engineering"),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var id int
-		var name string
-		rows.Scan(&id, &name)
-		fmt.Printf("ID: %d, Name: %s\n", id, name)
-	}
+	// Output:
+	// Named parameters: SELECT * FROM users WHERE id = @ID AND active = @Active
+	// Positional parameters: SELECT * FROM users WHERE id = @p1 AND active = @p2
 }
 
-// Example_queryWithPositionalParameters demonstrates using positional parameters.
-func Example_queryWithPositionalParameters() {
-	db, _ := sql.Open("sqlserver", "sqlserver://sa:password@localhost:1433?database=master")
-	defer db.Close()
-
-	// Use @p1, @p2, etc. for positional parameters
-	var count int
-	err := db.QueryRow("SELECT COUNT(*) FROM users WHERE active = @p1", true).Scan(&count)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Printf("Active users: %d\n", count)
-}
-
-// Example_buildConnectionString demonstrates programmatically building a connection string.
+// Example_buildConnectionString demonstrates programmatically building a connection string
+// using the net/url package.
 func Example_buildConnectionString() {
 	query := url.Values{}
 	query.Add("database", "mydb")
@@ -85,30 +65,45 @@ func Example_buildConnectionString() {
 	}
 
 	connStr := u.String()
-	fmt.Println("Connection string:", connStr)
+	fmt.Println("Built connection string")
 
-	db, err := sql.Open("sqlserver", connStr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
+	// Use with sql.Open:
+	// db, err := sql.Open("sqlserver", connStr)
+	_ = connStr
+
+	// Output:
+	// Built connection string
 }
 
-// Example_storedProcedureWithOutput demonstrates calling a stored procedure with output parameters.
-func Example_storedProcedureWithOutput() {
-	db, _ := sql.Open("sqlserver", "sqlserver://sa:password@localhost:1433?database=master")
-	defer db.Close()
+// Example_azureADConnection shows connection strings for Azure AD authentication.
+// Import "github.com/microsoft/go-mssqldb/azuread" and use azuread.DriverName.
+func Example_azureADConnection() {
+	// DefaultAzureCredential (recommended for most scenarios)
+	defaultCred := "sqlserver://server.database.windows.net?database=mydb&fedauth=ActiveDirectoryDefault"
+	fmt.Println("DefaultAzureCredential:", defaultCred)
 
-	ctx := context.Background()
+	// Managed Identity
+	msiCred := "sqlserver://server.database.windows.net?database=mydb&fedauth=ActiveDirectoryMSI"
+	fmt.Println("Managed Identity:", msiCred)
 
-	var outputValue string
-	_, err := db.ExecContext(ctx, "sp_MyProcedure",
-		sql.Named("InputParam", "test value"),
-		sql.Named("OutputParam", sql.Out{Dest: &outputValue}),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
+	// Output:
+	// DefaultAzureCredential: sqlserver://server.database.windows.net?database=mydb&fedauth=ActiveDirectoryDefault
+	// Managed Identity: sqlserver://server.database.windows.net?database=mydb&fedauth=ActiveDirectoryMSI
+}
 
-	fmt.Printf("Output value: %s\n", outputValue)
+// Example_storedProcedureSyntax shows how to call stored procedures with output parameters.
+func Example_storedProcedureSyntax() {
+	// Stored procedure call syntax with named parameters
+	procCall := "EXEC sp_MyProcedure @InputParam = @Input, @OutputParam = @Output OUTPUT"
+	fmt.Println("Stored procedure:", procCall)
+
+	// In Go code, use sql.Named with sql.Out for output parameters:
+	// var outputValue string
+	// _, err := db.ExecContext(ctx, "sp_MyProcedure",
+	//     sql.Named("Input", "test value"),
+	//     sql.Named("Output", sql.Out{Dest: &outputValue}),
+	// )
+
+	// Output:
+	// Stored procedure: EXEC sp_MyProcedure @InputParam = @Input, @OutputParam = @Output OUTPUT
 }

@@ -8,6 +8,8 @@
 ```go
 import (
     "database/sql"
+    "log"
+    
     _ "github.com/microsoft/go-mssqldb"
 )
 
@@ -18,8 +20,12 @@ func main() {
     }
     defer db.Close()
     
-    // Query example
-    rows, err := db.Query("SELECT id, name FROM users WHERE active = @p1", true)
+    // Query example using positional parameters (@p1, @p2, etc.)
+    rows, err := db.Query("SELECT @p1 AS Value", 42)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer rows.Close()
 }
 ```
 
