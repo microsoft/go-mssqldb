@@ -31,8 +31,8 @@ This project uses [Release Please](https://github.com/googleapis/release-please)
 
 | Prefix | Version Bump | Example |
 |--------|-------------|---------|
-| `feat:` | Minor (0.X.0) | `feat: add connection pooling support` |
-| `fix:` | Patch (0.0.X) | `fix: resolve timeout issue` |
+| `feat:` | Minor (X.Y.0) | `feat: add connection pooling support` |
+| `fix:` | Patch (X.Y.Z) | `fix: resolve timeout issue` |
 | `feat!:` or `BREAKING CHANGE:` | Major (X.0.0) | `feat!: change API signature` |
 | `docs:`, `chore:`, `ci:`, `deps:` | No bump | Maintenance changes |
 
