@@ -72,7 +72,8 @@ const (
 
 	// VectorElementFloat16 represents 16-bit half-precision floating point (2 bytes per element).
 	// Note: float16 is a preview feature in SQL Server requiring PREVIEW_FEATURES = ON.
-	// float16 vectors are currently transmitted as JSON over TDS, not binary.
+	// Currently, float16 vector *parameters* are transmitted as JSON payloads over TDS rather than as
+	// binary vector values. This does not affect how server-to-client results are encoded on the wire.
 	// The element type is determined by the SQL column definition, not the Go-side struct.
 	VectorElementFloat16 VectorElementType = 0x01
 )

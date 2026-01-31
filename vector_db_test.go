@@ -76,13 +76,10 @@ func setupVectorTestDB(t *testing.T, conn *sql.DB) {
 		// test run to clean up any leftover databases from previous runs.
 	})
 
-	// Switch to test database if we're using one
-	if vectorTestDBCreated && vectorTestDBName != "" {
-		_, err := conn.Exec(fmt.Sprintf("USE [%s]", vectorTestDBName))
-		if err != nil {
-			t.Fatalf("Could not switch to test database: %v", err)
-		}
-	}
+	// Note: We don't attempt to USE the test database here because USE is session-scoped
+	// and *sql.DB may pick different connections per call. The tests create their own
+	// tables in the current database context, which is sufficient for isolation.
+	// The test database creation above is primarily for cleanup between test runs.
 }
 
 // skipIfVectorNotSupported checks if the SQL Server instance supports VECTOR type.

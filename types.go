@@ -952,16 +952,9 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		ti.Size = int(r.uint16())
 		scaleByte := r.byte() // dimension type: 0=FLOAT32, 1=FLOAT16
 		ti.Scale = scaleByte
-		// Calculate bytes per dimension from scale
-		// scaleByte 0 = FLOAT32 (4 bytes), scaleByte 1 = FLOAT16 (2 bytes)
-		bytesPerDim := 4
-		if scaleByte == 1 {
-			bytesPerDim = 2
-		}
-		if ti.Size > 0 && ti.Size != 0xffff {
-			// precision = (maxLength - 8) / bytesPerDim  (8 bytes for header)
-			ti.Prec = uint8((ti.Size - 8) / bytesPerDim)
-		}
+		// Note: We do not store dimension count in ti.Prec (uint8) to avoid overflow.
+		// Vector dimensions can be up to 1998 (float32) or 3996 (float16).
+		// Dimension count can be derived as: (ti.Size - 8) / bytesPerDim when needed.
 		if ti.Size == 0xffff {
 			ti.Reader = readPLPType
 		} else {
@@ -1683,11 +1676,20 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 			// Unknown scale, return 0
 			return 0, false
 		}
+		// PLP/MAX marker: length is not known from ti.Size
+		if ti.Size == 0xffff {
+			return 0, false
+		}
 		// Validate size to avoid underflow
 		if ti.Size < vectorHeaderSize {
 			return 0, false
 		}
-		dimensions := (ti.Size - vectorHeaderSize) / bytesPerElement
+		payloadSize := ti.Size - vectorHeaderSize
+		// Payload size must be a clean multiple of bytesPerElement
+		if payloadSize%bytesPerElement != 0 {
+			return 0, false
+		}
+		dimensions := payloadSize / bytesPerElement
 		return int64(dimensions), true
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypeLength for type %d", ti.TypeId))
