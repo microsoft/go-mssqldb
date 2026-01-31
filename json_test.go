@@ -897,3 +897,234 @@ func TestJSONGoLangScanType(t *testing.T) {
 		t.Errorf("Expected scan type %s for JSON, got %s", expectedType, scanType.String())
 	}
 }
+
+// TestJSONTypeFunctions tests all type-related functions for JSON type.
+// This covers makeDecl, makeGoLangTypeName, makeGoLangTypeLength, makeGoLangTypePrecisionScale
+func TestJSONTypeFunctions(t *testing.T) {
+	ti := typeInfo{TypeId: typeJson}
+
+	t.Run("makeDecl", func(t *testing.T) {
+		decl := makeDecl(ti)
+		if decl != "json" {
+			t.Errorf("Expected makeDecl to return 'json', got: %s", decl)
+		}
+	})
+
+	t.Run("makeDecl with DeclTypeId", func(t *testing.T) {
+		// Test DeclTypeId override - when TypeId is nvarchar but DeclTypeId is json
+		tiWithDecl := typeInfo{TypeId: typeNVarChar, DeclTypeId: typeJson, Size: 0}
+		decl := makeDecl(tiWithDecl)
+		if decl != "json" {
+			t.Errorf("Expected makeDecl with DeclTypeId to return 'json', got: %s", decl)
+		}
+	})
+
+	t.Run("makeGoLangTypeName", func(t *testing.T) {
+		typeName := makeGoLangTypeName(ti)
+		if typeName != "JSON" {
+			t.Errorf("Expected makeGoLangTypeName to return 'JSON', got: %s", typeName)
+		}
+	})
+
+	t.Run("makeGoLangTypeLength", func(t *testing.T) {
+		length, hasLength := makeGoLangTypeLength(ti)
+		if !hasLength {
+			t.Error("Expected makeGoLangTypeLength to return true for JSON")
+		}
+		expectedLength := int64(2147483645 / 2) // Same as nvarchar(max)
+		if length != expectedLength {
+			t.Errorf("Expected length %d, got: %d", expectedLength, length)
+		}
+	})
+
+	t.Run("makeGoLangTypePrecisionScale", func(t *testing.T) {
+		prec, scale, hasPrecScale := makeGoLangTypePrecisionScale(ti)
+		if hasPrecScale {
+			t.Error("Expected makeGoLangTypePrecisionScale to return false for JSON")
+		}
+		if prec != 0 || scale != 0 {
+			t.Errorf("Expected prec=0, scale=0, got prec=%d, scale=%d", prec, scale)
+		}
+	})
+}
+
+// TestFeatureExtJsonSupport tests the featureExtJsonSupport struct methods.
+func TestFeatureExtJsonSupport(t *testing.T) {
+	f := &featureExtJsonSupport{}
+
+	t.Run("featureID", func(t *testing.T) {
+		id := f.featureID()
+		if id != featExtJSONSUPPORT {
+			t.Errorf("Expected featureID to be %#x, got %#x", featExtJSONSUPPORT, id)
+		}
+	})
+
+	t.Run("toBytes", func(t *testing.T) {
+		bytes := f.toBytes()
+		if len(bytes) != 1 {
+			t.Errorf("Expected toBytes to return 1 byte, got %d", len(bytes))
+		}
+		if bytes[0] != jsonSupportVersion {
+			t.Errorf("Expected version byte %#x, got %#x", jsonSupportVersion, bytes[0])
+		}
+	})
+}
+
+// TestMakeParamJSON tests the makeParam function with JSON types.
+// This covers the JSON, NullJSON, *JSON, and *NullJSON cases in mssql.go.
+func TestMakeParamJSON(t *testing.T) {
+	// Create a minimal Stmt for testing - we need sess to be non-nil for jsonSupported
+	sess := &tdsSession{jsonSupported: true}
+	conn := &Conn{sess: sess}
+	stmt := &Stmt{c: conn}
+
+	t.Run("JSON value", func(t *testing.T) {
+		jsonVal := JSON(`{"test":"value"}`)
+		param, err := stmt.makeParam(jsonVal)
+		if err != nil {
+			t.Fatalf("makeParam(JSON) returned error: %v", err)
+		}
+		// JSON uses nvarchar wire format with json type declaration
+		if param.ti.TypeId != typeNVarChar {
+			t.Errorf("Expected TypeId %#x (nvarchar), got %#x", typeNVarChar, param.ti.TypeId)
+		}
+		if param.ti.DeclTypeId != typeJson {
+			t.Errorf("Expected DeclTypeId %#x (json), got %#x", typeJson, param.ti.DeclTypeId)
+		}
+	})
+
+	t.Run("NullJSON with valid value", func(t *testing.T) {
+		nullJSON := NullJSON{JSON: json.RawMessage(`{"valid":true}`), Valid: true}
+		param, err := stmt.makeParam(nullJSON)
+		if err != nil {
+			t.Fatalf("makeParam(NullJSON) returned error: %v", err)
+		}
+		if param.ti.TypeId != typeNVarChar {
+			t.Errorf("Expected TypeId %#x (nvarchar), got %#x", typeNVarChar, param.ti.TypeId)
+		}
+		if param.ti.DeclTypeId != typeJson {
+			t.Errorf("Expected DeclTypeId %#x (json), got %#x", typeJson, param.ti.DeclTypeId)
+		}
+		if param.buffer == nil {
+			t.Error("Expected non-nil buffer for valid NullJSON")
+		}
+	})
+
+	t.Run("NullJSON with NULL value", func(t *testing.T) {
+		nullJSON := NullJSON{Valid: false}
+		param, err := stmt.makeParam(nullJSON)
+		if err != nil {
+			t.Fatalf("makeParam(NullJSON null) returned error: %v", err)
+		}
+		if param.ti.TypeId != typeNVarChar {
+			t.Errorf("Expected TypeId %#x (nvarchar), got %#x", typeNVarChar, param.ti.TypeId)
+		}
+		if param.ti.DeclTypeId != typeJson {
+			t.Errorf("Expected DeclTypeId %#x (json), got %#x", typeJson, param.ti.DeclTypeId)
+		}
+		if param.buffer != nil {
+			t.Error("Expected nil buffer for NULL NullJSON")
+		}
+	})
+
+	t.Run("*JSON non-nil", func(t *testing.T) {
+		jsonVal := JSON(`{"pointer":"test"}`)
+		param, err := stmt.makeParam(&jsonVal)
+		if err != nil {
+			t.Fatalf("makeParam(*JSON) returned error: %v", err)
+		}
+		if param.ti.TypeId != typeNVarChar {
+			t.Errorf("Expected TypeId %#x (nvarchar), got %#x", typeNVarChar, param.ti.TypeId)
+		}
+		if param.ti.DeclTypeId != typeJson {
+			t.Errorf("Expected DeclTypeId %#x (json), got %#x", typeJson, param.ti.DeclTypeId)
+		}
+	})
+
+	t.Run("*JSON nil", func(t *testing.T) {
+		var nilJSON *JSON
+		param, err := stmt.makeParam(nilJSON)
+		if err != nil {
+			t.Fatalf("makeParam(nil *JSON) returned error: %v", err)
+		}
+		// nil *JSON should produce a JSON-typed NULL
+		if param.ti.TypeId != typeNVarChar {
+			t.Errorf("Expected TypeId %#x (nvarchar), got %#x", typeNVarChar, param.ti.TypeId)
+		}
+		if param.ti.DeclTypeId != typeJson {
+			t.Errorf("Expected DeclTypeId %#x (json), got %#x", typeJson, param.ti.DeclTypeId)
+		}
+		if param.buffer != nil {
+			t.Error("Expected nil buffer for nil *JSON")
+		}
+	})
+
+	t.Run("*NullJSON non-nil", func(t *testing.T) {
+		nullJSON := NullJSON{JSON: json.RawMessage(`{"pointer":"nulljson"}`), Valid: true}
+		param, err := stmt.makeParam(&nullJSON)
+		if err != nil {
+			t.Fatalf("makeParam(*NullJSON) returned error: %v", err)
+		}
+		if param.ti.TypeId != typeNVarChar {
+			t.Errorf("Expected TypeId %#x (nvarchar), got %#x", typeNVarChar, param.ti.TypeId)
+		}
+		if param.ti.DeclTypeId != typeJson {
+			t.Errorf("Expected DeclTypeId %#x (json), got %#x", typeJson, param.ti.DeclTypeId)
+		}
+	})
+
+	t.Run("*NullJSON nil", func(t *testing.T) {
+		var nilNullJSON *NullJSON
+		param, err := stmt.makeParam(nilNullJSON)
+		if err != nil {
+			t.Fatalf("makeParam(nil *NullJSON) returned error: %v", err)
+		}
+		// nil *NullJSON should produce a JSON-typed NULL
+		if param.ti.TypeId != typeNVarChar {
+			t.Errorf("Expected TypeId %#x (nvarchar), got %#x", typeNVarChar, param.ti.TypeId)
+		}
+		if param.ti.DeclTypeId != typeJson {
+			t.Errorf("Expected DeclTypeId %#x (json), got %#x", typeJson, param.ti.DeclTypeId)
+		}
+		if param.buffer != nil {
+			t.Error("Expected nil buffer for nil *NullJSON")
+		}
+	})
+}
+
+// TestMakeParamJSONWithoutServerSupport tests JSON param creation when server doesn't support JSON.
+func TestMakeParamJSONWithoutServerSupport(t *testing.T) {
+	// Create Stmt with jsonSupported=false
+	sess := &tdsSession{jsonSupported: false}
+	conn := &Conn{sess: sess}
+	stmt := &Stmt{c: conn}
+
+	t.Run("JSON without server support", func(t *testing.T) {
+		jsonVal := JSON(`{"test":"fallback"}`)
+		param, err := stmt.makeParam(jsonVal)
+		if err != nil {
+			t.Fatalf("makeParam(JSON) returned error: %v", err)
+		}
+		// Without server support, TypeId is nvarchar but DeclTypeId should not be set
+		if param.ti.TypeId != typeNVarChar {
+			t.Errorf("Expected TypeId %#x (nvarchar), got %#x", typeNVarChar, param.ti.TypeId)
+		}
+		if param.ti.DeclTypeId != 0 {
+			t.Errorf("Expected DeclTypeId 0 without server support, got %#x", param.ti.DeclTypeId)
+		}
+	})
+
+	t.Run("NullJSON without server support", func(t *testing.T) {
+		nullJSON := NullJSON{JSON: json.RawMessage(`{"valid":true}`), Valid: true}
+		param, err := stmt.makeParam(nullJSON)
+		if err != nil {
+			t.Fatalf("makeParam(NullJSON) returned error: %v", err)
+		}
+		if param.ti.TypeId != typeNVarChar {
+			t.Errorf("Expected TypeId %#x (nvarchar), got %#x", typeNVarChar, param.ti.TypeId)
+		}
+		if param.ti.DeclTypeId != 0 {
+			t.Errorf("Expected DeclTypeId 0 without server support, got %#x", param.ti.DeclTypeId)
+		}
+	})
+}
