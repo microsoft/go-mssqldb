@@ -191,7 +191,7 @@ func TestLoginWithVectorTypeSupport(t *testing.T) {
 	// Connection string with vectortypesupport=v1 enabled
 	conn, err := NewConnector("sqlserver://test:secret@localhost:1433?Workstation ID=localhost&log=128&protocol=tcp&notraceid=true&vectortypesupport=v1")
 	if err != nil {
-		t.Errorf("Unable to parse dummy DSN: %v", err)
+		t.Fatalf("Unable to parse dummy DSN: %v", err)
 	}
 	tl := testLogger{t: t}
 	defer tl.StopLogging()

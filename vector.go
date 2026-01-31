@@ -240,7 +240,7 @@ func (nv NullVector) Value() (driver.Value, error) {
 }
 
 // String returns a string representation of the Vector.
-// Format: "VECTOR(FLOAT32, 3) : [1.0, 2.0, 3.0]"
+// Format: "VECTOR(FLOAT32, 3) : [1, 2, 3]"
 // The format uses uppercase type names for consistency with JDBC and SqlClient drivers.
 func (v Vector) String() string {
 	if v.Data == nil {
@@ -248,10 +248,9 @@ func (v Vector) String() string {
 	}
 
 	// Use strings.Builder for better performance with large vectors.
-	// Capacity estimate: ~16 chars per float to account for scientific notation
-	// (e.g., "-1.2345679e+38,"); Builder will still grow if this is exceeded.
+	// Capacity estimate: ~12 chars per float for typical values.
 	var sb strings.Builder
-	sb.Grow(len(v.Data)*16 + 30) // ~16 chars/float + prefix overhead
+	sb.Grow(len(v.Data)*12 + 30) // ~12 chars/float + prefix overhead
 	sb.WriteString("VECTOR(")
 	sb.WriteString(v.ElementType.String())
 	sb.WriteString(", ")

@@ -583,7 +583,13 @@ func readVectorType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msds
 	if size == 0xffff {
 		return nil
 	}
-	buf := make([]byte, size)
+	// Reuse ti.Buffer if available and large enough, otherwise allocate new buffer
+	var buf []byte
+	if ti != nil && len(ti.Buffer) >= int(size) {
+		buf = ti.Buffer[:size]
+	} else {
+		buf = make([]byte, size)
+	}
 	r.ReadFull(buf)
 
 	// Decode the vector from the binary representation
