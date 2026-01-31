@@ -1072,8 +1072,11 @@ func prepareLogin(ctx context.Context, c *Connector, p msdsn.Config, logger Cont
 	if p.ColumnEncryption {
 		_ = l.FeatureExt.Add(&featureExtColumnEncryption{})
 	}
-	// Always request vector support - server will ack if it supports it
-	_ = l.FeatureExt.Add(&featureExtVector{})
+	// Only request vector support when enabled via connection string (vectorTypeSupport=v1)
+	// Default is off for backward compatibility, matching ODBC behavior
+	if p.VectorTypeSupport == msdsn.VectorTypeSupportV1 {
+		_ = l.FeatureExt.Add(&featureExtVector{})
+	}
 	switch {
 	case fe.FedAuthLibrary == FedAuthLibrarySecurityToken:
 		if uint64(p.LogFlags)&logDebug != 0 {

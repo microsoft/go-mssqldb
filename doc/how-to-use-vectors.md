@@ -325,6 +325,33 @@ For performance, only the first precision loss per vector is reported.
 - SQL Server 2025 or later
 - go-mssqldb driver version 1.9.7 or later
 
+## Connection String Configuration
+
+The `vectortypesupport` connection string parameter controls how vector data is transmitted between the driver and SQL Server:
+
+| Value | Description |
+|-------|-------------|
+| `off` (default) | Vectors are sent as JSON strings. Compatible with all SQL Server versions. |
+| `v1` | Enables native binary TDS protocol for vectors. Requires SQL Server 2025+. |
+
+### Examples
+
+```go
+// Default: JSON format (backward compatible)
+db, _ := sql.Open("sqlserver", "sqlserver://user:pass@server/database")
+
+// Enable native binary vector format
+db, _ := sql.Open("sqlserver", "sqlserver://user:pass@server/database?vectortypesupport=v1")
+
+// ODBC format
+db, _ := sql.Open("sqlserver", "odbc:server=host;vectortypesupport=v1")
+
+// ADO format
+db, _ := sql.Open("sqlserver", "server=host;vectortypesupport=v1")
+```
+
+**Note:** The default is `off` to ensure backward compatibility. When connecting to SQL Server 2025+, setting `vectortypesupport=v1` enables the optimized binary format which may provide better performance for large vectors.
+
 ## See Also
 
 - [SQL Server 2025 Vector documentation](https://learn.microsoft.com/sql/relational-databases/vectors/vectors-sql-server)
