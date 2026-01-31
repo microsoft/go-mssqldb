@@ -1186,6 +1186,8 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 		return reflect.TypeOf([]byte{})
 	case typeXml:
 		return reflect.TypeOf("")
+	case typeJson:
+		return reflect.TypeOf("")
 	case typeText:
 		return reflect.TypeOf("")
 	case typeNText:

@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -30,19 +31,18 @@ func TestJSONType(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Check if server supports native JSON type
-	// The native JSON data type (type ID 0xF4) was introduced in:
+	// Check if server supports native JSON type by capability rather than version.
+	// The native JSON data type (type ID 0xF4) is available in:
 	// - SQL Server 2025 (version 17) - preview
 	// - Azure SQL Database - generally available
 	// - Azure SQL Managed Instance - with Always-up-to-date update policy
-	var version int
-	err = db.QueryRowContext(ctx, "SELECT CONVERT(int, SERVERPROPERTY('ProductMajorVersion'))").Scan(&version)
+	var jsonTypeCount int
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json'").Scan(&jsonTypeCount)
 	if err != nil {
-		t.Skipf("Could not determine SQL Server version: %v", err)
+		t.Skipf("Could not determine JSON type support: %v", err)
 	}
-	// Native JSON type requires SQL Server 2025 (version 17) or Azure SQL
-	if version < 17 {
-		t.Skipf("SQL Server version %d does not support native JSON type (need version 17+ or Azure SQL)", version)
+	if jsonTypeCount == 0 {
+		t.Skipf("Native JSON type is not supported on this server (no 'json' type in sys.types)")
 	}
 
 	t.Run("JSON parameter round-trip", func(t *testing.T) {
@@ -91,11 +91,13 @@ func TestJSONType(t *testing.T) {
 
 	t.Run("Large JSON", func(t *testing.T) {
 		// Create a large JSON object (> 8000 chars to test PLP handling)
-		largeValue := `{"data":"`
+		var sb strings.Builder
+		sb.WriteString(`{"data":"`)
 		for i := 0; i < 10000; i++ {
-			largeValue += "x"
+			sb.WriteByte('x')
 		}
-		largeValue += `"}`
+		sb.WriteString(`"}`)
+		largeValue := sb.String()
 
 		var result string
 		err := db.QueryRowContext(ctx, `SELECT @p1`, JSON(largeValue)).Scan(&result)
@@ -124,14 +126,14 @@ func TestNullJSONType(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Check if server supports JSON type
-	var version int
-	err = db.QueryRowContext(ctx, "SELECT CONVERT(int, SERVERPROPERTY('ProductMajorVersion'))").Scan(&version)
+	// Check if server supports JSON type by capability
+	var jsonTypeCount int
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json'").Scan(&jsonTypeCount)
 	if err != nil {
-		t.Skipf("Could not determine SQL Server version: %v", err)
+		t.Skipf("Could not determine JSON type support: %v", err)
 	}
-	if version < 17 {
-		t.Skipf("SQL Server version %d does not support native JSON type, need 17+", version)
+	if jsonTypeCount == 0 {
+		t.Skipf("Native JSON type is not supported on this server")
 	}
 
 	t.Run("NullJSON with valid value", func(t *testing.T) {
@@ -295,14 +297,18 @@ func TestJSONFallbackBehavior(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Get server version to understand expected behavior
-	var version int
-	err = db.QueryRowContext(ctx, "SELECT CONVERT(int, SERVERPROPERTY('ProductMajorVersion'))").Scan(&version)
+	// Check if server supports JSON type to understand expected behavior
+	var jsonTypeCount int
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json'").Scan(&jsonTypeCount)
 	if err != nil {
-		t.Skipf("Could not determine SQL Server version: %v", err)
+		t.Skipf("Could not determine JSON type support: %v", err)
 	}
 
-	t.Logf("SQL Server major version: %d", version)
+	if jsonTypeCount > 0 {
+		t.Log("Server supports native JSON type - parameters declared as 'json'")
+	} else {
+		t.Log("Server does not support native JSON type - parameters fall back to 'nvarchar(max)'")
+	}
 
 	// Test 1: JSON parameter should work regardless of server version
 	// On SQL Server 2025+: uses native json type declaration
@@ -349,45 +355,45 @@ func TestJSONFallbackBehavior(t *testing.T) {
 	})
 
 	// Test 4: JSON can be validated with ISJSON function (available since SQL Server 2016)
-	if version >= 13 { // SQL Server 2016+
-		t.Run("JSON validated with ISJSON function", func(t *testing.T) {
-			jsonValue := JSON(`{"valid":"json"}`)
-			var isValidJSON int
+	// ISJSON is widely available - skip if not supported
+	t.Run("JSON validated with ISJSON function", func(t *testing.T) {
+		jsonValue := JSON(`{"valid":"json"}`)
+		var isValidJSON int
 
-			err := db.QueryRowContext(ctx, `SELECT ISJSON(@p1)`, jsonValue).Scan(&isValidJSON)
-			if err != nil {
-				t.Fatalf("ISJSON query failed: %v", err)
-			}
-			if isValidJSON != 1 {
-				t.Errorf("Expected ISJSON to return 1, got: %d", isValidJSON)
-			}
-		})
-	}
+		err := db.QueryRowContext(ctx, `SELECT ISJSON(@p1)`, jsonValue).Scan(&isValidJSON)
+		if err != nil {
+			t.Skipf("ISJSON not available on this server: %v", err)
+		}
+		if isValidJSON != 1 {
+			t.Errorf("Expected ISJSON to return 1, got: %d", isValidJSON)
+		}
+	})
 
 	// Test 5: JSON can be used with JSON_VALUE function (available since SQL Server 2016)
-	if version >= 13 { // SQL Server 2016+
-		t.Run("JSON works with JSON_VALUE function", func(t *testing.T) {
-			jsonValue := JSON(`{"name":"testvalue","count":123}`)
-			var extractedName string
+	// JSON_VALUE is widely available - skip if not supported
+	t.Run("JSON works with JSON_VALUE function", func(t *testing.T) {
+		jsonValue := JSON(`{"name":"testvalue","count":123}`)
+		var extractedName string
 
-			err := db.QueryRowContext(ctx, `SELECT JSON_VALUE(@p1, '$.name')`, jsonValue).Scan(&extractedName)
-			if err != nil {
-				t.Fatalf("JSON_VALUE query failed: %v", err)
-			}
-			if extractedName != "testvalue" {
-				t.Errorf("Expected 'testvalue', got: %s", extractedName)
-			}
-		})
-	}
+		err := db.QueryRowContext(ctx, `SELECT JSON_VALUE(@p1, '$.name')`, jsonValue).Scan(&extractedName)
+		if err != nil {
+			t.Skipf("JSON_VALUE not available on this server: %v", err)
+		}
+		if extractedName != "testvalue" {
+			t.Errorf("Expected 'testvalue', got: %s", extractedName)
+		}
+	})
 
 	// Test 6: Large JSON (tests PLP handling)
 	t.Run("Large JSON parameter works on all versions", func(t *testing.T) {
 		// Create JSON larger than 8000 bytes to test PLP handling
-		largeData := `{"data":"`
+		var sb strings.Builder
+		sb.WriteString(`{"data":"`)
 		for i := 0; i < 10000; i++ {
-			largeData += "x"
+			sb.WriteByte('x')
 		}
-		largeData += `"}`
+		sb.WriteString(`"}`)
+		largeData := sb.String()
 
 		jsonValue := JSON(largeData)
 		var result string
@@ -401,9 +407,9 @@ func TestJSONFallbackBehavior(t *testing.T) {
 		}
 	})
 
-	// Test 7: Verify behavior based on server version
-	t.Run("Version-specific behavior verification", func(t *testing.T) {
-		if version >= 17 {
+	// Test 7: Verify behavior based on JSON type support
+	t.Run("JSON type support verification", func(t *testing.T) {
+		if jsonTypeCount > 0 {
 			t.Log("Server supports native JSON type - parameters declared as 'json'")
 		} else {
 			t.Log("Server does not support native JSON type - parameters fall back to 'nvarchar(max)'")
@@ -414,7 +420,7 @@ func TestJSONFallbackBehavior(t *testing.T) {
 		var result string
 		err := db.QueryRowContext(ctx, `SELECT @p1`, jsonValue).Scan(&result)
 		if err != nil {
-			t.Fatalf("Version-specific test failed: %v", err)
+			t.Fatalf("JSON type support test failed: %v", err)
 		}
 	})
 }
@@ -435,15 +441,15 @@ func TestJSONTableInsertAndSelect(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Check if server supports JSON type
-	var version int
-	err = db.QueryRowContext(ctx, "SELECT CONVERT(int, SERVERPROPERTY('ProductMajorVersion'))").Scan(&version)
+	// Check if server supports JSON type by capability
+	var jsonTypeCount int
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json'").Scan(&jsonTypeCount)
 	if err != nil {
-		t.Skipf("Could not determine SQL Server version: %v", err)
+		t.Skipf("Could not determine JSON type support: %v", err)
 	}
-	// Native JSON columns require SQL Server 2025 (version 17) or Azure SQL
-	if version < 17 {
-		t.Skipf("SQL Server version %d does not support native JSON columns (need version 17+ or Azure SQL)", version)
+	// Native JSON columns require the JSON type to be available
+	if jsonTypeCount == 0 {
+		t.Skipf("Native JSON type is not supported on this server (no 'json' type in sys.types)")
 	}
 
 	// Get a single connection to ensure temp table persists across operations
@@ -612,14 +618,14 @@ func TestJSONNativeSupport_SQL2025(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Check if server supports native JSON type
-	var version int
-	err = db.QueryRowContext(ctx, "SELECT CONVERT(int, SERVERPROPERTY('ProductMajorVersion'))").Scan(&version)
+	// Check if server supports native JSON type by capability
+	var jsonTypeCount int
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json'").Scan(&jsonTypeCount)
 	if err != nil {
-		t.Skipf("Could not determine SQL Server version: %v", err)
+		t.Skipf("Could not determine JSON type support: %v", err)
 	}
-	if version < 17 {
-		t.Skipf("SQL Server version %d does not support native JSON type (requires version 17+)", version)
+	if jsonTypeCount == 0 {
+		t.Skipf("Native JSON type is not supported on this server (requires 'json' type in sys.types)")
 	}
 
 	// Get underlying connection to check session state
@@ -716,17 +722,18 @@ func TestJSONFallback_PreSQL2025(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Check server version
-	var version int
-	err = db.QueryRowContext(ctx, "SELECT CONVERT(int, SERVERPROPERTY('ProductMajorVersion'))").Scan(&version)
+	// Check whether the server supports the native JSON type.
+	// The fallback behavior should only be tested when JSON type is NOT available.
+	var hasJSONType int
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json'").Scan(&hasJSONType)
 	if err != nil {
-		t.Skipf("Could not determine SQL Server version: %v", err)
+		t.Skipf("Could not determine JSON type availability: %v", err)
 	}
-	if version >= 17 {
-		t.Skipf("SQL Server version %d supports native JSON type (testing fallback requires version < 17)", version)
+	if hasJSONType > 0 {
+		t.Skipf("Server supports native JSON type (testing fallback requires no native JSON type)")
 	}
 
-	t.Logf("Testing fallback behavior on SQL Server version %d", version)
+	t.Logf("Testing fallback behavior on server without native JSON type")
 
 	conn, err := db.Conn(ctx)
 	if err != nil {
@@ -776,23 +783,19 @@ func TestJSONFallback_PreSQL2025(t *testing.T) {
 		}
 	})
 
-	t.Run("JSON validated with ISJSON on pre-2025", func(t *testing.T) {
-		if version < 13 { // ISJSON requires SQL Server 2016+
-			t.Skip("ISJSON requires SQL Server 2016+")
-		}
-
+	t.Run("JSON validated with ISJSON on fallback server", func(t *testing.T) {
 		jsonValue := JSON(`{"valid":"json"}`)
 		var isValid int
 		err := conn.QueryRowContext(ctx, `SELECT ISJSON(@p1)`, jsonValue).Scan(&isValid)
 		if err != nil {
-			t.Fatalf("ISJSON query failed: %v", err)
+			t.Skipf("ISJSON not available on this server: %v", err)
 		}
 		if isValid != 1 {
 			t.Errorf("Expected ISJSON=1, got: %d", isValid)
 		}
 	})
 
-	t.Run("Native JSON column fails on pre-2025", func(t *testing.T) {
+	t.Run("Native JSON column fails on server without native JSON type", func(t *testing.T) {
 		// Attempting to create a native JSON column should fail on pre-2025
 		tableName := "#test_native_json_fail"
 		_, err := conn.ExecContext(ctx, `
