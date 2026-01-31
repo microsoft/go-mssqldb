@@ -1330,7 +1330,7 @@ func makeDecl(ti typeInfo) string {
 	case typeJson:
 		return "json"
 	default:
-		panic(fmt.Sprintf("not implemented makeDecl for type %#x", ti.TypeId))
+		panic(fmt.Sprintf("not implemented makeDecl for type %#x", typeId))
 	}
 }
 

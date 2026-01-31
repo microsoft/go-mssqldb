@@ -68,7 +68,6 @@ func (nj *NullJSON) Scan(value interface{}) error {
 		nj.JSON, nj.Valid = nil, false
 		return nil
 	}
-	nj.Valid = true
 	switch v := value.(type) {
 	case string:
 		nj.JSON = json.RawMessage(v)
@@ -81,8 +80,10 @@ func (nj *NullJSON) Scan(value interface{}) error {
 		nj.JSON = make(json.RawMessage, len(v))
 		copy(nj.JSON, v)
 	default:
+		nj.Valid = false
 		return fmt.Errorf("unsupported Scan, storing driver.Value type %T into type *NullJSON", value)
 	}
+	nj.Valid = true
 	return nil
 }
 
