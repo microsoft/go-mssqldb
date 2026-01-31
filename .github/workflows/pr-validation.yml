@@ -21,6 +21,7 @@ jobs:
     - name: Install go-sqlcmd
       run: brew install sqlcmd
     - name: Run tests against Linux SQL
+      shell: bash
       run: |
         go version
         export SQLCMDPASSWORD=$(date +%s|sha256sum|base64|head -c 32)
