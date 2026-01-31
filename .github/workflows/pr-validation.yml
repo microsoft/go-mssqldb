@@ -27,15 +27,23 @@ jobs:
         export SQLPASSWORD=$SQLCMDPASSWORD
         export DATABASE=master
         export HOST=localhost
-        # Build connection string - SQL 2017 requires trusting its self-signed certificate
+        # Build connection string - SQL 2017 and 2025 Docker images use self-signed certificates
         if [ "${{ matrix.sqlImage }}" = "2017-latest" ]; then
           export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
           # SQL 2017's self-signed certificate has a negative serial number that Go 1.23+ rejects by default.
           # This GODEBUG override is only for CI testing against SQL Server 2017 and MUST NOT be used in production.
           export GODEBUG=x509negativeserial=1
+        elif [ "${{ matrix.sqlImage }}" = "2025-latest" ]; then
+          # SQL 2025 Docker image also uses a self-signed certificate
+          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
         else
           export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}"
         fi
         docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver -p:1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD mcr.microsoft.com/mssql/server:${{ matrix.sqlImage }}
-        sleep 10
+        # Wait for SQL Server to start - retry connection up to 30 seconds
+        for i in {1..6}; do
+          sleep 5
+          docker exec sqlserver /opt/mssql-tools*/bin/sqlcmd -S localhost -U sa -P "$SQLCMDPASSWORD" -Q "SELECT 1" > /dev/null 2>&1 && break
+          echo "Waiting for SQL Server to start... (attempt $i)"
+        done
         go test -v ./...
