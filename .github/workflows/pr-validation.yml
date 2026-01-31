@@ -18,6 +18,8 @@ jobs:
       uses: actions/setup-go@v2
       with:
         go-version: '${{ matrix.go }}'
+    - name: Install go-sqlcmd
+      run: go install github.com/microsoft/go-sqlcmd/cmd/sqlcmd@latest
     - name: Run tests against Linux SQL
       run: |
         go version
@@ -41,7 +43,7 @@ jobs:
         fi
         docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver -p:1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD mcr.microsoft.com/mssql/server:${{ matrix.sqlImage }}
         # Wait for SQL Server to start - retry connection up to 30 seconds
-        # Use the standard sqlcmd client pre-installed on GitHub Actions runners
+        # Use go-sqlcmd (installed above) for consistent behavior across runners
         for i in {1..6}; do
           sleep 5
           sqlcmd -S localhost -U sa -P "$SQLCMDPASSWORD" -Q "SELECT 1" > /dev/null 2>&1 && break
