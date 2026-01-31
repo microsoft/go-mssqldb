@@ -48,6 +48,11 @@ func TestIsProc(t *testing.T) {
 		{"--proc", false},
 		{"[proc;]", true},
 		{" proc", false},
+		{"RECONFIGURE", false},
+		{"SHUTDOWN", false},
+		{"CHECKPOINT", false},
+		{"COMMIT", false},
+		{"ROLLBACK", false},
 	}
 
 	for _, item := range list {

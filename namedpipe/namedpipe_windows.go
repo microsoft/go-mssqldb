@@ -1,3 +1,5 @@
+//go:build windows && (amd64 || 386)
+
 package namedpipe
 
 import (
@@ -11,15 +13,17 @@ import (
 	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
-type namedPipeData struct {
-	PipeName string
-}
-
 var azureDomains = []string{
 	".database.windows.net",
 	".database.chinacloudapi.cn",
 	".database.usgovcloudapi.net",
 }
+
+type namedPipeData struct {
+	PipeName string
+}
+
+type namedPipeDialer struct{}
 
 func (n namedPipeDialer) ParseServer(server string, p *msdsn.Config) error {
 	if p.Port > 0 {
@@ -106,4 +110,11 @@ func (n namedPipeDialer) DialConnection(ctx context.Context, p *msdsn.Config) (c
 func (n namedPipeDialer) CallBrowser(p *msdsn.Config) bool {
 	_, ok := p.ProtocolParameters[n.Protocol()]
 	return !ok
+}
+
+func init() {
+	dialer := namedPipeDialer{}
+
+	msdsn.ProtocolParsers = append(msdsn.ProtocolParsers, dialer)
+	msdsn.ProtocolDialers["np"] = dialer
 }

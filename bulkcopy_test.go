@@ -12,6 +12,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestBulkcopyWithInvalidNullableType(t *testing.T) {
@@ -27,6 +30,8 @@ func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 		"test_nullint16",
 		"test_nulltime",
 		"test_nulluniqueidentifier",
+		"test_nulldecimal",
+		"test_nullmoney",
 	}
 	values := []interface{}{
 		sql.NullFloat64{Valid: false},
@@ -38,6 +43,8 @@ func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 		sql.NullInt16{Valid: false},
 		sql.NullTime{Valid: false},
 		NullUniqueIdentifier{Valid: false},
+		decimal.NullDecimal{Valid: false},
+		Money[decimal.NullDecimal]{decimal.NullDecimal{Valid: false}},
 	}
 
 	pool, logger := open(t)
@@ -113,7 +120,7 @@ func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 
 func testBulkcopy(t *testing.T, guidConversion bool) {
 	// TDS level Bulk Insert is not supported on Azure SQL Server.
-	if dsn := makeConnStrSettingGuidConversion(t, guidConversion); strings.HasSuffix(strings.Split(dsn.Host, ":")[0], ".database.windows.net") {
+	if dsn := makeConnStr(t); strings.HasSuffix(strings.Split(dsn.Host, ":")[0], ".database.windows.net") {
 		t.Skip("TDS level bulk copy is not supported on Azure SQL Server")
 	}
 	type testValue struct {
@@ -174,8 +181,11 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		{"test_nullint32", sql.NullInt32{2147483647, true}, 2147483647},
 		{"test_nullint16", sql.NullInt16{32767, true}, 32767},
 		{"test_nulltime", sql.NullTime{time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC), true}, time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC)},
-		// {"test_smallmoney", 1234.56, nil},
-		// {"test_money", 1234.56, nil},
+		{"test_nulldecimal", decimal.NewNullDecimal(decimal.New(1232355, -4)), decimal.New(1232355, -4)},
+		{"test_nullmoney", Money[decimal.NullDecimal]{decimal.NewNullDecimal(decimal.New(-21232311232355, -4))}, decimal.New(-21232311232355, -4)},
+		{"test_datetimen_midnight", time.Date(2025, 1, 1, 23, 59, 59, 998_350_000, time.UTC), time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)},
+		{"test_smallmoney", Money[decimal.Decimal]{decimal.New(-32856, -4)}, decimal.New(-32856, -4)},
+		{"test_money", Money[decimal.Decimal]{decimal.New(-21232311232355, -4)}, decimal.New(-21232311232355, -4)},
 		{"test_decimal_18_0", 1234.0001, "1234"},
 		{"test_decimal_9_2", -1234.560001, "-1234.56"},
 		{"test_decimal_20_0", 1234, "1234"},
@@ -206,7 +216,7 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		values[i] = val.in
 	}
 
-	pool, logger := open(t)
+	pool, logger := openSettingGuidConversion(t, guidConversion)
 	defer pool.Close()
 	defer logger.StopLogging()
 
@@ -338,6 +348,20 @@ func compareValue(a interface{}, expected interface{}) bool {
 			return expected.Equal(got) && ez == az
 		}
 		return false
+	case decimal.Decimal:
+		actual, err := decimal.NewFromString(a.(string))
+		if err != nil {
+			return false
+		}
+
+		return expected.Equal(actual)
+	case Money[decimal.Decimal]:
+		actual, err := decimal.NewFromString(a.(string))
+		if err != nil {
+			return false
+		}
+
+		return expected.Decimal.Equal(actual)
 	default:
 		return reflect.DeepEqual(expected, a)
 	}
@@ -355,6 +379,8 @@ func setupNullableTypeTable(ctx context.Context, t *testing.T, conn *sql.Conn, t
 	[test_nullint16] [smallint] NULL,
 	[test_nulltime] [datetime] NULL,
 	[test_nulluniqueidentifier] [uniqueidentifier] NULL,
+	[test_nulldecimal] [decimal](18, 4) NULL,
+	[test_nullmoney] [money] NULL,
  CONSTRAINT [PK_` + tableName + `_id] PRIMARY KEY CLUSTERED
 (
 	[id] ASC
@@ -442,8 +468,10 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 	[test_nullint32] [int] NULL,
 	[test_nullint16] [smallint] NULL,
 	[test_nulltime] [datetime] NULL,
-
 	[test_[]]{}?@!#$%^&*()_+-=~'\";:/.,<>|\ ] [int] NULL,
+	[test_nulldecimal] [decimal](18, 4) NULL,
+	[test_nullmoney] [money] NULL,
+	[test_datetimen_midnight] [datetime] NULL,
  CONSTRAINT [PK_` + tableName + `_id] PRIMARY KEY CLUSTERED
 (
 	[id] ASC
@@ -454,4 +482,47 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 		t.Fatal("tablesql failed:", err)
 	}
 	return
+}
+
+func TestBulkcopyFailure(t *testing.T) {
+	// Regression test.
+	pool, logger := open(t)
+	defer pool.Close()
+	defer logger.StopLogging()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	conn, err := pool.Conn(ctx)
+	assert.NoError(t, err)
+	defer conn.Close()
+
+	// The table does not exist, so this will fail below.
+	stmt, err := conn.PrepareContext(ctx, CopyIn("thistabledoesnotexist", BulkOptions{}, "foobar"))
+	assert.NoError(t, err)
+	defer stmt.Close()
+
+	// This implicitly triggers getMetadata which executes SET FMTONLY ON before
+	// trying to query the table to be inserted into.
+	_, err = stmt.ExecContext(ctx, "")
+	// But of course, it fails. Previously this would not SET FMTONLY OFF in the case
+	// of a failure, so the next statement would be nullified.
+	assert.ErrorContains(t, err, "Invalid object name 'thistabledoesnotexist'")
+
+	_, err = stmt.ExecContext(ctx)
+	assert.NoError(t, err)
+
+	// This next statement was being nullified by the SET FMTONLY ON
+	stmt, err = conn.PrepareContext(ctx, "CREATE TABLE #temp (id INT)")
+	assert.NoError(t, err)
+	defer stmt.Close()
+	_, err = stmt.ExecContext(ctx)
+	assert.NoError(t, err)
+
+	// So then the table would not get created, causing an unexpected failure.
+	stmt, err = conn.PrepareContext(ctx, "SELECT * FROM #temp")
+	assert.NoError(t, err)
+	defer stmt.Close()
+	_, err = stmt.ExecContext(ctx)
+	assert.NoError(t, err)
 }

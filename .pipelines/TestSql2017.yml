@@ -34,29 +34,40 @@ steps:
     arguments: 'github.com/AlekSi/gocov-xml@latest'
     workingDirectory: '$(System.DefaultWorkingDirectory)'
 
+- task: AzureCLI@2
+  inputs:
+    addSpnToEnvironment: true
+    azureSubscription: $(AZURESUBSCRIPTION_SERVICE_CONNECTION_NAME)
+    scriptType: pscore
+    scriptLocation: inlineScript
+    inlineScript: |
+      Write-Host "##vso[task.setvariable variable=AZURESUBSCRIPTION_CLIENT_ID;]$env:AZURESUBSCRIPTION_CLIENT_ID"
+      Write-Host "##vso[task.setvariable variable=AZURESUBSCRIPTION_TENANT_ID;]$env:AZURESUBSCRIPTION_TENANT_ID"
+      Write-Host "##vso[task.setvariable variable=AZURESUBSCRIPTION_SERVICE_CONNECTION_ID;]$env:AZURESUBSCRIPTION_SERVICE_CONNECTION_ID"
+      gci env:* | sort-object name
 
 - task: Docker@2
-  displayName: 'Run SQL 2017 docker image'
+  displayName: 'Run SQL 2022 docker image'
   inputs:
     command: run
-    arguments: '-m 2GB -e ACCEPT_EULA=1 -d --name sql2017 -p:1433:1433 -e SA_PASSWORD=$(TESTPASSWORD) mcr.microsoft.com/mssql/server:2017-latest'
+    arguments: '-m 2GB -e ACCEPT_EULA=1 -d --name sql2022 -p:1433:1433 -e SA_PASSWORD=$(TESTPASSWORD) mcr.microsoft.com/mssql/server:2022-latest'
 
 - script: |
-    ~/go/bin/gotestsum --junitfile testresults.xml -- -coverprofile=coverage.txt -covermode count ./...
+    ~/go/bin/gotestsum --junitfile testresults.xml -- ./... -coverprofile=coverage.txt -covermode count 
     ~/go/bin/gocov convert coverage.txt > coverage.json
     ~/go/bin/gocov-xml < coverage.json > coverage.xml
-    mkdir coverage
   workingDirectory: '$(Build.SourcesDirectory)'
   displayName: 'run tests'
   env:
+# skipping Azure related tests due to lack of access
     SQLPASSWORD: $(SQLPASSWORD)
-    AZURESERVER_DSN: $(AZURESERVER_DSN)
     SQLSERVER_DSN: $(SQLSERVER_DSN)
-    AZURE_CLIENT_SECRET: $(AZURE_CLIENT_SECRET)
+    AZURESERVER_DSN: $(AZURESERVER_DSN)
+    AZURESUBSCRIPTION_SERVICE_CONNECTION_ID: $(AZURESUBSCRIPTION_SERVICE_CONNECTION_ID)
+    AZURESUBSCRIPTION_CLIENT_ID: $(AZURESUBSCRIPTION_CLIENT_ID)
+    AZURESUBSCRIPTION_TENANT_ID: $(AZURESUBSCRIPTION_TENANT_ID)
+    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
     KEY_VAULT_NAME: $(KEY_VAULT_NAME)
-    AZURE_TENANT_ID: $(AZURE_TENANT_ID)
-    AZURE_CLIENT_ID: $(AZURE_CLIENT_ID)
-    COLUMNENCRYPTION: 1
   continueOnError: true
 - task: PublishTestResults@2
   displayName: "Publish junit-style results"
@@ -64,16 +75,14 @@ steps:
     testResultsFiles: 'testresults.xml'
     testResultsFormat: JUnit
     searchFolder: '$(Build.SourcesDirectory)'
-    testRunTitle: 'SQL 2017 - $(Build.SourceBranchName)'
+    testRunTitle: 'SQL 2022 - $(Build.SourceBranchName)'
+    failTaskOnFailedTests: true
   condition: always()
-  continueOnError: true
-
-- task: PublishCodeCoverageResults@1
+  
+- task: PublishCodeCoverageResults@2
   inputs:
-    codeCoverageTool: Cobertura 
     pathToSources: '$(Build.SourcesDirectory)'
     summaryFileLocation: $(Build.SourcesDirectory)/**/coverage.xml
-    reportDirectory: $(Build.SourcesDirectory)/**/coverage
     failIfCoverageEmpty: true
   condition: always()
   continueOnError: true

@@ -134,7 +134,7 @@ func (tvp TVP) encode(schema, name string, columnStr []columnStruct, tvpFieldInd
 			if err != nil {
 				return nil, fmt.Errorf("failed to make tvp parameter row col: %s", err)
 			}
-			columnStr[columnStrIdx].ti.Writer(buf, param.ti, param.buffer)
+			columnStr[columnStrIdx].ti.Writer(buf, param.ti, param.buffer, encoding)
 		}
 	}
 	buf.WriteByte(_TVP_END_TOKEN)

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/microsoft/go-mssqldb/msdsn"
+	"github.com/shopspring/decimal"
 )
 
 func driverWithProcess(t *testing.T, tl Logger) *Driver {
@@ -212,6 +213,45 @@ func testSelect(t *testing.T, guidConversion bool) {
 
 		if out.String != strings.Repeat("a", 8000) {
 			t.Error("got back a string with count:", len(out.String))
+		}
+	})
+	t.Run("scan into decimal.Decimal", func(t *testing.T) {
+		row := conn.QueryRow("SELECT cast(11.2 AS DECIMAL(18, 2))")
+		var out decimal.Decimal
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to Decimal failed", err.Error())
+			return
+		}
+
+		if !out.Equal(decimal.New(112, -1)) {
+			t.Errorf("got back a Decimal with value: %s", out.String())
+		}
+	})
+	t.Run("scan into decimal.NullDecimal", func(t *testing.T) {
+		row := conn.QueryRow("SELECT cast(11.2 AS DECIMAL(18, 2))")
+		var out decimal.NullDecimal
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to NullDecimal failed", err.Error())
+			return
+		}
+
+		if !out.Decimal.Equal(decimal.New(112, -1)) || !out.Valid {
+			t.Errorf("got back a NullDecimal with value: %t, %s", out.Valid, out.Decimal.String())
+		}
+	})
+	t.Run("scan into decimal.NullDecimal from NULL", func(t *testing.T) {
+		row := conn.QueryRow("SELECT NULL")
+		var out decimal.NullDecimal
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to NullDecimal failed", err.Error())
+			return
+		}
+
+		if out.Valid {
+			t.Errorf("got back a NullDecimal with value: %t, %s", out.Valid, out.Decimal.String())
 		}
 	})
 }
@@ -971,6 +1011,99 @@ func TestUniqueIdentifierParam(t *testing.T) {
 	}
 }
 
+func TestDecimalParam(t *testing.T) {
+	conn, logger := open(t)
+	defer conn.Close()
+	defer logger.StopLogging()
+	type testStruct struct {
+		name    string
+		decimal decimal.Decimal
+	}
+
+	values := []testStruct{
+		{
+			"positive with negative exp",
+			decimal.New(2534, -3),
+		},
+		{
+			"positive with positive exp",
+			decimal.New(12, 10),
+		},
+		{
+			"negative with negative exp",
+			decimal.New(-252234, -8),
+		},
+		{
+			"negative with positive exp",
+			decimal.New(-67, 4),
+		},
+	}
+
+	for _, test := range values {
+		t.Run(test.name, func(t *testing.T) {
+			var decimal2 decimal.Decimal
+			err := conn.QueryRow("select @p1", test.decimal).Scan(&decimal2)
+			if err != nil {
+				t.Fatal("select / scan failed", err.Error())
+			}
+
+			if !test.decimal.Equal(decimal2) {
+				t.Errorf("decimal does not match: '%s' '%s'", test.decimal.String(), decimal2.String())
+			}
+		})
+	}
+}
+
+func TestNullDecimalParam(t *testing.T) {
+	conn, logger := open(t)
+	defer conn.Close()
+	defer logger.StopLogging()
+	type testStruct struct {
+		name    string
+		decimal decimal.NullDecimal
+	}
+
+	values := []testStruct{
+		{
+			"positive with negative exp",
+			decimal.NewNullDecimal(decimal.New(2534, -3)),
+		},
+		{
+			"positive with positive exp",
+			decimal.NewNullDecimal(decimal.New(12, 10)),
+		},
+		{
+			"negative with negative exp",
+			decimal.NewNullDecimal(decimal.New(-252234, -8)),
+		},
+		{
+			"negative with positive exp",
+			decimal.NewNullDecimal(decimal.New(-67, 4)),
+		},
+		{
+			"null",
+			decimal.NullDecimal{},
+		},
+	}
+
+	for _, test := range values {
+		t.Run(test.name, func(t *testing.T) {
+			var decimal2 decimal.NullDecimal
+			err := conn.QueryRow("select @p1", test.decimal).Scan(&decimal2)
+			if err != nil {
+				t.Fatal("select / scan failed", err.Error())
+			}
+
+			if test.decimal.Valid != decimal2.Valid ||
+				(test.decimal.Valid && !test.decimal.Decimal.Equal(decimal2.Decimal)) {
+				t.Errorf("null decimal does not match: '%t, %s' '%t, %s'",
+					test.decimal.Valid, test.decimal.Decimal.String(),
+					decimal2.Valid, decimal2.Decimal.String())
+			}
+		})
+	}
+}
+
 func TestBigQuery(t *testing.T) {
 	conn, logger := open(t)
 	defer conn.Close()
@@ -1240,7 +1373,7 @@ func TestCommitTranError(t *testing.T) {
 
 	// close connection to cause processBeginResponse to fail
 	conn.sess.buf.transport.Close()
-	err = conn.simpleProcessResp(ctx)
+	err = conn.simpleProcessResp(ctx, false)
 	switch err {
 	case nil:
 		t.Error("simpleProcessResp should fail but it succeeded")
@@ -1300,7 +1433,7 @@ func TestRollbackTranError(t *testing.T) {
 
 	// close connection to cause processBeginResponse to fail
 	conn.sess.buf.transport.Close()
-	err = conn.simpleProcessResp(ctx)
+	err = conn.simpleProcessResp(ctx, false)
 	switch err {
 	case nil:
 		t.Error("simpleProcessResp should fail but it succeeded")
@@ -2807,5 +2940,160 @@ func TestAdminConnection(t *testing.T) {
 	}
 	if !strings.EqualFold(protocol, "tcp") {
 		t.Fatalf("Tcp connection not made. Protocol: %s", protocol)
+	}
+}
+
+func TestCustomTimezone(t *testing.T) {
+
+	t.Run("without custom timezone", func(t *testing.T) {
+		conn, logger := open(t)
+		defer conn.Close()
+		defer logger.StopLogging()
+		_, err := conn.Exec("create table test (ts datetime)")
+		defer conn.Exec("drop table test")
+		if err != nil {
+			t.Fatal("create table failed with error", err)
+		}
+
+		inputTime := time.Date(2025, 5, 26, 15, 30, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+		_, err = conn.Exec("insert into test (ts) values (@ts)", sql.Named("ts", inputTime.Format("2006-01-02 15:04:05")))
+		if err != nil {
+			t.Fatal("insert failed:", err)
+		}
+
+		var resultTime time.Time
+		err = conn.QueryRow("select ts from test").Scan(&resultTime)
+		if err != nil {
+			t.Fatal("QueryRow failed:", err)
+		}
+
+		if inputTime.Truncate(time.Second).Equal(resultTime) {
+			t.Errorf("Expected result time to differ from input time due to timezone loss,\ninput:  %v\nresult: %v", inputTime, resultTime)
+		} else {
+			t.Logf("Input time and result time differ as expected:\ninput:  %v\nresult: %v", inputTime, resultTime)
+		}
+	})
+
+	t.Run("with custom timezone", func(t *testing.T) {
+		t.Setenv("TIME_ZONE", "Asia/Shanghai") // UTC+8 timezone
+		conn, logger := open(t)
+		defer conn.Close()
+		defer logger.StopLogging()
+		_, err := conn.Exec("create table test (ts datetime)")
+		defer conn.Exec("drop table test")
+		if err != nil {
+			t.Fatal("create table failed with error", err)
+		}
+
+		inputTime := time.Date(2025, 5, 26, 15, 30, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+		_, err = conn.Exec("insert into test (ts) values (@ts)", sql.Named("ts", inputTime.Format("2006-01-02 15:04:05")))
+		if err != nil {
+			t.Fatal("insert failed:", err)
+		}
+
+		var resultTime time.Time
+		err = conn.QueryRow("select ts from test").Scan(&resultTime)
+		if err != nil {
+			t.Fatal("QueryRow failed:", err)
+		}
+
+		if !inputTime.Truncate(time.Second).Equal(resultTime) {
+			t.Errorf("Expected result time to match input time with custom timezone,\ninput:  %v\nresult: %v", inputTime, resultTime)
+		}
+	})
+
+	t.Run("datetimeoffset with custom timezone", func(t *testing.T) {
+		t.Setenv("TIME_ZONE", "Asia/Shanghai")
+		conn, logger := open(t)
+		defer conn.Close()
+		defer logger.StopLogging()
+		_, err := conn.Exec("create table test_offset (ts datetimeoffset)")
+		defer conn.Exec("drop table test_offset")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		inputTime := time.Date(2025, 5, 26, 15, 30, 0, 0, time.FixedZone("UTC+5", 5*60*60))
+		_, err = conn.Exec("insert into test_offset (ts) values (@ts)", sql.Named("ts", inputTime))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var resultTime time.Time
+		err = conn.QueryRow("select ts from test_offset").Scan(&resultTime)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !inputTime.Equal(resultTime) {
+			t.Errorf("expected %v, got %v", inputTime, resultTime)
+		}
+	})
+
+}
+
+func TestCancelDuringRollback(t *testing.T) {
+	conn, logger := open(t)
+	defer conn.Close()
+	defer logger.StopLogging()
+
+	_, err := conn.Exec("if (exists(select * from INFORMATION_SCHEMA.TABLES where TABLE_NAME='tbl')) drop table tbl")
+	if err != nil {
+		t.Fatal("Drop table failed", err)
+	}
+
+	_, err = conn.Exec("create table tbl (fld1 int primary key, fld2 int)")
+	if err != nil {
+		t.Fatal("Create table failed", err)
+	}
+	_, err = conn.Exec("insert into tbl (fld1, fld2) values (1, 2)")
+	if err != nil {
+		t.Fatal("Insert failed", err)
+	}
+
+	// Try 10 attempts to reproduce the issue
+	for i := range 10 {
+		runRollbackCancellationTest(t, i+1)
+	}
+}
+
+func runRollbackCancellationTest(t *testing.T, attempt int) {
+	conn, _ := open(t)
+	defer conn.Close()
+
+	ctx, cancelFn := context.WithCancel(context.Background())
+
+	var tx *sql.Tx
+	var err error
+	if tx, err = conn.BeginTx(ctx, nil); err != nil {
+		t.Fatal("Begin failed", err.Error())
+	}
+
+	_, err = tx.ExecContext(ctx, "update tbl set fld2 = 1 where fld1 = 1")
+	if err != nil {
+		t.Fatal("Update failed", err)
+	}
+
+	// Cancel the context, this leads to the rollback of the transaction
+	// If the cancellation also leads to issue of Attention packet, and this is issued within a certain period
+	// of the Rollback request, the Rollback is cancelled.
+	// Outside of this period, the transaction is rolled back successfully - and it seems
+	// the Attention has no effect.
+	cancelFn()
+
+	// Need to refresh connection after rollback as conn returned to pool
+	conn, _ = open(t)
+	row := conn.QueryRow("select COUNT(1) FROM sys.dm_tran_session_transactions")
+	var retval *int64
+	err = row.Scan(&retval)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return
+		} else {
+			t.Fatalf("Scan failed: %s", err.Error())
+		}
+	}
+	if retval != nil && *retval != 0 {
+		t.Fatalf("Expected no outstanding transactions; got %d; failed in %d attempts", *retval, attempt)
 	}
 }

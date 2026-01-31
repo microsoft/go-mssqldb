@@ -4,6 +4,7 @@
 package mssql
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -12,6 +13,9 @@ import (
 )
 
 func TestNamedPipeProtocolInstalled(t *testing.T) {
+	if runtime.GOOS != "windows" || !(runtime.GOARCH == "amd64" || runtime.GOARCH == "386") {
+		t.Skip("Skipping tests for unsupported platforms...")
+	}
 	for _, p := range msdsn.ProtocolParsers {
 		if p.Protocol() == "np" {
 			return

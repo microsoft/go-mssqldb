@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"testing"
 )
@@ -79,7 +78,7 @@ func BenchmarkSelect(b *testing.B) {
 		if packetType != packLogin7 {
 			b.Fatal("Client sent non LOGIN request packet type", packetType)
 		}
-		_, err = ioutil.ReadAll(tdsBuf)
+		_, err = io.ReadAll(tdsBuf)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -114,7 +113,7 @@ func BenchmarkSelect(b *testing.B) {
 				b.Log(err)
 				return
 			}
-			_, err = ioutil.ReadAll(tdsBuf)
+			_, err = io.ReadAll(tdsBuf)
 			if err != nil {
 				b.Log(err)
 				return

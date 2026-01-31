@@ -2,6 +2,7 @@ package mssql
 
 import (
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -52,7 +53,7 @@ func TestRetryableError(t *testing.T) {
 func TestBadStreamPanic(t *testing.T) {
 
 	errMsg := "test error XYZ"
-	err := fmt.Errorf(errMsg)
+	err := errors.New(errMsg)
 
 	defer func() {
 		r := recover()

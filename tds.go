@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"sort"
@@ -280,7 +279,7 @@ func readPrelogin(r *tdsBuffer) (map[uint8][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	struct_buf, err := ioutil.ReadAll(r)
+	struct_buf, err := io.ReadAll(r)
 	if err != nil {
 		return nil, err
 	}
@@ -1114,7 +1113,7 @@ func getTLSConn(conn *timeoutConn, p msdsn.Config, alpnSeq string) (tlsConn *tls
 		config = pc
 	}
 	if config == nil {
-		config, err = msdsn.SetupTLS("", false, p.Host, "")
+		config, err = msdsn.SetupTLS("", "", false, p.Host, "")
 		if err != nil {
 			return nil, err
 		}
@@ -1130,6 +1129,7 @@ func getTLSConn(conn *timeoutConn, p msdsn.Config, alpnSeq string) (tlsConn *tls
 }
 
 func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Config) (res *tdsSession, err error) {
+	var cbt *integratedauth.ChannelBindings
 	isTransportEncrypted := false
 	// if instance is specified use instance resolution service
 	if len(p.Instance) > 0 && p.Port != 0 && uint64(p.LogFlags)&logDebug != 0 {
@@ -1173,11 +1173,18 @@ initiate_connection:
 	outbuf := newTdsBuffer(packetSize, toconn)
 
 	if p.Encryption == msdsn.EncryptionStrict {
-		outbuf.transport, err = getTLSConn(toconn, p, "tds/8.0")
+		tlsConn, err := getTLSConn(toconn, p, "tds/8.0")
 		if err != nil {
 			return nil, err
 		}
 		isTransportEncrypted = true
+		outbuf.transport = tlsConn
+		if p.EpaEnabled {
+			cbt, err = integratedauth.GenerateCBTFromTLSConnState(tlsConn.ConnectionState())
+			if err != nil {
+				logger.Log(ctx, msdsn.LogErrors, fmt.Sprintf("Error while generating Channel Bindings from TLS connection state: %v", err))
+			}
+		}
 	}
 	sess := newSession(outbuf, logger, p)
 
@@ -1226,7 +1233,7 @@ initiate_connection:
 				}
 			}
 			if config == nil {
-				config, err = msdsn.SetupTLS("", false, p.Host, "")
+				config, err = msdsn.SetupTLS("", "", false, p.Host, "")
 				if err != nil {
 					return nil, err
 				}
@@ -1238,18 +1245,30 @@ initiate_connection:
 			passthrough := passthroughConn{c: &handshakeConn}
 			tlsConn := tls.Client(&passthrough, config)
 			err = tlsConn.Handshake()
-			passthrough.c = toconn
-			outbuf.transport = tlsConn
 			if err != nil {
 				return nil, fmt.Errorf("TLS Handshake failed: %v", err)
 			}
+			// Flush any pending packet from the handshake
+			// The driver's Finished message is still in the buffer
+			_, err = handshakeConn.FinishPacket()
+			if err != nil {
+				return nil, fmt.Errorf("TLS Handshake flush failed: %w", err)
+			}
+			passthrough.c = toconn
+			outbuf.transport = tlsConn
 			if encrypt == encryptOff {
 				outbuf.afterFirst = func() {
 					outbuf.transport = toconn
 				}
 			}
-		}
 
+			if p.EpaEnabled {
+				cbt, err = integratedauth.GenerateCBTFromTLSConnState(tlsConn.ConnectionState())
+				if err != nil {
+					logger.Log(ctx, msdsn.LogErrors, fmt.Sprintf("Error while generating Channel Bindings from TLS connection state: %v", err))
+				}
+			}
+		}
 	}
 
 	auth, err := integratedauth.GetIntegratedAuthenticator(p)
@@ -1263,6 +1282,11 @@ initiate_connection:
 
 	if auth != nil {
 		defer auth.Free()
+		if cbt != nil {
+			if authWithEPA, ok := auth.(integratedauth.AuthenticatorWithEPA); ok {
+				authWithEPA.SetChannelBinding(cbt)
+			}
+		}
 	}
 
 	login, err := prepareLogin(ctx, c, p, logger, auth, fedAuth, uint32(outbuf.PackageSize()))
@@ -1412,5 +1436,4 @@ func getClientId(mac *[6]byte) {
 			}
 		}
 	}
-	return
 }
