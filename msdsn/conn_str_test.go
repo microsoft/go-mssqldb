@@ -29,6 +29,7 @@ func TestInvalidConnectionString(t *testing.T) {
 		"timezone=invalid",
 		"vectortypesupport=invalid",
 		"vectortypesupport=v2", // not yet supported
+		"epa enabled=invalid",
 
 		// ODBC mode
 		"odbc:password={",
@@ -113,6 +114,12 @@ func TestValidConnectionString(t *testing.T) {
 		{"MultiSubnetFailover=false", func(p Config) bool { return !p.MultiSubnetFailover }},
 		{"timezone=Asia/Shanghai", func(p Config) bool { return p.Encoding.Timezone.String() == "Asia/Shanghai" }},
 		{"Pwd=placeholder", func(p Config) bool { return p.Password == "placeholder" }},
+		{"epa enabled=true", func(p Config) bool { return p.EpaEnabled }},
+		{"epa enabled=false", func(p Config) bool { return !p.EpaEnabled }},
+		{"epa enabled=1", func(p Config) bool { return p.EpaEnabled }},
+		{"epa enabled=0", func(p Config) bool { return !p.EpaEnabled }},
+		{"server=test;epa enabled=true", func(p Config) bool { return p.Host == "test" && p.EpaEnabled }},
+		{"server=test;epa enabled=false", func(p Config) bool { return p.Host == "test" && !p.EpaEnabled }},
 
 		// vectorTypeSupport tests (matches JDBC/ODBC pattern)
 		{"vectortypesupport=off", func(p Config) bool { return p.VectorTypeSupport == VectorTypeSupportOff }},
@@ -210,6 +217,12 @@ func TestValidConnectionString(t *testing.T) {
 		{"odbc:vectortypesupport=v1", func(p Config) bool { return p.VectorTypeSupport == VectorTypeSupportV1 }},
 		{"odbc:vectortypesupport=off", func(p Config) bool { return p.VectorTypeSupport == VectorTypeSupportOff }},
 		{"odbc:vectortypesupport={v1}", func(p Config) bool { return p.VectorTypeSupport == VectorTypeSupportV1 }},
+		{"odbc:epa enabled=true", func(p Config) bool { return p.EpaEnabled }},
+		{"odbc:epa enabled=false", func(p Config) bool { return !p.EpaEnabled }},
+		{"odbc:server=somehost;epa enabled=1", func(p Config) bool { return p.Host == "somehost" && p.EpaEnabled }},
+		{"odbc:server=somehost;epa enabled=0", func(p Config) bool { return p.Host == "somehost" && !p.EpaEnabled }},
+		{"odbc:epa enabled={true}", func(p Config) bool { return p.EpaEnabled }},
+		{"odbc:epa enabled={false}", func(p Config) bool { return !p.EpaEnabled }},
 
 		// URL mode
 		{"sqlserver://somehost?connection+timeout=30", func(p Config) bool {
@@ -245,6 +258,11 @@ func TestValidConnectionString(t *testing.T) {
 		{"sqlserver://someuser@somehost?timezone=Asia%2FShanghai", func(p Config) bool { return p.Encoding.Timezone.String() == "Asia/Shanghai" }},
 		{"sqlserver://somehost?vectortypesupport=v1", func(p Config) bool { return p.Host == "somehost" && p.VectorTypeSupport == VectorTypeSupportV1 }},
 		{"sqlserver://somehost?vectortypesupport=off", func(p Config) bool { return p.Host == "somehost" && p.VectorTypeSupport == VectorTypeSupportOff }},
+		{"sqlserver://somehost?epa+enabled=true", func(p Config) bool { return p.Host == "somehost" && p.EpaEnabled }},
+		{"sqlserver://somehost?epa+enabled=false", func(p Config) bool { return p.Host == "somehost" && !p.EpaEnabled }},
+		{"sqlserver://somehost?epa+enabled=1", func(p Config) bool { return p.Host == "somehost" && p.EpaEnabled }},
+		{"sqlserver://somehost?epa+enabled=0", func(p Config) bool { return p.Host == "somehost" && !p.EpaEnabled }},
+		{"sqlserver://somehost?epa+enabled=true&encrypt=true", func(p Config) bool { return p.Host == "somehost" && p.EpaEnabled && p.Encryption == EncryptionRequired }},
 	}
 	for _, ts := range connStrings {
 		p, err := Parse(ts.connStr)
@@ -447,4 +465,72 @@ f0kGHKQEAFYGJLqJdK4KsGQDKLfZr9fqvXCCAA==
 	_, err = Parse(connStr5)
 	assert.NotNil(t, err, "Expected error when both serverCertificate and hostnameincertificate are specified")
 	assert.Contains(t, err.Error(), "cannot specify both", "Error should mention conflicting parameters")
+}
+
+// TestEpaEnabledFromEnvironment tests parsing EPA enabled from the MSSQL_USE_EPA environment variable
+func TestEpaEnabledFromEnvironment(t *testing.T) {
+	// Save the original environment variable value
+	originalValue := os.Getenv("MSSQL_USE_EPA")
+	defer func() {
+		// Restore the original value
+		if originalValue != "" {
+			os.Setenv("MSSQL_USE_EPA", originalValue)
+		} else {
+			os.Unsetenv("MSSQL_USE_EPA")
+		}
+	}()
+
+	// Test 1: Environment variable set to "true"
+	os.Setenv("MSSQL_USE_EPA", "true")
+	config, err := Parse("server=testhost")
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.True(t, config.EpaEnabled, "Expected EpaEnabled to be true when MSSQL_USE_EPA=true")
+
+	// Test 2: Environment variable set to "false"
+	os.Setenv("MSSQL_USE_EPA", "false")
+	config, err = Parse("server=testhost")
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.False(t, config.EpaEnabled, "Expected EpaEnabled to be false when MSSQL_USE_EPA=false")
+
+	// Test 3: Environment variable set to "1"
+	os.Setenv("MSSQL_USE_EPA", "1")
+	config, err = Parse("server=testhost")
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.True(t, config.EpaEnabled, "Expected EpaEnabled to be true when MSSQL_USE_EPA=1")
+
+	// Test 4: Environment variable set to "0"
+	os.Setenv("MSSQL_USE_EPA", "0")
+	config, err = Parse("server=testhost")
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.False(t, config.EpaEnabled, "Expected EpaEnabled to be false when MSSQL_USE_EPA=0")
+
+	// Test 5: Environment variable not set (should default to false)
+	os.Unsetenv("MSSQL_USE_EPA")
+	config, err = Parse("server=testhost")
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.False(t, config.EpaEnabled, "Expected EpaEnabled to be false when MSSQL_USE_EPA is not set")
+
+	// Test 6: Connection string parameter overrides environment variable
+	os.Setenv("MSSQL_USE_EPA", "true")
+	config, err = Parse("server=testhost;epa enabled=false")
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.False(t, config.EpaEnabled, "Expected EpaEnabled to be false when explicitly set in connection string, overriding environment variable")
+
+	// Test 7: Connection string parameter overrides environment variable (reverse)
+	os.Setenv("MSSQL_USE_EPA", "false")
+	config, err = Parse("server=testhost;epa enabled=true")
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.True(t, config.EpaEnabled, "Expected EpaEnabled to be true when explicitly set in connection string, overriding environment variable")
+
+	// Test 8: Invalid environment variable value should cause error
+	os.Setenv("MSSQL_USE_EPA", "invalid")
+	_, err = Parse("server=testhost")
+	assert.NotNil(t, err, "Expected error when MSSQL_USE_EPA has invalid value")
+	assert.Contains(t, err.Error(), "invalid epa enabled value", "Error should mention invalid epa enabled value")
+
+	// Test 9: Empty environment variable should default to false
+	os.Setenv("MSSQL_USE_EPA", "")
+	config, err = Parse("server=testhost")
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.False(t, config.EpaEnabled, "Expected EpaEnabled to be false when MSSQL_USE_EPA is empty")
 }

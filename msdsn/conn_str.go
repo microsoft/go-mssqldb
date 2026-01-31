@@ -102,6 +102,7 @@ const (
 	GuidConversion         = "guid conversion"
 	Timezone               = "timezone"
 	VectorTypeSupportParam = "vectortypesupport"
+	EpaEnabled             = "epa enabled"
 )
 
 type EncodeParameters struct {
@@ -179,6 +180,8 @@ type Config struct {
 	// Matches JDBC/ODBC vectorTypeSupport connection property.
 	// Default is VectorTypeSupportOff for backward compatibility.
 	VectorTypeSupport VectorTypeSupport
+	// EPA mode determines how the Channel Bindings are calculated.
+	EpaEnabled bool
 }
 
 func readDERFile(filename string) ([]byte, error) {
@@ -669,6 +672,19 @@ func Parse(dsn string) (Config, error) {
 		default:
 			return p, fmt.Errorf("invalid vectorTypeSupport '%s': must be 'off' or 'v1'", vectorSupport)
 		}
+	}
+
+	p.EpaEnabled = false
+	epaString, ok := params[EpaEnabled]
+	if !ok {
+		epaString = os.Getenv("MSSQL_USE_EPA")
+	}
+	if epaString != "" {
+		epaEnabled, err := strconv.ParseBool(epaString)
+		if err != nil {
+			return p, fmt.Errorf("invalid epa enabled value '%s': %v", epaString, err)
+		}
+		p.EpaEnabled = epaEnabled
 	}
 
 	return p, nil
