@@ -838,8 +838,11 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		}
 		ti.Reader = readPLPType
 	case typeJson:
-		// JSON type uses PLP format like XML, but without schema info
-		// Data is UTF-16LE encoded JSON text (same encoding as NVarChar)
+		// JSON type uses PLP format like XML, not like NVARCHAR.
+		// Unlike NVARCHAR which sends a 2-byte size indicator (0xFFFF for MAX),
+		// JSON is always a MAX/PLP type with no size indicator in the column metadata.
+		// This is consistent with how SQL Server 2025 implements the JSON type in TDS.
+		// Data is UTF-16LE encoded JSON text (same wire encoding as NVarChar).
 		ti.Reader = readPLPType
 	case typeUdt:
 		ti.Size = int(r.uint16())
