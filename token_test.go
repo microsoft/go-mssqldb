@@ -68,8 +68,8 @@ func TestParseFeatureExtAckJSON(t *testing.T) {
 		t.Error("Expected featExtJSONSUPPORT in ack map")
 	} else if v, ok := version.(byte); !ok {
 		t.Errorf("Expected byte type for JSON version, got %T", version)
-	} else if v != 0x01 {
-		t.Errorf("Expected JSON version 0x01, got 0x%02x", v)
+	} else if v != jsonSupportVersion {
+		t.Errorf("Expected JSON version %#x, got %#x", jsonSupportVersion, v)
 	}
 }
 
@@ -110,7 +110,7 @@ func TestParseFeatureExtAckMultiple(t *testing.T) {
 		t.Error("Expected featExtJSONSUPPORT in ack map")
 	} else if v, ok := version.(byte); !ok {
 		t.Errorf("Expected byte type for JSON version, got %T", version)
-	} else if v != 0x01 {
-		t.Errorf("Expected JSON version 0x01, got 0x%02x", v)
+	} else if v != jsonSupportVersion {
+		t.Errorf("Expected JSON version %#x, got %#x", jsonSupportVersion, v)
 	}
 }

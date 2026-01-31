@@ -14,23 +14,23 @@ import (
 
 	"github.com/google/uuid"
 	mssqldb "github.com/microsoft/go-mssqldb"
-	"github.com/microsoft/go-mssqldb/msdsn"
 	_ "github.com/microsoft/go-mssqldb/integratedauth/krb5"
+	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
 func main() {
 	var (
-		userid   = flag.String("U", "", "login_id")
-		password = flag.String("P", "", "password")
-		server   = flag.String("S", "localhost", "server_name[\\instance_name]")
-		port     = flag.Uint64("p", 1433, "server port")
-		keyLog   = flag.String("K", "tlslog.log", "path to sslkeylog file")
-		database = flag.String("d", "", "db_name")
-		spn      = flag.String("spn", "", "SPN")
-		auth = flag.String("a", "ntlm", "Authentication method: ntlm, krb5 or winsspi")
-		epa = flag.Bool("epa", true, "EPA enabled: true, false")
-		encrypt = flag.String("e", "required", "encrypt mode: required, disabled, strict, optional")
-		query = flag.String("q", "", "query to execute")
+		userid        = flag.String("U", "", "login_id")
+		password      = flag.String("P", "", "password")
+		server        = flag.String("S", "localhost", "server_name[\\instance_name]")
+		port          = flag.Uint64("p", 1433, "server port")
+		keyLog        = flag.String("K", "tlslog.log", "path to sslkeylog file")
+		database      = flag.String("d", "", "db_name")
+		spn           = flag.String("spn", "", "SPN")
+		auth          = flag.String("a", "ntlm", "Authentication method: ntlm, krb5 or winsspi")
+		epa           = flag.Bool("epa", true, "EPA enabled: true, false")
+		encrypt       = flag.String("e", "required", "encrypt mode: required, disabled, strict, optional")
+		query         = flag.String("q", "", "query to execute")
 		tlsMinVersion = flag.String("tlsmin", "1.1", "TLS minimum version: 1.0, 1.1, 1.2, 1.3")
 		tlsMaxVersion = flag.String("tlsmax", "1.3", "TLS maximum version: 1.0, 1.1, 1.2, 1.3")
 	)
@@ -61,7 +61,7 @@ func main() {
 		Password:       *password,
 		ChangePassword: "",
 		AppName:        "go-mssqldb",
-		ServerSPN: *spn,
+		ServerSPN:      *spn,
 		TLSConfig: &tls.Config{
 			InsecureSkipVerify:          true, // adjust for your case
 			ServerName:                  *server,
@@ -70,11 +70,11 @@ func main() {
 			MinVersion:                  tlsMinVersionNum,
 			MaxVersion:                  tlsMaxVersionNum,
 		},
-		Encryption:         encryption,
+		Encryption: encryption,
 		Parameters: map[string]string{
-			"authenticator": *auth,
+			"authenticator":      *auth,
 			"krb5-credcachefile": os.Getenv("KRB5_CCNAME"),
-			"krb5-configfile": os.Getenv("KRB5_CONFIG"),
+			"krb5-configfile":    os.Getenv("KRB5_CONFIG"),
 		},
 		ProtocolParameters: map[string]interface{}{},
 		Protocols: []string{
@@ -87,7 +87,7 @@ func main() {
 		DialTimeout: time.Second * 5,
 		ConnTimeout: time.Second * 10,
 		KeepAlive:   time.Second * 30,
-		EpaEnabled: *epa,
+		EpaEnabled:  *epa,
 	}
 
 	activityid, uerr := uuid.NewRandom()
@@ -116,7 +116,7 @@ func main() {
 		fmt.Println("Cannot connect: ", err.Error())
 		return
 	}
-	
+
 	if *query != "" {
 		err = exec(db, *query)
 		if err != nil {

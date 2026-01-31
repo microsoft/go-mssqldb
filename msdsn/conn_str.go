@@ -647,7 +647,7 @@ func Parse(dsn string) (Config, error) {
 	if !ok {
 		epaString = os.Getenv("MSSQL_USE_EPA")
 	}
-	if epaString !=  "" {
+	if epaString != "" {
 		epaEnabled, err := strconv.ParseBool(epaString)
 		if err != nil {
 			return p, fmt.Errorf("invalid epa enabled value '%s': %v", epaString, err)

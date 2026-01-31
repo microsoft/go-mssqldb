@@ -9,7 +9,26 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/microsoft/go-mssqldb/msdsn"
 )
+
+// requireNativeJSON checks if the server supports native JSON type and skips the test if not.
+// The native JSON data type (type ID 0xF4) is available in:
+// - SQL Server 2025 (version 17+) - preview
+// - Azure SQL Database - generally available
+// - Azure SQL Managed Instance - with Always-up-to-date update policy
+func requireNativeJSON(t *testing.T, db *sql.DB, ctx context.Context) {
+	t.Helper()
+	var jsonTypeCount int
+	err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json'").Scan(&jsonTypeCount)
+	if err != nil {
+		t.Skipf("Could not determine JSON type support: %v", err)
+	}
+	if jsonTypeCount == 0 {
+		t.Skipf("Native JSON type is not supported on this server (no 'json' type in sys.types)")
+	}
+}
 
 // TestJSONType tests the JSON type parameter encoding and decoding.
 // Note: The native JSON type (type ID 0xF4) requires:
@@ -31,19 +50,7 @@ func TestJSONType(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Check if server supports native JSON type by capability rather than version.
-	// The native JSON data type (type ID 0xF4) is available in:
-	// - SQL Server 2025 (version 17) - preview
-	// - Azure SQL Database - generally available
-	// - Azure SQL Managed Instance - with Always-up-to-date update policy
-	var jsonTypeCount int
-	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json'").Scan(&jsonTypeCount)
-	if err != nil {
-		t.Skipf("Could not determine JSON type support: %v", err)
-	}
-	if jsonTypeCount == 0 {
-		t.Skipf("Native JSON type is not supported on this server (no 'json' type in sys.types)")
-	}
+	requireNativeJSON(t, db, ctx)
 
 	t.Run("JSON parameter round-trip", func(t *testing.T) {
 		jsonValue := json.RawMessage(`{"name":"test","value":123,"nested":{"key":"value"}}`)
@@ -126,15 +133,7 @@ func TestNullJSONType(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Check if server supports JSON type by capability
-	var jsonTypeCount int
-	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json'").Scan(&jsonTypeCount)
-	if err != nil {
-		t.Skipf("Could not determine JSON type support: %v", err)
-	}
-	if jsonTypeCount == 0 {
-		t.Skipf("Native JSON type is not supported on this server")
-	}
+	requireNativeJSON(t, db, ctx)
 
 	t.Run("NullJSON with valid value", func(t *testing.T) {
 		jsonValue := json.RawMessage(`{"valid":true}`)
@@ -441,16 +440,7 @@ func TestJSONTableInsertAndSelect(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Check if server supports JSON type by capability
-	var jsonTypeCount int
-	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json'").Scan(&jsonTypeCount)
-	if err != nil {
-		t.Skipf("Could not determine JSON type support: %v", err)
-	}
-	// Native JSON columns require the JSON type to be available
-	if jsonTypeCount == 0 {
-		t.Skipf("Native JSON type is not supported on this server (no 'json' type in sys.types)")
-	}
+	requireNativeJSON(t, db, ctx)
 
 	// Get a single connection to ensure temp table persists across operations
 	conn, err := db.Conn(ctx)
@@ -565,42 +555,6 @@ func TestNullJSONScanBytesCopy(t *testing.T) {
 	}
 }
 
-// TestJSONTypeDeclaration tests the type declaration strings for JSON.
-func TestJSONTypeDeclaration(t *testing.T) {
-	ti := typeInfo{TypeId: typeJson}
-
-	// Test makeDecl
-	decl := makeDecl(ti)
-	if decl != "json" {
-		t.Errorf("Expected makeDecl to return 'json', got: %s", decl)
-	}
-
-	// Test makeGoLangTypeName
-	typeName := makeGoLangTypeName(ti)
-	if typeName != "JSON" {
-		t.Errorf("Expected makeGoLangTypeName to return 'JSON', got: %s", typeName)
-	}
-
-	// Test makeGoLangTypeLength - JSON should return max length like nvarchar(max)
-	length, hasLength := makeGoLangTypeLength(ti)
-	if !hasLength {
-		t.Error("Expected makeGoLangTypeLength to return true for JSON")
-	}
-	expectedLength := int64(2147483645 / 2) // Same as nvarchar(max)
-	if length != expectedLength {
-		t.Errorf("Expected length %d, got: %d", expectedLength, length)
-	}
-
-	// Test makeGoLangTypePrecisionScale - JSON has no precision/scale
-	prec, scale, hasPrecScale := makeGoLangTypePrecisionScale(ti)
-	if hasPrecScale {
-		t.Error("Expected makeGoLangTypePrecisionScale to return false for JSON")
-	}
-	if prec != 0 || scale != 0 {
-		t.Errorf("Expected prec=0, scale=0, got prec=%d, scale=%d", prec, scale)
-	}
-}
-
 // TestJSONNativeSupport_SQL2025 tests native JSON type features that only work on SQL Server 2025+.
 // These tests verify the TDS JSON feature negotiation and native JSON column support.
 func TestJSONNativeSupport_SQL2025(t *testing.T) {
@@ -618,15 +572,7 @@ func TestJSONNativeSupport_SQL2025(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Check if server supports native JSON type by capability
-	var jsonTypeCount int
-	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json'").Scan(&jsonTypeCount)
-	if err != nil {
-		t.Skipf("Could not determine JSON type support: %v", err)
-	}
-	if jsonTypeCount == 0 {
-		t.Skipf("Native JSON type is not supported on this server (requires 'json' type in sys.types)")
-	}
+	requireNativeJSON(t, db, ctx)
 
 	// Get underlying connection to check session state
 	conn, err := db.Conn(ctx)
@@ -898,6 +844,36 @@ func TestJSONGoLangScanType(t *testing.T) {
 	}
 }
 
+// TestJSONWireDecoding tests that JSON data can be decoded from UTF-16LE wire format.
+// JSON uses the same wire encoding as NVarChar (UTF-16LE).
+func TestJSONWireDecoding(t *testing.T) {
+	// Test decoding UTF-16LE encoded JSON
+	// The string `{"key":"value"}` in UTF-16LE
+	jsonStr := `{"key":"value"}`
+	utf16Data := str2ucs2(jsonStr)
+
+	decoded := decodeNChar(utf16Data)
+	if decoded != jsonStr {
+		t.Errorf("Expected decoded JSON %q, got %q", jsonStr, decoded)
+	}
+
+	// Test with more complex JSON
+	complexJSON := `{"name":"test","value":123,"nested":{"array":[1,2,3]}}`
+	utf16Complex := str2ucs2(complexJSON)
+	decodedComplex := decodeNChar(utf16Complex)
+	if decodedComplex != complexJSON {
+		t.Errorf("Expected decoded JSON %q, got %q", complexJSON, decodedComplex)
+	}
+
+	// Test empty JSON object
+	emptyJSON := `{}`
+	utf16Empty := str2ucs2(emptyJSON)
+	decodedEmpty := decodeNChar(utf16Empty)
+	if decodedEmpty != emptyJSON {
+		t.Errorf("Expected decoded JSON %q, got %q", emptyJSON, decodedEmpty)
+	}
+}
+
 // TestJSONTypeFunctions tests all type-related functions for JSON type.
 // This covers makeDecl, makeGoLangTypeName, makeGoLangTypeLength, makeGoLangTypePrecisionScale
 func TestJSONTypeFunctions(t *testing.T) {
@@ -946,6 +922,33 @@ func TestJSONTypeFunctions(t *testing.T) {
 			t.Errorf("Expected prec=0, scale=0, got prec=%d, scale=%d", prec, scale)
 		}
 	})
+}
+
+// TestReadTypeInfoJSON tests reading JSON type metadata from TDS buffer.
+// This exercises the typeJson case in readTypeInfo.
+func TestReadTypeInfoJSON(t *testing.T) {
+	// JSON type wire format: [size: 2 bytes = 0xFFFF for PLP]
+	// 0xFFFF indicates MAX/PLP format
+	data := []byte{0xFF, 0xFF} // FFFF = PLP/MAX size indicator
+
+	r := &tdsBuffer{
+		packetSize: len(data),
+		rbuf:       data,
+		rpos:       0,
+		rsize:      len(data),
+	}
+
+	ti := readTypeInfo(r, typeJson, nil, msdsn.EncodeParameters{})
+
+	// Verify type info was read correctly
+	if ti.TypeId != typeJson {
+		t.Errorf("Expected TypeId %#x, got %#x", typeJson, ti.TypeId)
+	}
+
+	// JSON uses PLP format, so Reader should be set to readPLPType
+	if ti.Reader == nil {
+		t.Error("Expected Reader to be set for JSON type")
+	}
 }
 
 // TestFeatureExtJsonSupport tests the featureExtJsonSupport struct methods.
