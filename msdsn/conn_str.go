@@ -689,6 +689,8 @@ func (p Config) URL() *url.URL {
 	if p.Port > 0 {
 		// IPv6 addresses need brackets when combined with a port
 		if strings.Contains(host, ":") {
+			// Normalize any pre-bracketed IPv6 host (e.g., "[fe80::1]") before adding port
+			host = strings.Trim(host, "[]")
 			host = fmt.Sprintf("[%s]:%d", host, p.Port)
 		} else {
 			host = fmt.Sprintf("%s:%d", host, p.Port)
