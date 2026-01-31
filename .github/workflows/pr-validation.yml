@@ -18,12 +18,13 @@ jobs:
       uses: actions/setup-go@v2
       with:
         go-version: '${{ matrix.go }}'
-    - name: Install go-sqlcmd
+    - name: Install sqlcmd
       run: |
         curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
-        sudo add-apt-repository "$(curl -sSL https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list)"
+        curl -sSL https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
         sudo apt-get update
-        sudo apt-get install -y sqlcmd
+        sudo ACCEPT_EULA=Y apt-get install -y mssql-tools18
+        echo "/opt/mssql-tools18/bin" >> $GITHUB_PATH
     - name: Run tests against Linux SQL
       shell: bash
       run: |
@@ -50,7 +51,7 @@ jobs:
         # Wait for SQL Server to start - retry connection up to 30 seconds
         for i in {1..6}; do
           sleep 5
-          sqlcmd -S localhost -U sa -P "$SQLCMDPASSWORD" --trust-server-certificate -Q "SELECT 1" > /dev/null 2>&1 && break
+          sqlcmd -S localhost -U sa -P "$SQLCMDPASSWORD" -C -Q "SELECT 1" > /dev/null 2>&1 && break
           echo "Waiting for SQL Server to start... (attempt $i)"
         done || { echo "SQL Server did not start within expected time; aborting tests."; exit 1; }
         go test -v ./...
