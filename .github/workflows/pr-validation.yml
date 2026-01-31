@@ -19,7 +19,7 @@ jobs:
       with:
         go-version: '${{ matrix.go }}'
     - name: Install go-sqlcmd
-      run: go install github.com/microsoft/go-sqlcmd/cmd/sqlcmd@latest
+      run: brew install sqlcmd
     - name: Run tests against Linux SQL
       run: |
         go version
