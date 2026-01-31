@@ -1,6 +1,7 @@
 package msdsn
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -65,6 +66,7 @@ const (
 	Port                   = "port"
 	TrustServerCertificate = "trustservercertificate"
 	Certificate            = "certificate"
+	ServerCertificate      = "servercertificate"
 	TLSMin                 = "tlsmin"
 	PacketSize             = "packet size"
 	LogParam               = "log"
@@ -86,6 +88,7 @@ const (
 	NoTraceID              = "notraceid"
 	GuidConversion         = "guid conversion"
 	Timezone               = "timezone"
+	EpaEnabled             = "epa enabled"
 )
 
 type EncodeParameters struct {
@@ -159,6 +162,8 @@ type Config struct {
 	NoTraceID bool
 	// Parameters related to type encoding
 	Encoding EncodeParameters
+	// EPA mode determines how the Channel Bindings are calculated.
+	EpaEnabled bool
 }
 
 func readDERFile(filename string) ([]byte, error) {
@@ -193,7 +198,9 @@ func readCertificate(certificate string) ([]byte, error) {
 }
 
 // Build a tls.Config object from the supplied certificate.
-func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate string, minTLSVersion string) (*tls.Config, error) {
+// serverCertificate is used for byte-comparison validation (skips chain validation and hostname validation)
+// certificate is used for traditional chain validation
+func SetupTLS(certificate string, serverCertificate string, insecureSkipVerify bool, hostInCertificate string, minTLSVersion string) (*tls.Config, error) {
 	config := tls.Config{
 		ServerName:         hostInCertificate,
 		InsecureSkipVerify: insecureSkipVerify,
@@ -206,6 +213,19 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 		MinVersion:                  TLSVersionFromString(minTLSVersion),
 	}
 
+	// Handle serverCertificate parameter (byte-comparison validation)
+	if len(serverCertificate) > 0 {
+		pem, err := readCertificate(serverCertificate)
+		if err != nil {
+			return nil, fmt.Errorf("cannot read server certificate %q: %w", serverCertificate, err)
+		}
+		if err := setupTLSServerCertificateOnly(&config, pem); err != nil {
+			return nil, err
+		}
+		return &config, nil
+	}
+
+	// Handle certificate parameter (traditional chain validation)
 	if len(certificate) == 0 {
 		return &config, nil
 	}
@@ -213,6 +233,7 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 	if err != nil {
 		return nil, fmt.Errorf("cannot read certificate %q: %w", certificate, err)
 	}
+
 	if strings.Contains(config.ServerName, ":") && !insecureSkipVerify {
 		err := setupTLSCommonName(&config, pem)
 		if err != skipSetup {
@@ -223,6 +244,45 @@ func SetupTLS(certificate string, insecureSkipVerify bool, hostInCertificate str
 	certs.AppendCertsFromPEM(pem)
 	config.RootCAs = certs
 	return &config, nil
+}
+
+// setupTLSServerCertificateOnly validates that the server certificate matches the provided certificate via byte comparison
+// This matches the behavior of Microsoft.Data.SqlClient
+func setupTLSServerCertificateOnly(config *tls.Config, pemData []byte) error {
+	// To match the behavior of Microsoft.Data.SqlClient, we simply compare the raw bytes
+	// of the server's certificate with the provided certificate file. This approach:
+	// - Does not validate certificate chain, expiry, or subject
+	// - Only checks that the server's certificate exactly matches the provided certificate
+	// - Skips hostname validation (which is the intended behavior)
+	//
+	// We use InsecureSkipVerify=true with VerifyPeerCertificate callback because
+	// VerifyConnection runs AFTER standard verification (including hostname check).
+
+	// Parse the expected certificate from the PEM data
+	block, _ := pem.Decode(pemData)
+	if block == nil {
+		return errors.New("failed to decode PEM certificate")
+	}
+	// Store the raw certificate bytes (DER format) for comparison
+	expectedCertBytes := block.Bytes
+
+	config.InsecureSkipVerify = true
+	config.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+		if len(rawCerts) == 0 {
+			return errors.New("no peer certificates provided")
+		}
+
+		// Compare the server's certificate bytes with the expected certificate bytes
+		// This matches the Microsoft.Data.SqlClient behavior: just compare raw bytes
+		serverCertBytes := rawCerts[0]
+
+		if !bytes.Equal(serverCertBytes, expectedCertBytes) {
+			return errors.New("server certificate doesn't match the provided certificate")
+		}
+
+		return nil
+	}
+	return nil
 }
 
 // Parse and handle encryption parameters. If encryption is desired, it returns the corresponding tls.Config object.
@@ -259,12 +319,25 @@ func parseTLS(params map[string]string, host string) (Encryption, *tls.Config, e
 		}
 	}
 	certificate := params[Certificate]
+	serverCertificate := params[ServerCertificate]
+	hostInCertificate := params[HostNameInCertificate]
+
+	// Validate parameter combinations
+	if len(serverCertificate) > 0 {
+		if len(certificate) > 0 {
+			return encryption, nil, errors.New("cannot specify both 'certificate' and 'serverCertificate' parameters")
+		}
+		if len(hostInCertificate) > 0 {
+			return encryption, nil, errors.New("cannot specify both 'serverCertificate' and 'hostnameincertificate' parameters")
+		}
+	}
+
 	if encryption != EncryptionDisabled {
 		tlsMin := params[TLSMin]
 		if encrypt == "strict" {
 			trustServerCert = false
 		}
-		tlsConfig, err := SetupTLS(certificate, trustServerCert, host, tlsMin)
+		tlsConfig, err := SetupTLS(certificate, serverCertificate, trustServerCert, host, tlsMin)
 		if err != nil {
 			return encryption, nil, fmt.Errorf("failed to setup TLS: %w", err)
 		}
@@ -567,6 +640,19 @@ func Parse(dsn string) (Config, error) {
 	} else {
 		// set to false for backward compatibility
 		p.Encoding.GuidConversion = false
+	}
+
+	p.EpaEnabled = false
+	epaString, ok := params[EpaEnabled]
+	if !ok {
+		epaString = os.Getenv("MSSQL_USE_EPA")
+	}
+	if epaString !=  "" {
+		epaEnabled, err := strconv.ParseBool(epaString)
+		if err != nil {
+			return p, fmt.Errorf("invalid epa enabled value '%s': %v", epaString, err)
+		}
+		p.EpaEnabled = epaEnabled
 	}
 
 	return p, nil

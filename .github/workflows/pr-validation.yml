@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go: ['1.23']
+        go: ['1.24']
         sqlImage: ['2019-latest','2022-latest']
     steps:
     - uses: actions/checkout@v2
@@ -26,6 +26,7 @@ jobs:
         export SQLUSER=sa
         export SQLPASSWORD=$SQLCMDPASSWORD
         export DATABASE=master
+        export HOST=.
         docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver -p:1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD mcr.microsoft.com/mssql/server:${{ matrix.sqlImage }}
         sleep 10
         go test -v ./...

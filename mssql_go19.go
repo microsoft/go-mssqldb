@@ -6,12 +6,14 @@ package mssql
 import (
 	"database/sql"
 	"database/sql/driver"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"reflect"
 	"time"
 
 	"github.com/golang-sql/sqlexp"
+	"github.com/shopspring/decimal"
 
 	// "github.com/cockroachdb/apd"
 	"github.com/golang-sql/civil"
@@ -150,6 +152,19 @@ func (c *Conn) CheckNamedValue(nv *driver.NamedValue) error {
 	}
 }
 
+func makeMoneyParam(val decimal.Decimal) (res param) {
+	res.ti.TypeId = typeMoneyN
+
+	coeff := val.Mul(decimal.New(1, 4)).IntPart()
+
+	res.buffer = make([]byte, 8)
+	res.ti.Size = 8
+	binary.LittleEndian.PutUint32(res.buffer, uint32(coeff>>32))
+	binary.LittleEndian.PutUint32(res.buffer[4:], uint32(coeff))
+
+	return
+}
+
 func (s *Stmt) makeParamExtra(val driver.Value) (res param, err error) {
 	loc := getTimezone(s.c)
 
@@ -223,7 +238,20 @@ func (s *Stmt) makeParamExtra(val driver.Value) (res param, err error) {
 			res.ti.Size = calcTimeSize(int(res.ti.Scale))
 		}
 	case sql.Out:
-		res, err = s.makeParam(val.Dest)
+		switch dest := val.Dest.(type) {
+		case Money[decimal.Decimal]:
+			res = makeMoneyParam(dest.Decimal)
+		case Money[decimal.NullDecimal]:
+			if dest.Decimal.Valid {
+				res = makeMoneyParam(dest.Decimal.Decimal)
+			} else {
+				res.ti.TypeId = typeMoneyN
+				res.buffer = []byte{}
+				res.ti.Size = 8
+			}
+		default:
+			res, err = s.makeParam(dest)
+		}
 		res.Flags = fByRevValue
 	case TVP:
 		err = val.check()

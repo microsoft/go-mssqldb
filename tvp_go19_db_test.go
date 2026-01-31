@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
@@ -45,7 +47,15 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 			p_nvarchar 			NVARCHAR(100),
 			p_nvarcharNull 		NVARCHAR(100),
 			s_nvarchar 			NVARCHAR(100),
-			s_nvarcharNull 		NVARCHAR(100)		
+			s_nvarcharNull 		NVARCHAR(100),
+			p_decimal           DECIMAL(18, 4),
+			p_decimalNull       DECIMAL(18, 4),
+			s_decimal           DECIMAL(18, 4),
+			s_decimalNull       DECIMAL(18, 4),
+			p_money             MONEY,
+			p_moneyNull         MONEY,
+			s_money             MONEY,
+			s_moneyNull         MONEY
 		); `
 
 	sqltextdroptable := `DROP TYPE tvpGoSQLTypesWithStandardType;`
@@ -80,6 +90,14 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 		PStringNull  sql.NullString
 		SString      string
 		SStringNull  *string
+		PDecimal     decimal.NullDecimal
+		PDecimalNull decimal.NullDecimal
+		SDecimal     decimal.Decimal
+		SDecimalNull *decimal.Decimal
+		PMoney       Money[decimal.NullDecimal]
+		PMoneyNull   Money[decimal.NullDecimal]
+		SMoney       Money[decimal.Decimal]
+		SMoneyNull   *Money[decimal.Decimal]
 	}
 
 	sqltextdropsp := `DROP PROCEDURE spwithtvpGoSQLTypesWithStandardType;`
@@ -100,6 +118,8 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 	i64 := int64(4)
 	bTrue := true
 	floatValue64 := 0.123
+	decimalValue := decimal.New(4821212, -4)
+	moneyValue := Money[decimal.Decimal]{decimal.New(4821212, -4)}
 	param1 := []TvpGoSQLTypes{
 		{
 			PBool: sql.NullBool{
@@ -121,7 +141,11 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 				String: "test=tvp",
 				Valid:  true,
 			},
-			PStringNull: sql.NullString{},
+			PStringNull:  sql.NullString{},
+			PDecimal:     decimal.NewNullDecimal(decimal.New(-2323, -3)),
+			PDecimalNull: decimal.NullDecimal{},
+			PMoney:       Money[decimal.NullDecimal]{decimal.NewNullDecimal(decimal.New(-2323, -3))},
+			PMoneyNull:   Money[decimal.NullDecimal]{decimal.NullDecimal{}},
 		},
 		{
 			PBool:        sql.NullBool{},
@@ -140,6 +164,14 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 			PStringNull:  sql.NullString{},
 			SString:      "any",
 			SStringNull:  nil,
+			PDecimal:     decimal.NullDecimal{},
+			PDecimalNull: decimal.NullDecimal{},
+			SDecimal:     decimal.New(20012, 2),
+			SDecimalNull: nil,
+			PMoney:       Money[decimal.NullDecimal]{decimal.NullDecimal{}},
+			PMoneyNull:   Money[decimal.NullDecimal]{decimal.NullDecimal{}},
+			SMoney:       Money[decimal.Decimal]{decimal.New(20012, 2)},
+			SMoneyNull:   nil,
 		},
 		{
 			PBool: sql.NullBool{
@@ -167,9 +199,17 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 				String: "jifdijrgio",
 				Valid:  true,
 			},
-			PStringNull: sql.NullString{},
-			SString:     "geniefkl123",
-			SStringNull: &nvarchar,
+			PStringNull:  sql.NullString{},
+			SString:      "geniefkl123",
+			SStringNull:  &nvarchar,
+			PDecimal:     decimal.NewNullDecimal(decimal.New(892332, -3)),
+			PDecimalNull: decimal.NullDecimal{},
+			SDecimal:     decimal.New(1004, -1),
+			SDecimalNull: &decimalValue,
+			PMoney:       Money[decimal.NullDecimal]{decimal.NewNullDecimal(decimal.New(892332, -3))},
+			PMoneyNull:   Money[decimal.NullDecimal]{decimal.NullDecimal{}},
+			SMoney:       Money[decimal.Decimal]{decimal.New(1004, -1)},
+			SMoneyNull:   &moneyValue,
 		},
 	}
 
@@ -214,12 +254,52 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 			&val.PStringNull,
 			&val.SString,
 			&val.SStringNull,
+			&val.PDecimal,
+			&val.PDecimalNull,
+			&val.SDecimal,
+			&val.SDecimalNull,
+			&val.PMoney,
+			&val.PMoneyNull,
+			&val.SMoney,
+			&val.SMoneyNull,
 		)
 		if err != nil {
 			t.Fatalf("scan failed with error: %s", err)
 		}
 
 		result1 = append(result1, val)
+	}
+
+	for i := 0; i < min(len(param1), len(result1)); i++ {
+		param1[i].PDecimal.Decimal, result1[i].PDecimal.Decimal = decimal.RescalePair(
+			param1[i].PDecimal.Decimal, result1[i].PDecimal.Decimal)
+		param1[i].PDecimalNull.Decimal, result1[i].PDecimalNull.Decimal = decimal.RescalePair(
+			param1[i].PDecimalNull.Decimal, result1[i].PDecimalNull.Decimal)
+		param1[i].SDecimal, result1[i].SDecimal = decimal.RescalePair(
+			param1[i].SDecimal, result1[i].SDecimal)
+
+		if param1[i].SDecimalNull != nil && result1[i].SDecimalNull != nil {
+			p1, r1 := decimal.RescalePair(
+				*param1[i].SDecimalNull, *result1[i].SDecimalNull)
+			param1[i].SDecimalNull = &p1
+			result1[i].SDecimalNull = &r1
+		}
+	}
+
+	for i := 0; i < min(len(param1), len(result1)); i++ {
+		param1[i].PMoney.Decimal.Decimal, result1[i].PMoney.Decimal.Decimal = decimal.RescalePair(
+			param1[i].PMoney.Decimal.Decimal, result1[i].PMoney.Decimal.Decimal)
+		param1[i].PMoneyNull.Decimal.Decimal, result1[i].PMoneyNull.Decimal.Decimal = decimal.RescalePair(
+			param1[i].PMoneyNull.Decimal.Decimal, result1[i].PMoneyNull.Decimal.Decimal)
+		param1[i].SMoney.Decimal, result1[i].SMoney.Decimal = decimal.RescalePair(
+			param1[i].SMoney.Decimal, result1[i].SMoney.Decimal)
+
+		if param1[i].SMoneyNull != nil && result1[i].SMoneyNull != nil {
+			p1, r1 := decimal.RescalePair(
+				param1[i].SMoneyNull.Decimal, result1[i].SMoneyNull.Decimal)
+			param1[i].SMoneyNull.Decimal = p1
+			result1[i].SMoneyNull.Decimal = r1
+		}
 	}
 
 	if !reflect.DeepEqual(param1, result1) {
@@ -278,7 +358,11 @@ func TestTVPGoSQLTypes(t *testing.T) {
 			p_bigint            BIGINT,
 			p_bigintNull        BIGINT,
 			p_nvarchar 			NVARCHAR(100),
-			p_nvarcharNull 		NVARCHAR(100)		
+			p_nvarcharNull 		NVARCHAR(100),
+			p_decimal           DECIMAL(18, 4),
+			p_decimalNull       DECIMAL(18, 4),
+			p_money             MONEY,
+			p_moneyNull         MONEY
 		); `
 
 	sqltextdroptable := `DROP TYPE tvpGoSQLTypes;`
@@ -305,6 +389,10 @@ func TestTVPGoSQLTypes(t *testing.T) {
 		PInt64Null   sql.NullInt64
 		PString      sql.NullString
 		PStringNull  sql.NullString
+		PDecimal     decimal.NullDecimal
+		PDecimalNull decimal.NullDecimal
+		PMoney       Money[decimal.NullDecimal]
+		PMoneyNull   Money[decimal.NullDecimal]
 	}
 
 	sqltextdropsp := `DROP PROCEDURE spwithtvpGoSQLTypes;`
@@ -341,7 +429,11 @@ func TestTVPGoSQLTypes(t *testing.T) {
 				String: "test=tvp",
 				Valid:  true,
 			},
-			PStringNull: sql.NullString{},
+			PStringNull:  sql.NullString{},
+			PDecimal:     decimal.NewNullDecimal(decimal.New(-7644, -2)),
+			PDecimalNull: decimal.NullDecimal{},
+			PMoney:       Money[decimal.NullDecimal]{decimal.NewNullDecimal(decimal.New(-7644, -2))},
+			PMoneyNull:   Money[decimal.NullDecimal]{decimal.NullDecimal{}},
 		},
 	}
 
@@ -377,12 +469,30 @@ func TestTVPGoSQLTypes(t *testing.T) {
 			&val.PInt64Null,
 			&val.PString,
 			&val.PStringNull,
+			&val.PDecimal,
+			&val.PDecimalNull,
+			&val.PMoney,
+			&val.PMoneyNull,
 		)
 		if err != nil {
 			t.Fatalf("scan failed with error: %s", err)
 		}
 
 		result1 = append(result1, val)
+	}
+
+	for i := 0; i < min(len(param1), len(result1)); i++ {
+		param1[i].PDecimal.Decimal, result1[i].PDecimal.Decimal = decimal.RescalePair(
+			param1[i].PDecimal.Decimal, result1[i].PDecimal.Decimal)
+		param1[i].PDecimalNull.Decimal, result1[i].PDecimalNull.Decimal = decimal.RescalePair(
+			param1[i].PDecimalNull.Decimal, result1[i].PDecimalNull.Decimal)
+	}
+
+	for i := 0; i < min(len(param1), len(result1)); i++ {
+		param1[i].PMoney.Decimal.Decimal, result1[i].PMoney.Decimal.Decimal = decimal.RescalePair(
+			param1[i].PMoney.Decimal.Decimal, result1[i].PMoney.Decimal.Decimal)
+		param1[i].PMoneyNull.Decimal.Decimal, result1[i].PMoneyNull.Decimal.Decimal = decimal.RescalePair(
+			param1[i].PMoneyNull.Decimal.Decimal, result1[i].PMoneyNull.Decimal.Decimal)
 	}
 
 	if !reflect.DeepEqual(param1, result1) {
@@ -469,7 +579,11 @@ func testTVP(t *testing.T, guidConversion bool) {
 			p_time 				datetime2,
 			p_timeNull			datetime2,
 			pInt              	INT,
-			pIntNull          	INT
+			pIntNull          	INT,
+			p_decimal           DECIMAL(18, 4),
+			p_decimalNull       DECIMAL(18, 4),
+			p_money             MONEY,
+			p_moneyNull         MONEY
 		); `
 
 	sqltextdroptable := `DROP TYPE tvptable;`
@@ -488,32 +602,36 @@ func testTVP(t *testing.T, guidConversion bool) {
 	END;`
 
 	type TvptableRow struct {
-		PBinary       []byte            `db:"p_binary"`
-		PVarchar      string            `db:"p_varchar"`
-		PVarcharNull  *string           `db:"p_varcharNull"`
-		PNvarchar     string            `db:"p_nvarchar"`
-		PNvarcharNull *string           `db:"p_nvarcharNull"`
-		PID           UniqueIdentifier  `db:"p_id"`
-		PIDNull       *UniqueIdentifier `db:"p_idNull"`
-		PVarbinary    []byte            `db:"p_varbinary"`
-		PTinyint      int8              `db:"p_tinyint"`
-		PTinyintNull  *int8             `db:"p_tinyintNull"`
-		PSmallint     int16             `db:"p_smallint"`
-		PSmallintNull *int16            `db:"p_smallintNull"`
-		PInt          int32             `db:"p_int"`
-		PIntNull      *int32            `db:"p_intNull"`
-		PBigint       int64             `db:"p_bigint"`
-		PBigintNull   *int64            `db:"p_bigintNull"`
-		PBit          bool              `db:"p_bit"`
-		PBitNull      *bool             `db:"p_bitNull"`
-		PFloat32      float32           `db:"p_float32"`
-		PFloatNull32  *float32          `db:"p_floatNull32"`
-		PFloat64      float64           `db:"p_float64"`
-		PFloatNull64  *float64          `db:"p_floatNull64"`
-		DTime         time.Time         `db:"p_timeNull"`
-		DTimeNull     *time.Time        `db:"p_time"`
-		Pint          int               `db:"pInt"`
-		PintNull      *int              `db:"pIntNull"`
+		PBinary       []byte                  `db:"p_binary"`
+		PVarchar      string                  `db:"p_varchar"`
+		PVarcharNull  *string                 `db:"p_varcharNull"`
+		PNvarchar     string                  `db:"p_nvarchar"`
+		PNvarcharNull *string                 `db:"p_nvarcharNull"`
+		PID           UniqueIdentifier        `db:"p_id"`
+		PIDNull       *UniqueIdentifier       `db:"p_idNull"`
+		PVarbinary    []byte                  `db:"p_varbinary"`
+		PTinyint      int8                    `db:"p_tinyint"`
+		PTinyintNull  *int8                   `db:"p_tinyintNull"`
+		PSmallint     int16                   `db:"p_smallint"`
+		PSmallintNull *int16                  `db:"p_smallintNull"`
+		PInt          int32                   `db:"p_int"`
+		PIntNull      *int32                  `db:"p_intNull"`
+		PBigint       int64                   `db:"p_bigint"`
+		PBigintNull   *int64                  `db:"p_bigintNull"`
+		PBit          bool                    `db:"p_bit"`
+		PBitNull      *bool                   `db:"p_bitNull"`
+		PFloat32      float32                 `db:"p_float32"`
+		PFloatNull32  *float32                `db:"p_floatNull32"`
+		PFloat64      float64                 `db:"p_float64"`
+		PFloatNull64  *float64                `db:"p_floatNull64"`
+		DTime         time.Time               `db:"p_timeNull"`
+		DTimeNull     *time.Time              `db:"p_time"`
+		Pint          int                     `db:"pInt"`
+		PintNull      *int                    `db:"pIntNull"`
+		PDecimal      decimal.Decimal         `db:"p_decimal"`
+		PDecimalNull  *decimal.Decimal        `db:"p_decimalNull"`
+		PMoney        Money[decimal.Decimal]  `db:"p_money"`
+		PMoneyNull    *Money[decimal.Decimal] `db:"p_moneyNull"`
 	}
 
 	sqltextdropsp := `DROP PROCEDURE spwithtvp;`
@@ -540,6 +658,8 @@ func testTVP(t *testing.T, guidConversion bool) {
 	bFalse := false
 	floatValue64 := 0.123
 	floatValue32 := float32(-10.123)
+	d := decimal.New(99232321212, -4)
+	m := Money[decimal.Decimal]{decimal.New(99232321212, -4)}
 	// SQL Server's datetime2 has maximum precision of 7 digits, so for end-to-end
 	// equality comparison we must not test with any finer resolution than 100 nsec.
 	datetime2Value := time.Date(2020, 8, 26, 23, 59, 39, 100, time.UTC)
@@ -559,6 +679,8 @@ func testTVP(t *testing.T, guidConversion bool) {
 			PFloat64:   floatValue64,
 			DTime:      datetime2Value,
 			Pint:       355,
+			PDecimal:   decimal.New(223, -4),
+			PMoney:     Money[decimal.Decimal]{decimal.New(223, -4)},
 		},
 		{
 			PBinary:    []byte("www"),
@@ -575,6 +697,8 @@ func testTVP(t *testing.T, guidConversion bool) {
 			PFloat64:   -123.45,
 			DTime:      time.Date(2001, 11, 16, 23, 59, 39, 0, time.UTC),
 			Pint:       455,
+			PDecimal:   decimal.New(23253, 5),
+			PMoney:     Money[decimal.Decimal]{decimal.New(23253, 5)},
 		},
 		{
 			PBinary:       nil,
@@ -591,6 +715,8 @@ func testTVP(t *testing.T, guidConversion bool) {
 			DTime:         datetime2Value,
 			DTimeNull:     &datetime2Value,
 			PintNull:      &i,
+			PDecimalNull:  &d,
+			PMoneyNull:    &m,
 		},
 		{
 			PBinary:       []byte("www"),
@@ -616,6 +742,8 @@ func testTVP(t *testing.T, guidConversion bool) {
 			PFloatNull64:  &floatValue64,
 			DTimeNull:     &datetime2Value,
 			PintNull:      &i,
+			PDecimalNull:  &d,
+			PMoneyNull:    &m,
 		},
 	}
 
@@ -669,12 +797,40 @@ func testTVP(t *testing.T, guidConversion bool) {
 			&val.DTimeNull,
 			&val.Pint,
 			&val.PintNull,
+			&val.PDecimal,
+			&val.PDecimalNull,
+			&val.PMoney,
+			&val.PMoneyNull,
 		)
 		if err != nil {
 			t.Fatalf("scan failed with error: %s", err)
 		}
 
 		result1 = append(result1, val)
+	}
+
+	for i := 0; i < min(len(param1), len(result1)); i++ {
+		param1[i].PDecimal, result1[i].PDecimal = decimal.RescalePair(
+			param1[i].PDecimal, result1[i].PDecimal)
+
+		if param1[i].PDecimalNull != nil && result1[i].PDecimalNull != nil {
+			p1, r1 := decimal.RescalePair(
+				*param1[i].PDecimalNull, *result1[i].PDecimalNull)
+			param1[i].PDecimalNull = &p1
+			result1[i].PDecimalNull = &r1
+		}
+	}
+
+	for i := 0; i < min(len(param1), len(result1)); i++ {
+		param1[i].PMoney.Decimal, result1[i].PMoney.Decimal = decimal.RescalePair(
+			param1[i].PMoney.Decimal, result1[i].PMoney.Decimal)
+
+		if param1[i].PMoneyNull != nil && result1[i].PMoneyNull != nil {
+			p1, r1 := decimal.RescalePair(
+				param1[i].PMoneyNull.Decimal, result1[i].PMoneyNull.Decimal)
+			param1[i].PMoneyNull.Decimal = p1
+			result1[i].PMoneyNull.Decimal = r1
+		}
 	}
 
 	if !reflect.DeepEqual(param1, result1) {
@@ -759,7 +915,11 @@ func testTVP_WithTag(t *testing.T, guidConversion bool) {
 			p_time 				datetime2,
 			p_timeNull			datetime2,
 			pInt              	INT,
-			pIntNull          	INT
+			pIntNull          	INT,
+			p_decimal           DECIMAL(18, 4),
+			p_decimalNull       DECIMAL(18, 4),
+			p_money             MONEY,
+			p_moneyNull         MONEY
 		); `
 
 	sqltextdroptable := `DROP TYPE tvptable;`
@@ -779,58 +939,66 @@ func testTVP_WithTag(t *testing.T, guidConversion bool) {
 	sqltextdropsp := `DROP PROCEDURE spwithtvp;`
 
 	type TvptableRowWithSkipTag struct {
-		PBinary           []byte            `db:"p_binary"`
-		SkipPBinary       []byte            `json:"-"`
-		PVarchar          string            `db:"p_varchar"`
-		SkipPVarchar      string            `tvp:"-"`
-		PVarcharNull      *string           `db:"p_varcharNull"`
-		SkipPVarcharNull  *string           `json:"-" tvp:"-"`
-		PNvarchar         string            `db:"p_nvarchar"`
-		SkipPNvarchar     string            `json:"-"`
-		PNvarcharNull     *string           `db:"p_nvarcharNull"`
-		SkipPNvarcharNull *string           `json:"-"`
-		PID               UniqueIdentifier  `db:"p_id"`
-		SkipPID           UniqueIdentifier  `json:"-"`
-		PIDNull           *UniqueIdentifier `db:"p_idNull"`
-		SkipPIDNull       *UniqueIdentifier `tvp:"-"`
-		PVarbinary        []byte            `db:"p_varbinary"`
-		SkipPVarbinary    []byte            `json:"-" tvp:"-"`
-		PTinyint          int8              `db:"p_tinyint"`
-		SkipPTinyint      int8              `tvp:"-"`
-		PTinyintNull      *int8             `db:"p_tinyintNull"`
-		SkipPTinyintNull  *int8             `tvp:"-" json:"any"`
-		PSmallint         int16             `db:"p_smallint"`
-		SkipPSmallint     int16             `json:"-"`
-		PSmallintNull     *int16            `db:"p_smallintNull"`
-		SkipPSmallintNull *int16            `tvp:"-"`
-		PInt              int32             `db:"p_int"`
-		SkipPInt          int32             `json:"-"`
-		PIntNull          *int32            `db:"p_intNull"`
-		SkipPIntNull      *int32            `tvp:"-"`
-		PBigint           int64             `db:"p_bigint"`
-		SkipPBigint       int64             `tvp:"-"`
-		PBigintNull       *int64            `db:"p_bigintNull"`
-		SkipPBigintNull   *int64            `json:"-" tvp:"-"`
-		PBit              bool              `db:"p_bit"`
-		SkipPBit          bool              `json:"-"`
-		PBitNull          *bool             `db:"p_bitNull"`
-		SkipPBitNull      *bool             `json:"-"`
-		PFloat32          float32           `db:"p_float32"`
-		SkipPFloat32      float32           `tvp:"-"`
-		PFloatNull32      *float32          `db:"p_floatNull32"`
-		SkipPFloatNull32  *float32          `tvp:"-"`
-		PFloat64          float64           `db:"p_float64"`
-		SkipPFloat64      float64           `tvp:"-"`
-		PFloatNull64      *float64          `db:"p_floatNull64"`
-		SkipPFloatNull64  *float64          `tvp:"-"`
-		DTime             time.Time         `db:"p_timeNull"`
-		SkipDTime         time.Time         `tvp:"-"`
-		DTimeNull         *time.Time        `db:"p_time"`
-		SkipDTimeNull     *time.Time        `tvp:"-"`
-		Pint              int               `db:"pIntNull"`
-		SkipPint          int               `tvp:"-"`
-		PintNull          *int              `db:"pInt"`
-		SkipPintNull      *int              `tvp:"-"`
+		PBinary           []byte                  `db:"p_binary"`
+		SkipPBinary       []byte                  `json:"-"`
+		PVarchar          string                  `db:"p_varchar"`
+		SkipPVarchar      string                  `tvp:"-"`
+		PVarcharNull      *string                 `db:"p_varcharNull"`
+		SkipPVarcharNull  *string                 `json:"-" tvp:"-"`
+		PNvarchar         string                  `db:"p_nvarchar"`
+		SkipPNvarchar     string                  `json:"-"`
+		PNvarcharNull     *string                 `db:"p_nvarcharNull"`
+		SkipPNvarcharNull *string                 `json:"-"`
+		PID               UniqueIdentifier        `db:"p_id"`
+		SkipPID           UniqueIdentifier        `json:"-"`
+		PIDNull           *UniqueIdentifier       `db:"p_idNull"`
+		SkipPIDNull       *UniqueIdentifier       `tvp:"-"`
+		PVarbinary        []byte                  `db:"p_varbinary"`
+		SkipPVarbinary    []byte                  `json:"-" tvp:"-"`
+		PTinyint          int8                    `db:"p_tinyint"`
+		SkipPTinyint      int8                    `tvp:"-"`
+		PTinyintNull      *int8                   `db:"p_tinyintNull"`
+		SkipPTinyintNull  *int8                   `tvp:"-" json:"any"`
+		PSmallint         int16                   `db:"p_smallint"`
+		SkipPSmallint     int16                   `json:"-"`
+		PSmallintNull     *int16                  `db:"p_smallintNull"`
+		SkipPSmallintNull *int16                  `tvp:"-"`
+		PInt              int32                   `db:"p_int"`
+		SkipPInt          int32                   `json:"-"`
+		PIntNull          *int32                  `db:"p_intNull"`
+		SkipPIntNull      *int32                  `tvp:"-"`
+		PBigint           int64                   `db:"p_bigint"`
+		SkipPBigint       int64                   `tvp:"-"`
+		PBigintNull       *int64                  `db:"p_bigintNull"`
+		SkipPBigintNull   *int64                  `json:"-" tvp:"-"`
+		PBit              bool                    `db:"p_bit"`
+		SkipPBit          bool                    `json:"-"`
+		PBitNull          *bool                   `db:"p_bitNull"`
+		SkipPBitNull      *bool                   `json:"-"`
+		PFloat32          float32                 `db:"p_float32"`
+		SkipPFloat32      float32                 `tvp:"-"`
+		PFloatNull32      *float32                `db:"p_floatNull32"`
+		SkipPFloatNull32  *float32                `tvp:"-"`
+		PFloat64          float64                 `db:"p_float64"`
+		SkipPFloat64      float64                 `tvp:"-"`
+		PFloatNull64      *float64                `db:"p_floatNull64"`
+		SkipPFloatNull64  *float64                `tvp:"-"`
+		DTime             time.Time               `db:"p_timeNull"`
+		SkipDTime         time.Time               `tvp:"-"`
+		DTimeNull         *time.Time              `db:"p_time"`
+		SkipDTimeNull     *time.Time              `tvp:"-"`
+		Pint              int                     `db:"pIntNull"`
+		SkipPint          int                     `tvp:"-"`
+		PintNull          *int                    `db:"pInt"`
+		SkipPintNull      *int                    `tvp:"-"`
+		PDecimal          decimal.Decimal         `db:"p_decimal"`
+		SkipPDecimal      decimal.Decimal         `tvp:"-"`
+		PDecimalNull      *decimal.Decimal        `db:"p_decimalNull"`
+		SkipPDecimalNull  *decimal.Decimal        `tvp:"-"`
+		PMoney            Money[decimal.Decimal]  `db:"p_money"`
+		SkipPMoney        Money[decimal.Decimal]  `tvp:"-"`
+		PMoneyNull        *Money[decimal.Decimal] `db:"p_moneyNull"`
+		SkipPMoneyNull    *Money[decimal.Decimal] `tvp:"-"`
 	}
 
 	db.ExecContext(ctx, sqltextdropsp)
@@ -859,43 +1027,53 @@ func testTVP_WithTag(t *testing.T, guidConversion bool) {
 	bFalse := false
 	floatValue64 := 0.123
 	floatValue32 := float32(-10.123)
+	d := decimal.New(-55, -1)
+	m := Money[decimal.Decimal]{decimal.New(-55, -1)}
 	// SQL Server's datetime2 has maximum precision of 7 digits, so for end-to-end
 	// equality comparison we must not test with any finer resolution than 100 nsec.
 	datetime2Value := time.Date(2020, 8, 26, 23, 59, 39, 100, time.UTC)
 	param1 := []TvptableRowWithSkipTag{
 		{
-			PBinary:    []byte("ccc"),
-			PVarchar:   varcharNull,
-			PNvarchar:  nvarchar,
-			PID:        UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
-			PVarbinary: bytesMock,
-			PTinyint:   i8,
-			PSmallint:  i16,
-			PInt:       i32,
-			PBigint:    i64,
-			PBit:       bFalse,
-			PFloat32:   floatValue32,
-			PFloat64:   floatValue64,
-			DTime:      datetime2Value,
-			Pint:       i,
-			PintNull:   &i,
+			PBinary:      []byte("ccc"),
+			PVarchar:     varcharNull,
+			PNvarchar:    nvarchar,
+			PID:          UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
+			PVarbinary:   bytesMock,
+			PTinyint:     i8,
+			PSmallint:    i16,
+			PInt:         i32,
+			PBigint:      i64,
+			PBit:         bFalse,
+			PFloat32:     floatValue32,
+			PFloat64:     floatValue64,
+			DTime:        datetime2Value,
+			Pint:         i,
+			PintNull:     &i,
+			PDecimal:     d,
+			PDecimalNull: &d,
+			PMoney:       m,
+			PMoneyNull:   &m,
 		},
 		{
-			PBinary:    []byte("www"),
-			PVarchar:   "eee",
-			PNvarchar:  "lll",
-			PID:        UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
-			PVarbinary: []byte("zzz"),
-			PTinyint:   5,
-			PSmallint:  16000,
-			PInt:       20000000,
-			PBigint:    2000000020000000,
-			PBit:       true,
-			PFloat32:   -123.45,
-			PFloat64:   -123.45,
-			DTime:      time.Date(2001, 11, 16, 23, 59, 39, 0, time.UTC),
-			Pint:       3669,
-			PintNull:   &i,
+			PBinary:      []byte("www"),
+			PVarchar:     "eee",
+			PNvarchar:    "lll",
+			PID:          UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
+			PVarbinary:   []byte("zzz"),
+			PTinyint:     5,
+			PSmallint:    16000,
+			PInt:         20000000,
+			PBigint:      2000000020000000,
+			PBit:         true,
+			PFloat32:     -123.45,
+			PFloat64:     -123.45,
+			DTime:        time.Date(2001, 11, 16, 23, 59, 39, 0, time.UTC),
+			Pint:         3669,
+			PintNull:     &i,
+			PDecimal:     decimal.New(6501, -1),
+			PDecimalNull: &d,
+			PMoney:       Money[decimal.Decimal]{decimal.New(6501, -1)},
+			PMoneyNull:   &m,
 		},
 		{
 			PBinary:       nil,
@@ -912,6 +1090,8 @@ func testTVP_WithTag(t *testing.T, guidConversion bool) {
 			DTime:         datetime2Value,
 			DTimeNull:     &datetime2Value,
 			Pint:          969,
+			PDecimal:      decimal.New(236645488, -3),
+			PMoney:        Money[decimal.Decimal]{decimal.New(236645488, -3)},
 		},
 		{
 			PBinary:       []byte("www"),
@@ -937,6 +1117,8 @@ func testTVP_WithTag(t *testing.T, guidConversion bool) {
 			PFloatNull64:  &floatValue64,
 			DTimeNull:     &datetime2Value,
 			PintNull:      &i,
+			PDecimalNull:  &d,
+			PMoneyNull:    &m,
 		},
 	}
 
@@ -990,12 +1172,40 @@ func testTVP_WithTag(t *testing.T, guidConversion bool) {
 			&val.DTimeNull,
 			&val.Pint,
 			&val.PintNull,
+			&val.PDecimal,
+			&val.PDecimalNull,
+			&val.PMoney,
+			&val.PMoneyNull,
 		)
 		if err != nil {
 			t.Fatalf("scan failed with error: %s", err)
 		}
 
 		result1 = append(result1, val)
+	}
+
+	for i := 0; i < min(len(param1), len(result1)); i++ {
+		param1[i].PDecimal, result1[i].PDecimal = decimal.RescalePair(
+			param1[i].PDecimal, result1[i].PDecimal)
+
+		if param1[i].PDecimalNull != nil && result1[i].PDecimalNull != nil {
+			p1, r1 := decimal.RescalePair(
+				*param1[i].PDecimalNull, *result1[i].PDecimalNull)
+			param1[i].PDecimalNull = &p1
+			result1[i].PDecimalNull = &r1
+		}
+	}
+
+	for i := 0; i < min(len(param1), len(result1)); i++ {
+		param1[i].PMoney.Decimal, result1[i].PMoney.Decimal = decimal.RescalePair(
+			param1[i].PMoney.Decimal, result1[i].PMoney.Decimal)
+
+		if param1[i].PMoneyNull != nil && result1[i].PMoneyNull != nil {
+			p1, r1 := decimal.RescalePair(
+				param1[i].PMoneyNull.Decimal, result1[i].PMoneyNull.Decimal)
+			param1[i].PMoneyNull.Decimal = p1
+			result1[i].PMoneyNull.Decimal = r1
+		}
 	}
 
 	if !reflect.DeepEqual(param1, result1) {

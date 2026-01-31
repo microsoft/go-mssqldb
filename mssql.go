@@ -20,6 +20,7 @@ import (
 	"github.com/microsoft/go-mssqldb/aecmk"
 	"github.com/microsoft/go-mssqldb/internal/querytext"
 	"github.com/microsoft/go-mssqldb/msdsn"
+	"github.com/shopspring/decimal"
 )
 
 // ReturnStatus may be used to return the return value from a proc.
@@ -292,8 +293,9 @@ func (c *Conn) clearOuts() {
 	c.outs = outputs{}
 }
 
-func (c *Conn) simpleProcessResp(ctx context.Context) error {
+func (c *Conn) simpleProcessResp(ctx context.Context, isRollback bool) error {
 	reader := startReading(c.sess, ctx, c.outs)
+	reader.noAttn = isRollback
 	c.clearOuts()
 
 	var resultError error
@@ -311,7 +313,7 @@ func (c *Conn) Commit() error {
 	if err := c.sendCommitRequest(); err != nil {
 		return c.checkBadConn(c.transactionCtx, err, true)
 	}
-	return c.simpleProcessResp(c.transactionCtx)
+	return c.simpleProcessResp(c.transactionCtx, false)
 }
 
 func (c *Conn) sendCommitRequest() error {
@@ -336,7 +338,7 @@ func (c *Conn) Rollback() error {
 	if err := c.sendRollbackRequest(); err != nil {
 		return c.checkBadConn(c.transactionCtx, err, true)
 	}
-	return c.simpleProcessResp(c.transactionCtx)
+	return c.simpleProcessResp(c.transactionCtx, true)
 }
 
 func (c *Conn) sendRollbackRequest() error {
@@ -390,7 +392,7 @@ func (c *Conn) sendBeginRequest(ctx context.Context, tdsIsolation isoLevel) erro
 }
 
 func (c *Conn) processBeginResponse(ctx context.Context) (driver.Tx, error) {
-	if err := c.simpleProcessResp(ctx); err != nil {
+	if err := c.simpleProcessResp(ctx, false); err != nil {
 		return nil, err
 	}
 	// successful BEGINXACT request will return sess.tranid
@@ -996,6 +998,14 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		if valuer.Valid {
 			return s.makeParam(valuer.Int32)
 		}
+	case decimal.NullDecimal:
+		if valuer.Valid {
+			return s.makeParam(valuer.Decimal)
+		}
+	case Money[decimal.NullDecimal]:
+		if valuer.Decimal.Valid {
+			return s.makeParam(Money[decimal.Decimal]{valuer.Decimal.Decimal})
+		}
 	case NullDate:
 		if valuer.Valid {
 			return s.makeParamExtra(valuer.Date)
@@ -1028,6 +1038,8 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		return s.makeParamExtra(*valuer)
 	case UniqueIdentifier:
 	case NullUniqueIdentifier:
+	default:
+		break
 	case driver.Valuer:
 		// If the value has a non-nil value, call MakeParam on its Value
 		val, e := driver.DefaultParameterConverter.ConvertValue(valuer)
@@ -1107,6 +1119,44 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		res.buffer = []byte{}
 		res.ti.Size = 1
 		res.ti.TypeId = typeIntN
+	case decimal.NullDecimal:
+		// only null values should be getting here
+		res.ti.TypeId = typeNVarChar
+		res.buffer = nil
+		res.ti.Size = 8000
+	case Money[decimal.NullDecimal]:
+		// only null values should be getting here
+		res.ti.TypeId = typeNVarChar
+		res.buffer = nil
+		res.ti.Size = 8000
+	case NullDate: // only null values reach here
+		res.ti.TypeId = typeDateN
+		res.ti.Size = 3
+		res.buffer = []byte{}
+	case NullDateTime: // only null values reach here
+		res.ti.TypeId = typeDateTime2N
+		res.ti.Scale = 7
+		res.ti.Size = calcTimeSize(int(res.ti.Scale)) + 3
+		res.buffer = []byte{}
+	case NullTime: // only null values reach here
+		res.ti.TypeId = typeTimeN
+		res.ti.Scale = 7
+		res.ti.Size = calcTimeSize(int(res.ti.Scale))
+		res.buffer = []byte{}
+	case *NullDate: // only null values reach here
+		res.ti.TypeId = typeDateN
+		res.ti.Size = 3
+		res.buffer = []byte{}
+	case *NullDateTime: // only null values reach here
+		res.ti.TypeId = typeDateTime2N
+		res.ti.Scale = 7
+		res.ti.Size = calcTimeSize(int(res.ti.Scale)) + 3
+		res.buffer = []byte{}
+	case *NullTime: // only null values reach here
+		res.ti.TypeId = typeTimeN
+		res.ti.Scale = 7
+		res.ti.Size = calcTimeSize(int(res.ti.Scale))
+		res.buffer = []byte{}
 	case byte:
 		res.ti.TypeId = typeIntN
 		res.buffer = []byte{val}
@@ -1171,34 +1221,6 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		} else {
 			res.ti.TypeId = typeDateTimeN
 		}
-	case NullDate: // only null values reach here
-		res.ti.TypeId = typeDateN
-		res.ti.Size = 3
-		res.buffer = []byte{}
-	case NullDateTime: // only null values reach here
-		res.ti.TypeId = typeDateTime2N
-		res.ti.Scale = 7
-		res.ti.Size = calcTimeSize(int(res.ti.Scale)) + 3
-		res.buffer = []byte{}
-	case NullTime: // only null values reach here
-		res.ti.TypeId = typeTimeN
-		res.ti.Scale = 7
-		res.ti.Size = calcTimeSize(int(res.ti.Scale))
-		res.buffer = []byte{}
-	case *NullDate: // only null values reach here
-		res.ti.TypeId = typeDateN
-		res.ti.Size = 3
-		res.buffer = []byte{}
-	case *NullDateTime: // only null values reach here
-		res.ti.TypeId = typeDateTime2N
-		res.ti.Scale = 7
-		res.ti.Size = calcTimeSize(int(res.ti.Scale)) + 3
-		res.buffer = []byte{}
-	case *NullTime: // only null values reach here
-		res.ti.TypeId = typeTimeN
-		res.ti.Scale = 7
-		res.ti.Size = calcTimeSize(int(res.ti.Scale))
-		res.buffer = []byte{}
 	case driver.Valuer:
 		// We have a custom Valuer implementation with a nil value
 		return s.makeParam(nil)

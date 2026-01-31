@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/golang-sql/civil"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -33,6 +34,8 @@ func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 		"test_nulldate",
 		"test_nulldatetime",
 		"test_nullciviltime",
+		"test_nulldecimal",
+		"test_nullmoney",
 	}
 	values := []interface{}{
 		sql.NullFloat64{Valid: false},
@@ -47,6 +50,8 @@ func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 		NullDate{Valid: false},
 		NullDateTime{Valid: false},
 		NullTime{Valid: false},
+		decimal.NullDecimal{Valid: false},
+		Money[decimal.NullDecimal]{decimal.NullDecimal{Valid: false}},
 	}
 
 	pool, logger := open(t)
@@ -186,9 +191,11 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		{"test_nulldate", NullDate{civil.Date{Year: 2010, Month: 11, Day: 12}, true}, time.Date(2010, 11, 12, 0, 0, 0, 0, time.UTC)},
 		{"test_nulldatetime", NullDateTime{civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}, Time: civil.Time{Hour: 13, Minute: 14, Second: 15, Nanosecond: 120000000}}, true}, time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC)},
 		{"test_nullciviltime", NullTime{civil.Time{Hour: 13, Minute: 14, Second: 15, Nanosecond: 123000000}, true}, time.Date(1, 1, 1, 13, 14, 15, 123000000, time.UTC)},
+		{"test_nulldecimal", decimal.NewNullDecimal(decimal.New(1232355, -4)), decimal.New(1232355, -4)},
+		{"test_nullmoney", Money[decimal.NullDecimal]{decimal.NewNullDecimal(decimal.New(-21232311232355, -4))}, decimal.New(-21232311232355, -4)},
 		{"test_datetimen_midnight", time.Date(2025, 1, 1, 23, 59, 59, 998_350_000, time.UTC), time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)},
-		// {"test_smallmoney", 1234.56, nil},
-		// {"test_money", 1234.56, nil},
+		{"test_smallmoney", Money[decimal.Decimal]{decimal.New(-32856, -4)}, decimal.New(-32856, -4)},
+		{"test_money", Money[decimal.Decimal]{decimal.New(-21232311232355, -4)}, decimal.New(-21232311232355, -4)},
 		{"test_decimal_18_0", 1234.0001, "1234"},
 		{"test_decimal_9_2", -1234.560001, "-1234.56"},
 		{"test_decimal_20_0", 1234, "1234"},
@@ -344,6 +351,20 @@ func compareValue(a interface{}, expected interface{}) bool {
 			return expected.Equal(got) && ez == az
 		}
 		return false
+	case decimal.Decimal:
+		actual, err := decimal.NewFromString(a.(string))
+		if err != nil {
+			return false
+		}
+
+		return expected.Equal(actual)
+	case Money[decimal.Decimal]:
+		actual, err := decimal.NewFromString(a.(string))
+		if err != nil {
+			return false
+		}
+
+		return expected.Decimal.Equal(actual)
 	default:
 		return reflect.DeepEqual(expected, a)
 	}
@@ -364,6 +385,8 @@ func setupNullableTypeTable(ctx context.Context, t *testing.T, conn *sql.Conn, t
 	[test_nulldate] [date] NULL,
 	[test_nulldatetime] [datetime2] NULL,
 	[test_nullciviltime] [time] NULL,
+	[test_nulldecimal] [decimal](18, 4) NULL,
+	[test_nullmoney] [money] NULL,
  CONSTRAINT [PK_` + tableName + `_id] PRIMARY KEY CLUSTERED
 (
 	[id] ASC
@@ -454,6 +477,8 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 	[test_nulldate] [date] NULL,
 	[test_nulldatetime] [datetime2] NULL,
 	[test_nullciviltime] [time] NULL,
+	[test_nulldecimal] [decimal](18, 4) NULL,
+	[test_nullmoney] [money] NULL,
 	[test_datetimen_midnight] [datetime] NULL,
  CONSTRAINT [PK_` + tableName + `_id] PRIMARY KEY CLUSTERED
 (

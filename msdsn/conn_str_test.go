@@ -27,6 +27,7 @@ func TestInvalidConnectionString(t *testing.T) {
 		"disableretry=invalid",
 		"multisubnetfailover=invalid",
 		"timezone=invalid",
+		"epa enabled=invalid",
 
 		// ODBC mode
 		"odbc:password={",
@@ -111,6 +112,12 @@ func TestValidConnectionString(t *testing.T) {
 		{"MultiSubnetFailover=false", func(p Config) bool { return !p.MultiSubnetFailover }},
 		{"timezone=Asia/Shanghai", func(p Config) bool { return p.Encoding.Timezone.String() == "Asia/Shanghai" }},
 		{"Pwd=placeholder", func(p Config) bool { return p.Password == "placeholder" }},
+		{"epa enabled=true", func(p Config) bool { return p.EpaEnabled }},
+		{"epa enabled=false", func(p Config) bool { return !p.EpaEnabled }},
+		{"epa enabled=1", func(p Config) bool { return p.EpaEnabled }},
+		{"epa enabled=0", func(p Config) bool { return !p.EpaEnabled }},
+		{"server=test;epa enabled=true", func(p Config) bool { return p.Host == "test" && p.EpaEnabled }},
+		{"server=test;epa enabled=false", func(p Config) bool { return p.Host == "test" && !p.EpaEnabled }},
 
 		// ADO connection string tests with double-quoted values containing semicolons
 		{"server=test;password=\"pass;word\"", func(p Config) bool { return p.Host == "test" && p.Password == "pass;word" }},
@@ -195,6 +202,12 @@ func TestValidConnectionString(t *testing.T) {
 			return p.Host == "somehost" && p.User == "someuser" && p.Password == "somepass" && p.DisableRetry
 		}},
 		{"odbc:timezone={Asia/Shanghai}", func(p Config) bool { return p.Encoding.Timezone.String() == "Asia/Shanghai" }},
+		{"odbc:epa enabled=true", func(p Config) bool { return p.EpaEnabled }},
+		{"odbc:epa enabled=false", func(p Config) bool { return !p.EpaEnabled }},
+		{"odbc:server=somehost;epa enabled=1", func(p Config) bool { return p.Host == "somehost" && p.EpaEnabled }},
+		{"odbc:server=somehost;epa enabled=0", func(p Config) bool { return p.Host == "somehost" && !p.EpaEnabled }},
+		{"odbc:epa enabled={true}", func(p Config) bool { return p.EpaEnabled }},
+		{"odbc:epa enabled={false}", func(p Config) bool { return !p.EpaEnabled }},
 
 		// URL mode
 		{"sqlserver://somehost?connection+timeout=30", func(p Config) bool {
@@ -228,6 +241,11 @@ func TestValidConnectionString(t *testing.T) {
 			return p.Host == "somehost" && p.Encryption == EncryptionRequired && p.TLSConfig.MinVersion == tls.VersionTLS11 && p.ColumnEncryption && p.Encoding.GuidConversion
 		}},
 		{"sqlserver://someuser@somehost?timezone=Asia%2FShanghai", func(p Config) bool { return p.Encoding.Timezone.String() == "Asia/Shanghai" }},
+		{"sqlserver://somehost?epa+enabled=true", func(p Config) bool { return p.Host == "somehost" && p.EpaEnabled }},
+		{"sqlserver://somehost?epa+enabled=false", func(p Config) bool { return p.Host == "somehost" && !p.EpaEnabled }},
+		{"sqlserver://somehost?epa+enabled=1", func(p Config) bool { return p.Host == "somehost" && p.EpaEnabled }},
+		{"sqlserver://somehost?epa+enabled=0", func(p Config) bool { return p.Host == "somehost" && !p.EpaEnabled }},
+		{"sqlserver://somehost?epa+enabled=true&encrypt=true", func(p Config) bool { return p.Host == "somehost" && p.EpaEnabled && p.Encryption == EncryptionRequired }},
 	}
 	for _, ts := range connStrings {
 		p, err := Parse(ts.connStr)
@@ -360,4 +378,142 @@ func TestReadCertificate(t *testing.T) {
 	cert, err = readCertificate(bakfile.Name())
 	assert.NotNil(t, err, "Expected error while reading certificate, found nil")
 	assert.Nil(t, cert, "Expected certificate to be nil, found %v", cert)
+}
+
+// TestStrictEncryptionWithCertificate tests that hostname validation is skipped
+// when a certificate is provided with encrypt=strict
+func TestStrictEncryptionWithCertificate(t *testing.T) {
+	// Create a temporary certificate file for testing
+	// This is a minimal self-signed certificate for testing purposes
+	pemCert := `-----BEGIN CERTIFICATE-----
+MIIBkTCB+wIJAKHHCgVZU1tZMA0GCSqGSIb3DQEBBQUAMBExDzANBgNVBAMMBnNl
+cnZlcjAeFw0yMjA0MDQxMTIxNTNaFw0zMjA0MDExMTIxNTNaMBExDzANBgNVBAMM
+BnNlcnZlcjCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEAuTU1euiQCmLQG0z8
+b/5pXNlWM6gGAMJklwO9jN8vGiWQGbQXPOMPqK8xDQqLOQnVEXrKJSfF2blHRneC
+qVmMNL7YSUEMxWdVaW3mQ4MzC6JgmWsxVrJeQEDZLdYVbQPXMGh5YtH5Ih8qTqJy
+e4MJwPMXEKlYVPJ3LE3E8pD6vXkCAwEAATANBgkqhkiG9w0BAQUFAAOBgQBHCqVT
+tZhWYXPHQFQgbKh6yvmhZfF8ZXHgZMhQQQwvqc0i5mvFpJpCQUQXAOkPGNPJANcV
+QSkVdAJg8mHKYGNZ6pIYMFr7RoBLGqMnKLPMYn3VqFvMccPx7A0hKQFJBR/qV8lh
+f0kGHKQEAFYGJLqJdK4KsGQDKLfZr9fqvXCCAA==
+-----END CERTIFICATE-----`
+
+	pemfile, err := os.CreateTemp("", "*.pem")
+	if err != nil {
+		t.Fatalf("failed to create temporary certificate file: %v", err)
+	}
+	defer os.Remove(pemfile.Name())
+	if _, err := pemfile.WriteString(pemCert); err != nil {
+		t.Fatalf("failed to write certificate to file: %v", err)
+	}
+	if err := pemfile.Close(); err != nil {
+		t.Fatalf("failed to close certificate file: %v", err)
+	}
+
+	// Test 1: serverCertificate parameter with byte-comparison validation
+	connStr := "server=differenthostname;encrypt=strict;serverCertificate=" + pemfile.Name()
+	config, err := Parse(connStr)
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.Equal(t, Encryption(EncryptionStrict), config.Encryption, "Expected EncryptionStrict")
+	assert.NotNil(t, config.TLSConfig, "Expected TLSConfig to be set")
+	// serverCertificate uses InsecureSkipVerify with VerifyPeerCertificate for byte comparison
+	assert.True(t, config.TLSConfig.InsecureSkipVerify, "Expected InsecureSkipVerify to be true when serverCertificate is provided")
+	assert.NotNil(t, config.TLSConfig.VerifyPeerCertificate, "Expected VerifyPeerCertificate callback to be set")
+
+	// Test 2: certificate parameter with traditional chain validation (backward compatible)
+	connStr2 := "server=somehost;encrypt=true;certificate=" + pemfile.Name()
+	config2, err := Parse(connStr2)
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.Equal(t, Encryption(EncryptionRequired), config2.Encryption, "Expected EncryptionRequired")
+	assert.NotNil(t, config2.TLSConfig, "Expected TLSConfig to be set")
+	assert.NotNil(t, config2.TLSConfig.RootCAs, "Expected RootCAs to be set for certificate parameter")
+	// certificate parameter uses traditional chain validation, does NOT skip hostname by default
+	assert.Nil(t, config2.TLSConfig.VerifyPeerCertificate, "Expected no VerifyPeerCertificate callback for traditional certificate validation")
+
+	// Test 3: encrypt=strict without certificate should NOT skip hostname validation
+	connStr3 := "server=somehost;encrypt=strict"
+	config3, err := Parse(connStr3)
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.Equal(t, Encryption(EncryptionStrict), config3.Encryption, "Expected EncryptionStrict")
+	assert.NotNil(t, config3.TLSConfig, "Expected TLSConfig to be set")
+	assert.False(t, config3.TLSConfig.InsecureSkipVerify, "Expected InsecureSkipVerify to be false when no certificate is provided")
+
+	// Test 4: Cannot specify both certificate and serverCertificate
+	connStr4 := "server=somehost;encrypt=true;certificate=" + pemfile.Name() + ";serverCertificate=" + pemfile.Name()
+	_, err = Parse(connStr4)
+	assert.NotNil(t, err, "Expected error when both certificate and serverCertificate are specified")
+	assert.Contains(t, err.Error(), "cannot specify both", "Error should mention conflicting parameters")
+
+	// Test 5: Cannot specify serverCertificate with hostnameincertificate
+	connStr5 := "server=somehost;encrypt=true;serverCertificate=" + pemfile.Name() + ";hostnameincertificate=othername"
+	_, err = Parse(connStr5)
+	assert.NotNil(t, err, "Expected error when both serverCertificate and hostnameincertificate are specified")
+	assert.Contains(t, err.Error(), "cannot specify both", "Error should mention conflicting parameters")
+}
+
+// TestEpaEnabledFromEnvironment tests parsing EPA enabled from the MSSQL_USE_EPA environment variable
+func TestEpaEnabledFromEnvironment(t *testing.T) {
+	// Save the original environment variable value
+	originalValue := os.Getenv("MSSQL_USE_EPA")
+	defer func() {
+		// Restore the original value
+		if originalValue != "" {
+			os.Setenv("MSSQL_USE_EPA", originalValue)
+		} else {
+			os.Unsetenv("MSSQL_USE_EPA")
+		}
+	}()
+
+	// Test 1: Environment variable set to "true"
+	os.Setenv("MSSQL_USE_EPA", "true")
+	config, err := Parse("server=testhost")
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.True(t, config.EpaEnabled, "Expected EpaEnabled to be true when MSSQL_USE_EPA=true")
+
+	// Test 2: Environment variable set to "false"
+	os.Setenv("MSSQL_USE_EPA", "false")
+	config, err = Parse("server=testhost")
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.False(t, config.EpaEnabled, "Expected EpaEnabled to be false when MSSQL_USE_EPA=false")
+
+	// Test 3: Environment variable set to "1"
+	os.Setenv("MSSQL_USE_EPA", "1")
+	config, err = Parse("server=testhost")
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.True(t, config.EpaEnabled, "Expected EpaEnabled to be true when MSSQL_USE_EPA=1")
+
+	// Test 4: Environment variable set to "0"
+	os.Setenv("MSSQL_USE_EPA", "0")
+	config, err = Parse("server=testhost")
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.False(t, config.EpaEnabled, "Expected EpaEnabled to be false when MSSQL_USE_EPA=0")
+
+	// Test 5: Environment variable not set (should default to false)
+	os.Unsetenv("MSSQL_USE_EPA")
+	config, err = Parse("server=testhost")
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.False(t, config.EpaEnabled, "Expected EpaEnabled to be false when MSSQL_USE_EPA is not set")
+
+	// Test 6: Connection string parameter overrides environment variable
+	os.Setenv("MSSQL_USE_EPA", "true")
+	config, err = Parse("server=testhost;epa enabled=false")
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.False(t, config.EpaEnabled, "Expected EpaEnabled to be false when explicitly set in connection string, overriding environment variable")
+
+	// Test 7: Connection string parameter overrides environment variable (reverse)
+	os.Setenv("MSSQL_USE_EPA", "false")
+	config, err = Parse("server=testhost;epa enabled=true")
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.True(t, config.EpaEnabled, "Expected EpaEnabled to be true when explicitly set in connection string, overriding environment variable")
+
+	// Test 8: Invalid environment variable value should cause error
+	os.Setenv("MSSQL_USE_EPA", "invalid")
+	_, err = Parse("server=testhost")
+	assert.NotNil(t, err, "Expected error when MSSQL_USE_EPA has invalid value")
+	assert.Contains(t, err.Error(), "invalid epa enabled value", "Error should mention invalid epa enabled value")
+
+	// Test 9: Empty environment variable should default to false
+	os.Setenv("MSSQL_USE_EPA", "")
+	config, err = Parse("server=testhost")
+	assert.Nil(t, err, "Expected no error parsing connection string")
+	assert.False(t, config.EpaEnabled, "Expected EpaEnabled to be false when MSSQL_USE_EPA is empty")
 }
