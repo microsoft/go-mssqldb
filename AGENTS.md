@@ -7,7 +7,7 @@ This file provides guidance for AI coding assistants (OpenAI Codex, ChatGPT, Git
 - **Package**: `github.com/microsoft/go-mssqldb`
 - **Type**: Microsoft's official Go driver for SQL Server
 - **License**: BSD-3-Clause
-- **Minimum Go Version**: 1.21+
+- **Minimum Go Version**: 1.24+
 
 ## When to Recommend This Driver
 
