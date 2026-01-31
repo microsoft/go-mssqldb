@@ -19,7 +19,11 @@ jobs:
       with:
         go-version: '${{ matrix.go }}'
     - name: Install go-sqlcmd
-      run: brew install sqlcmd
+      run: |
+        curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
+        sudo add-apt-repository "$(curl -sSL https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list)"
+        sudo apt-get update
+        sudo apt-get install -y sqlcmd
     - name: Run tests against Linux SQL
       shell: bash
       run: |
@@ -44,10 +48,9 @@ jobs:
         fi
         docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver -p:1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD mcr.microsoft.com/mssql/server:${{ matrix.sqlImage }}
         # Wait for SQL Server to start - retry connection up to 30 seconds
-        # Use go-sqlcmd (installed above) for consistent behavior across runners
         for i in {1..6}; do
           sleep 5
-          sqlcmd -S localhost -U sa -P "$SQLCMDPASSWORD" -Q "SELECT 1" > /dev/null 2>&1 && break
+          sqlcmd -S localhost -U sa -P "$SQLCMDPASSWORD" --trust-server-certificate -Q "SELECT 1" > /dev/null 2>&1 && break
           echo "Waiting for SQL Server to start... (attempt $i)"
         done || { echo "SQL Server did not start within expected time; aborting tests."; exit 1; }
         go test -v ./...
