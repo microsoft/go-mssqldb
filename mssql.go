@@ -1031,6 +1031,15 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 	// Note: Float16 vectors use JSON because native binary float16 parameters are
 	// not yet supported by SQL Server (even though float16 columns work).
 	case Vector:
+		// Handle NULL vectors (Data == nil) by sending an nvarchar(1) NULL,
+		// similar to NullVector{Valid: false}. This prevents sending an empty
+		// string which would be a non-NULL value and fail conversion.
+		if valuer.Data == nil {
+			res.ti.TypeId = typeNVarChar
+			res.buffer = nil
+			res.ti.Size = 2 // nvarchar(1) = 2 bytes
+			return
+		}
 		if s.c.sess.vectorSupported && valuer.ElementType == VectorElementFloat32 {
 			return s.makeVectorParam(valuer)
 		}

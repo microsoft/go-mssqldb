@@ -22,7 +22,7 @@ var (
 
 // setupVectorTestDB ensures we're using a user database for vector tests.
 // System databases (master, tempdb, msdb, model) don't support PREVIEW_FEATURES.
-// Returns a cleanup function that should be deferred (only cleans up on last call).
+// Database cleanup is handled by drop-before-create logic at the start of each test run.
 func setupVectorTestDB(t *testing.T, conn *sql.DB) {
 	t.Helper()
 
@@ -93,8 +93,19 @@ func skipIfVectorNotSupported(t *testing.T, conn *sql.DB) {
 	// Ensure we're in a user database
 	setupVectorTestDB(t, conn)
 
+	// Use a dedicated connection to ensure the temp table CREATE and DROP
+	// happen on the same session. Temp tables are session-scoped, so using
+	// *sql.DB directly could cause the DROP to execute on a different
+	// pooled connection where the temp table doesn't exist.
+	ctx := context.Background()
+	singleConn, err := conn.Conn(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get dedicated connection: %v", err)
+	}
+	defer singleConn.Close()
+
 	// Try to create a table with VECTOR column to check support
-	_, err := conn.Exec("CREATE TABLE #vector_check (v VECTOR(1))")
+	_, err = singleConn.ExecContext(ctx, "CREATE TABLE #vector_check (v VECTOR(1))")
 	if err != nil {
 		errStr := err.Error()
 		// Error 2715: "Cannot find data type VECTOR"
@@ -103,7 +114,7 @@ func skipIfVectorNotSupported(t *testing.T, conn *sql.DB) {
 			strings.Contains(errStr, "2715") {
 			// Log the server version for debugging
 			var version string
-			if verr := conn.QueryRow("SELECT @@VERSION").Scan(&version); verr == nil {
+			if verr := singleConn.QueryRowContext(ctx, "SELECT @@VERSION").Scan(&version); verr == nil {
 				if len(version) > 80 {
 					version = version[:80] + "..."
 				}
@@ -114,8 +125,8 @@ func skipIfVectorNotSupported(t *testing.T, conn *sql.DB) {
 		// For other errors, fail the test
 		t.Fatalf("Failed to check VECTOR support: %v", err)
 	}
-	// Clean up the check table (use IF EXISTS to avoid error if table doesn't exist)
-	conn.Exec("DROP TABLE IF EXISTS #vector_check")
+	// Clean up the check table on the same connection where it was created
+	singleConn.ExecContext(ctx, "DROP TABLE #vector_check")
 }
 
 // mustNewVector is a test helper that creates a Vector and panics on error.
@@ -132,6 +143,9 @@ func mustNewVector(values []float32) Vector {
 func openWithVectorSupport(t testing.TB) (*sql.DB, *testLogger) {
 	tl := testLogger{t: t}
 	SetLogger(&tl)
+	t.Cleanup(func() {
+		tl.StopLogging()
+	})
 
 	config := testConnParams(t)
 	config.VectorTypeSupport = msdsn.VectorTypeSupportV1

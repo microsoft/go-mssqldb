@@ -569,7 +569,8 @@ func writeShortLenType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.Enco
 }
 
 // readVectorType reads a Vector value from the TDS stream.
-// Vectors are stored as binary data with an 8-byte header followed by float32 values.
+// Vectors are stored as binary data with an 8-byte header followed by element values.
+// The payload element width (for example, float16 or float32) depends on the vector element type.
 // Returns []float32 by default for better framework compatibility (e.g., GORM).
 // Applications can still scan directly to Vector or NullVector types.
 func readVectorType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) interface{} {

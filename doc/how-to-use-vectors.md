@@ -99,7 +99,7 @@ defer rows.Close()
 for rows.Next() {
     var id int
     var name string
-    // Option 1: Scan to Vector type (provides metadata like ElementType)
+    // Option 1: Scan to Vector type (ElementType is inferred from the scanned Go slice, typically FLOAT32)
     var embedding mssql.Vector
 
     if err := rows.Scan(&id, &name, &embedding); err != nil {
@@ -121,13 +121,27 @@ err := row.Scan(&embedding)
 // embedding is now a []float32 with the vector values
 ```
 
-When scanning to `interface{}`, the driver returns `[]float32` by default:
+When scanning to `interface{}`, the driver returns `[]float32` when native vector type support is enabled
+(for example, by using `vectortypesupport=v1` in the connection string) and the server supports vector types.
+If native vector support is not available, the value may instead be returned as a JSON-encoded `string`.
 
 ```go
 var result interface{}
-err := row.Scan(&result)
-// result is []float32, which works well with frameworks like GORM
-floats := result.([]float32)
+if err := row.Scan(&result); err != nil {
+    log.Fatal(err)
+}
+
+switch v := result.(type) {
+case []float32:
+    // Native vector support: v already contains the float32 values.
+    floats := v
+    _ = floats
+case string:
+    // Fallback: parse JSON string into []float32 as needed.
+    // For example: json.Unmarshal([]byte(v), &floats)
+default:
+    log.Fatalf("unexpected vector type %T", v)
+}
 ```
 
 ### Reading Nullable Vectors
@@ -299,7 +313,7 @@ if err := tx.Commit(); err != nil {
 
 2. **Always Encrypted**: The Vector data type is not supported with Always Encrypted. This is a SQL Server limitation. See [Always Encrypted limitations](https://learn.microsoft.com/sql/relational-databases/security/encryption/always-encrypted-database-engine#limitations).
 
-3. **NULL vector dimension matching**: When inserting a NULL vector using `NullVector{Valid: false}`, SQL Server requires the parameter declaration to match the column's dimension count. The driver handles this automatically when the column metadata is available, but for raw SQL queries you may need to ensure the types align.
+3. **NULL vectors and dimensions**: When inserting a NULL vector using `mssql.NullVector{Valid: false}`, the driver sends the value as an `NVARCHAR(1)` NULL so that SQL Server does not enforce any vector dimension matching for that parameter. You typically do not need to declare a specific vector dimension for NULL parameters; dimension matching still applies to non-NULL vectors and to table definitions that use the `VECTOR` type with a fixed dimension.
 
 ## Precision Loss Warnings
 

@@ -271,6 +271,8 @@ func (v Vector) String() string {
 // Returns an empty string for nil/NULL vectors.
 // This format is used when sending vectors as parameters via RPC calls,
 // following the backward compatibility approach used by SqlClient.
+// Note: NaN and Inf values are encoded as JSON null since JSON does not support
+// these special floating-point values as numeric literals.
 func (v Vector) ToJSON() string {
 	if v.Data == nil {
 		return ""
@@ -284,7 +286,14 @@ func (v Vector) ToJSON() string {
 		if i > 0 {
 			sb.WriteString(", ")
 		}
-		sb.WriteString(strconv.FormatFloat(float64(val), 'f', -1, 32))
+		f := float64(val)
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			// JSON does not support NaN or Infinity as numeric literals.
+			// Encode them as null to preserve valid JSON.
+			sb.WriteString("null")
+		} else {
+			sb.WriteString(strconv.FormatFloat(f, 'f', -1, 32))
+		}
 	}
 	sb.WriteByte(']')
 	return sb.String()
@@ -419,9 +428,9 @@ func (v *Vector) decodeFromJSON(jsonStr string) error {
 	// Trim whitespace
 	jsonStr = strings.TrimSpace(jsonStr)
 
-	// Check for empty array
+	// Check for empty array - return empty slice (not nil) to distinguish from NULL
 	if jsonStr == "[]" {
-		v.Data = nil
+		v.Data = make([]float32, 0)
 		v.ElementType = VectorElementFloat32
 		return nil
 	}
