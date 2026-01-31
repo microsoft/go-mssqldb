@@ -986,8 +986,10 @@ func decodeTime(scale uint8, buf []byte, loc *time.Location) time.Time {
 
 func encodeTime(hour, minute, second, ns, scale int) (buf []byte) {
 	seconds := hour*3600 + minute*60 + second
-	buf = make([]byte, calcTimeSize(scale))
+	timeSize := calcTimeSize(scale)
+	buf = make([]byte, timeSize+2)
 	encodeTimeInt(seconds, ns, scale, buf)
+	buf = buf[:timeSize]
 	return
 }
 
