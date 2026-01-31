@@ -98,7 +98,7 @@ db.ExecContext(ctx, "sp_MyProc", sql.Named("Input", "value"), sql.Named("Output"
 
 ### Bulk Insert
 ```go
-import "github.com/microsoft/go-mssqldb"
+import mssql "github.com/microsoft/go-mssqldb"
 
 stmt, _ := db.Prepare(mssql.CopyIn("tablename", mssql.BulkOptions{}, "col1", "col2"))
 stmt.Exec(val1, val2)

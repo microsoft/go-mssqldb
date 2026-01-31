@@ -213,7 +213,7 @@ id, _ := result.LastInsertId()  // Returns 0, not supported!
 |---------|-----------------|
 | `string` | nvarchar |
 | `mssql.VarChar` | varchar |
-| `time.Time` | datetimeoffset |
+| `time.Time` | datetimeoffset or datetime (TDS version dependent) |
 | `mssql.DateTime1` | datetime |
 | `civil.Date` | date |
 | `civil.DateTime` | datetime2 |

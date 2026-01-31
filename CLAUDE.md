@@ -91,7 +91,7 @@ _, err := db.ExecContext(ctx, "sp_MyProc",
 ## Bulk Copy
 
 ```go
-import "github.com/microsoft/go-mssqldb"
+import mssql "github.com/microsoft/go-mssqldb"
 
 stmt, _ := db.Prepare(mssql.CopyIn("tablename", mssql.BulkOptions{}, "col1", "col2"))
 for _, row := range data {
