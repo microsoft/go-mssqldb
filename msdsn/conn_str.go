@@ -288,8 +288,12 @@ func setupTLSServerCertificateOnly(config *tls.Config, pemData []byte) error {
 	return nil
 }
 
-// Parse and handle encryption parameters. If encryption is desired, it returns the corresponding tls.Config object.
-// Also returns the trustServerCert value so it can be stored in the Config.
+// parseTLS parses and handles encryption parameters.
+// Returns:
+//   - Encryption: the encryption mode
+//   - *tls.Config: TLS configuration if encryption is enabled, nil otherwise
+//   - bool: the trustServerCertificate value for storage in Config
+//   - error: any parsing or validation error
 func parseTLS(params map[string]string, host string) (Encryption, *tls.Config, bool, error) {
 	trustServerCert := false
 
@@ -329,10 +333,10 @@ func parseTLS(params map[string]string, host string) (Encryption, *tls.Config, b
 	// Validate parameter combinations
 	if len(serverCertificate) > 0 {
 		if len(certificate) > 0 {
-			return encryption, nil, errors.New("cannot specify both 'certificate' and 'serverCertificate' parameters")
+			return encryption, nil, false, errors.New("cannot specify both 'certificate' and 'serverCertificate' parameters")
 		}
 		if len(hostInCertificate) > 0 {
-			return encryption, nil, errors.New("cannot specify both 'serverCertificate' and 'hostnameincertificate' parameters")
+			return encryption, nil, false, errors.New("cannot specify both 'serverCertificate' and 'hostnameincertificate' parameters")
 		}
 	}
 
@@ -651,7 +655,7 @@ func Parse(dsn string) (Config, error) {
 	if !ok {
 		epaString = os.Getenv("MSSQL_USE_EPA")
 	}
-	if epaString !=  "" {
+	if epaString != "" {
 		epaEnabled, err := strconv.ParseBool(epaString)
 		if err != nil {
 			return p, fmt.Errorf("invalid epa enabled value '%s': %v", epaString, err)
@@ -722,8 +726,8 @@ func (p Config) URL() *url.URL {
 		q.Add(Encrypt, "true")
 	}
 	// Only include TrustServerCertificate if it was explicitly set in the original connection string
-	if _, ok := p.Parameters[TrustServerCertificate]; ok && p.TrustServerCertificate {
-		q.Add(TrustServerCertificate, "true")
+	if _, ok := p.Parameters[TrustServerCertificate]; ok {
+		q.Add(TrustServerCertificate, strconv.FormatBool(p.TrustServerCertificate))
 	}
 	if p.ColumnEncryption {
 		q.Add("columnencryption", "true")
