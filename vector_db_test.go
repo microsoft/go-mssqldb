@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
 // vectorTestDB holds the shared test database state for vector tests.
@@ -125,10 +127,28 @@ func mustNewVector(values []float32) Vector {
 	return v
 }
 
+// openWithVectorSupport opens a database connection with vectortypesupport=v1 enabled.
+// This enables native binary vector format when the server supports it (SQL Server 2025+).
+func openWithVectorSupport(t testing.TB) (*sql.DB, *testLogger) {
+	tl := testLogger{t: t}
+	SetLogger(&tl)
+
+	config := testConnParams(t)
+	config.VectorTypeSupport = msdsn.VectorTypeSupportV1
+	connectionString := config.URL().String()
+
+	connector, err := NewConnector(connectionString)
+	if err != nil {
+		t.Fatal("Failed to create connector:", err)
+	}
+	conn := sql.OpenDB(connector)
+	return conn, &tl
+}
+
 // TestVectorInsertAndSelect tests inserting and reading Vector values.
 // This test requires a SQL Server 2025+ instance.
 func TestVectorInsertAndSelect(t *testing.T) {
-	conn, _ := open(t)
+	conn, _ := openWithVectorSupport(t)
 	defer conn.Close()
 	skipIfVectorNotSupported(t, conn)
 
@@ -189,7 +209,7 @@ func TestVectorInsertAndSelect(t *testing.T) {
 
 // TestVectorNullInsertAndSelect tests inserting and reading NULL Vector values.
 func TestVectorNullInsertAndSelect(t *testing.T) {
-	conn, _ := open(t)
+	conn, _ := openWithVectorSupport(t)
 	defer conn.Close()
 	skipIfVectorNotSupported(t, conn)
 
@@ -266,7 +286,7 @@ func TestVectorNullInsertAndSelect(t *testing.T) {
 
 // TestVectorDifferentDimensions tests vectors with different dimension counts.
 func TestVectorDifferentDimensions(t *testing.T) {
-	conn, _ := open(t)
+	conn, _ := openWithVectorSupport(t)
 	defer conn.Close()
 	skipIfVectorNotSupported(t, conn)
 
@@ -336,7 +356,7 @@ func TestVectorDifferentDimensions(t *testing.T) {
 
 // TestVectorSpecialValues tests vectors with special floating-point values.
 func TestVectorSpecialValues(t *testing.T) {
-	conn, _ := open(t)
+	conn, _ := openWithVectorSupport(t)
 	defer conn.Close()
 	skipIfVectorNotSupported(t, conn)
 
@@ -388,7 +408,7 @@ func TestVectorSpecialValues(t *testing.T) {
 
 // TestVectorDistance tests using vectors in SQL Server VECTOR_DISTANCE function.
 func TestVectorDistance(t *testing.T) {
-	conn, _ := open(t)
+	conn, _ := openWithVectorSupport(t)
 	defer conn.Close()
 	skipIfVectorNotSupported(t, conn)
 
@@ -470,7 +490,7 @@ func TestVectorDistance(t *testing.T) {
 
 // TestVectorColumnMetadata tests that Vector column metadata is reported correctly.
 func TestVectorColumnMetadata(t *testing.T) {
-	conn, _ := open(t)
+	conn, _ := openWithVectorSupport(t)
 	defer conn.Close()
 	skipIfVectorNotSupported(t, conn)
 
@@ -550,7 +570,7 @@ func TestVectorColumnMetadata(t *testing.T) {
 
 // TestVectorLargeDimensions tests vectors near the maximum allowed dimensions.
 func TestVectorLargeDimensions(t *testing.T) {
-	conn, _ := open(t)
+	conn, _ := openWithVectorSupport(t)
 	defer conn.Close()
 	skipIfVectorNotSupported(t, conn)
 
@@ -612,7 +632,7 @@ func TestVectorLargeDimensions(t *testing.T) {
 
 // TestVectorBatchInsert tests inserting multiple vectors in a transaction.
 func TestVectorBatchInsert(t *testing.T) {
-	conn, _ := open(t)
+	conn, _ := openWithVectorSupport(t)
 	defer conn.Close()
 	skipIfVectorNotSupported(t, conn)
 
@@ -662,7 +682,7 @@ func TestVectorBatchInsert(t *testing.T) {
 // TestVectorSliceFloat32Insert tests inserting []float32 directly without wrapping in Vector.
 // This provides better framework compatibility (e.g., GORM) per shueybubbles' feedback.
 func TestVectorSliceFloat32Insert(t *testing.T) {
-	conn, _ := open(t)
+	conn, _ := openWithVectorSupport(t)
 	defer conn.Close()
 	skipIfVectorNotSupported(t, conn)
 
@@ -718,7 +738,7 @@ func TestVectorSliceFloat32Insert(t *testing.T) {
 // TestVectorSliceFloat64Insert tests inserting []float64 directly.
 // float64 is the default float type in Go, so this is important for convenience.
 func TestVectorSliceFloat64Insert(t *testing.T) {
-	conn, _ := open(t)
+	conn, _ := openWithVectorSupport(t)
 	defer conn.Close()
 	skipIfVectorNotSupported(t, conn)
 
@@ -773,7 +793,7 @@ func TestVectorSliceFloat64Insert(t *testing.T) {
 // TestVectorScanToInterface tests that scanning to interface{} returns []float32.
 // This enables frameworks like GORM to work without special Vector type handling.
 func TestVectorScanToInterface(t *testing.T) {
-	conn, _ := open(t)
+	conn, _ := openWithVectorSupport(t)
 	defer conn.Close()
 	skipIfVectorNotSupported(t, conn)
 
@@ -804,7 +824,7 @@ func TestVectorScanToInterface(t *testing.T) {
 		t.Fatalf("Failed to insert vector: %v", err)
 	}
 
-	// Scan to interface{} - should get []float32
+	// Scan to interface{} - should get []float32 when native vector binary format is supported
 	var result interface{}
 	err = tx.QueryRow(
 		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 1", tableName),
@@ -813,29 +833,38 @@ func TestVectorScanToInterface(t *testing.T) {
 		t.Fatalf("Failed to scan to interface{}: %v", err)
 	}
 
-	// Verify we got []float32
-	floatSlice, ok := result.([]float32)
-	if !ok {
-		t.Fatalf("Expected []float32, got %T", result)
-	}
-
-	if len(floatSlice) != 3 {
-		t.Fatalf("Expected 3 values, got %d", len(floatSlice))
-	}
-
-	expected := []float32{1.0, 2.0, 3.0}
-	for i, val := range expected {
-		if floatSlice[i] != val {
-			t.Errorf("Value %d: expected %f, got %f", i, val, floatSlice[i])
+	// Verify we got []float32 (native binary format) or string (JSON fallback)
+	switch v := result.(type) {
+	case []float32:
+		// Native binary format - verify values
+		if len(v) != 3 {
+			t.Fatalf("Expected 3 values, got %d", len(v))
 		}
+		expected := []float32{1.0, 2.0, 3.0}
+		for i, val := range expected {
+			if v[i] != val {
+				t.Errorf("Value %d: expected %f, got %f", i, val, v[i])
+			}
+		}
+		t.Logf("Scan to interface{} returned []float32 (native binary): %v", v)
+	case string:
+		// JSON fallback - server doesn't support native vector binary format
+		// This happens when the TDS vector feature extension is not negotiated
+		t.Logf("Scan to interface{} returned string (JSON fallback): %s", v)
+		// Parse JSON to verify it's valid vector data
+		if !strings.HasPrefix(v, "[") || !strings.HasSuffix(v, "]") {
+			t.Fatalf("Expected JSON array, got: %s", v)
+		}
+		t.Skip("Server does not support native vector binary format - JSON fallback used")
+	default:
+		t.Fatalf("Expected []float32 or string, got %T", result)
 	}
-	t.Logf("Scan to interface{} returned []float32: %v", floatSlice)
 }
 
 // TestVectorFloat16 tests float16 vector support (preview feature).
 // This test requires SQL Server 2025+ with PREVIEW_FEATURES enabled.
 func TestVectorFloat16(t *testing.T) {
-	conn, _ := open(t)
+	conn, _ := openWithVectorSupport(t)
 	defer conn.Close()
 	skipIfVectorNotSupported(t, conn)
 

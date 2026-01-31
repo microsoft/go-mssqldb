@@ -808,3 +808,136 @@ func TestVectorPrecisionLossWarning(t *testing.T) {
 		t.Error("SetVectorPrecisionWarnings(false) should set handler to nil")
 	}
 }
+
+// TestVectorTypeFunctions tests the type-related functions for Vector type.
+// These tests cover code paths in types.go that are otherwise only exercised
+// during database operations.
+func TestVectorTypeFunctions(t *testing.T) {
+	// Test makeDecl for typeVectorN with float32
+	t.Run("makeDecl float32", func(t *testing.T) {
+		ti := typeInfo{TypeId: typeVectorN, Size: 20, Scale: 0} // 3 float32 = 12 bytes data + 8 bytes header = 20
+		decl := makeDecl(ti)
+		expected := "vector(3)"
+		if decl != expected {
+			t.Errorf("Expected makeDecl to return %q, got: %q", expected, decl)
+		}
+	})
+
+	t.Run("makeDecl float16", func(t *testing.T) {
+		ti := typeInfo{TypeId: typeVectorN, Size: 14, Scale: 1} // 3 float16 = 6 bytes data + 8 bytes header = 14
+		decl := makeDecl(ti)
+		expected := "vector(3)"
+		if decl != expected {
+			t.Errorf("Expected makeDecl to return %q, got: %q", expected, decl)
+		}
+	})
+
+	t.Run("makeDecl invalid size", func(t *testing.T) {
+		// Test with size too small for header
+		ti := typeInfo{TypeId: typeVectorN, Size: 4, Scale: 0}
+		decl := makeDecl(ti)
+		expected := "vector"
+		if decl != expected {
+			t.Errorf("Expected makeDecl to return %q, got: %q", expected, decl)
+		}
+	})
+
+	// Test makeGoLangTypeName for typeVectorN
+	t.Run("makeGoLangTypeName", func(t *testing.T) {
+		ti := typeInfo{TypeId: typeVectorN}
+		typeName := makeGoLangTypeName(ti)
+		if typeName != "VECTOR" {
+			t.Errorf("Expected makeGoLangTypeName to return 'VECTOR', got: %s", typeName)
+		}
+	})
+
+	// Test makeGoLangScanType for typeVectorN
+	t.Run("makeGoLangScanType", func(t *testing.T) {
+		ti := typeInfo{TypeId: typeVectorN}
+		scanType := makeGoLangScanType(ti)
+		// Vector scan type should be []float32
+		expected := "[]float32"
+		if scanType.String() != expected {
+			t.Errorf("Expected scan type %s for Vector, got %s", expected, scanType.String())
+		}
+	})
+
+	// Test makeGoLangTypeLength for typeVectorN
+	t.Run("makeGoLangTypeLength float32", func(t *testing.T) {
+		ti := typeInfo{TypeId: typeVectorN, Size: 20, Scale: 0} // 3 float32
+		length, hasLength := makeGoLangTypeLength(ti)
+		if !hasLength {
+			t.Error("Expected makeGoLangTypeLength to return true for Vector")
+		}
+		expectedLength := int64(3) // Number of dimensions
+		if length != expectedLength {
+			t.Errorf("Expected length %d, got: %d", expectedLength, length)
+		}
+	})
+
+	t.Run("makeGoLangTypeLength float16", func(t *testing.T) {
+		ti := typeInfo{TypeId: typeVectorN, Size: 14, Scale: 1} // 3 float16
+		length, hasLength := makeGoLangTypeLength(ti)
+		if !hasLength {
+			t.Error("Expected makeGoLangTypeLength to return true for Vector")
+		}
+		expectedLength := int64(3) // Number of dimensions
+		if length != expectedLength {
+			t.Errorf("Expected length %d, got: %d", expectedLength, length)
+		}
+	})
+
+	// Test makeGoLangTypePrecisionScale for typeVectorN
+	t.Run("makeGoLangTypePrecisionScale", func(t *testing.T) {
+		ti := typeInfo{TypeId: typeVectorN}
+		prec, scale, hasPrecScale := makeGoLangTypePrecisionScale(ti)
+		if hasPrecScale {
+			t.Error("Expected makeGoLangTypePrecisionScale to return false for Vector")
+		}
+		if prec != 0 || scale != 0 {
+			t.Errorf("Expected prec=0, scale=0, got prec=%d, scale=%d", prec, scale)
+		}
+	})
+}
+
+// TestConvertInputParameterVector tests the convertInputParameter function for Vector types.
+func TestConvertInputParameterVector(t *testing.T) {
+	t.Run("Vector value", func(t *testing.T) {
+		v := Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, 2.0, 3.0}}
+		result, err := convertInputParameter(v)
+		if err != nil {
+			t.Fatalf("convertInputParameter(Vector) returned error: %v", err)
+		}
+		if converted, ok := result.(Vector); !ok {
+			t.Errorf("Expected Vector type, got %T", result)
+		} else if len(converted.Data) != 3 {
+			t.Errorf("Expected 3 elements, got %d", len(converted.Data))
+		}
+	})
+
+	t.Run("NullVector valid value", func(t *testing.T) {
+		v := NullVector{Vector: Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, 2.0}}, Valid: true}
+		result, err := convertInputParameter(v)
+		if err != nil {
+			t.Fatalf("convertInputParameter(NullVector) returned error: %v", err)
+		}
+		if converted, ok := result.(NullVector); !ok {
+			t.Errorf("Expected NullVector type, got %T", result)
+		} else if !converted.Valid {
+			t.Error("Expected Valid to be true")
+		}
+	})
+
+	t.Run("NullVector null value", func(t *testing.T) {
+		v := NullVector{Valid: false}
+		result, err := convertInputParameter(v)
+		if err != nil {
+			t.Fatalf("convertInputParameter(NullVector) returned error: %v", err)
+		}
+		if converted, ok := result.(NullVector); !ok {
+			t.Errorf("Expected NullVector type, got %T", result)
+		} else if converted.Valid {
+			t.Error("Expected Valid to be false")
+		}
+	})
+}
