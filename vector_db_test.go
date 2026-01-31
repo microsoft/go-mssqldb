@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -53,9 +52,9 @@ func setupVectorTestDB(t *testing.T, conn *sql.DB) {
 		}
 
 		// We need to use a test database
-		// Use a unique name with PID to avoid accidentally dropping a user's database
-		// The prefix makes it obviously a test database, and PID provides uniqueness
-		vectorTestDBName = fmt.Sprintf("go_mssqldb_test_%d", os.Getpid())
+		// Use a fixed, clearly prefixed name to avoid accumulating test databases
+		// The prefix makes it obviously a test database
+		vectorTestDBName = "go_mssqldb_vector_test"
 		t.Logf("Connected to system database '%s', will use test database '%s'", currentDB, vectorTestDBName)
 
 		// Drop any existing test database from previous runs, then create fresh

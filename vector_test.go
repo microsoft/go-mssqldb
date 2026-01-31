@@ -814,16 +814,15 @@ func TestVectorPrecisionLossWarning(t *testing.T) {
 		converted float32
 	}
 
-	// Set custom handler
-	oldHandler := VectorPrecisionLossHandler
-	VectorPrecisionLossHandler = func(index int, original float64, converted float32) {
+	// Set custom handler using the thread-safe setter
+	SetVectorPrecisionLossHandler(func(index int, original float64, converted float32) {
 		warnings = append(warnings, struct {
 			index     int
 			original  float64
 			converted float32
 		}{index, original, converted})
-	}
-	defer func() { VectorPrecisionLossHandler = oldHandler }()
+	})
+	defer SetVectorPrecisionLossHandler(nil)
 
 	// Test with value that loses precision
 	preciseValue := 0.123456789012345 // More precision than float32 can hold
@@ -852,8 +851,11 @@ func TestVectorPrecisionLossWarning(t *testing.T) {
 
 	// Test SetVectorPrecisionWarnings
 	SetVectorPrecisionWarnings(false)
-	if VectorPrecisionLossHandler != nil {
-		t.Error("SetVectorPrecisionWarnings(false) should set handler to nil")
+	// Handler should now be nil - verify by checking no warnings fire
+	warnings = nil
+	_, _ = NewVectorFromFloat64([]float64{preciseValue})
+	if len(warnings) != 0 {
+		t.Error("SetVectorPrecisionWarnings(false) should disable warnings")
 	}
 }
 
@@ -874,7 +876,7 @@ func TestVectorTypeFunctions(t *testing.T) {
 	t.Run("makeDecl float16", func(t *testing.T) {
 		ti := typeInfo{TypeId: typeVectorN, Size: 14, Scale: 1} // 3 float16 = 6 bytes data + 8 bytes header = 14
 		decl := makeDecl(ti)
-		expected := "vector(3)"
+		expected := "vector(3, float16)"
 		if decl != expected {
 			t.Errorf("Expected makeDecl to return %q, got: %q", expected, decl)
 		}

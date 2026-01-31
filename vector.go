@@ -13,41 +13,46 @@ import (
 	"sync"
 )
 
-// VectorPrecisionLossHandler is a callback function that is invoked when float64 to float32
+// vectorPrecisionLossHandler is a callback function that is invoked when float64 to float32
 // conversion results in precision loss. The callback receives the index of the value,
 // the original float64 value, and the converted float32 value.
-// Set this to a custom handler to log or track precision loss warnings.
+// Use SetVectorPrecisionLossHandler to set this in a thread-safe way.
 // By default, no handler is set (warnings are silent).
-var VectorPrecisionLossHandler func(index int, original float64, converted float32)
+var vectorPrecisionLossHandler func(index int, original float64, converted float32)
+var vectorPrecisionMu sync.Mutex
+
+// SetVectorPrecisionLossHandler sets the global precision loss handler in a thread-safe way.
+// Passing nil disables precision loss callbacks.
+func SetVectorPrecisionLossHandler(handler func(index int, original float64, converted float32)) {
+	vectorPrecisionMu.Lock()
+	defer vectorPrecisionMu.Unlock()
+	vectorPrecisionLossHandler = handler
+}
 
 // SetVectorPrecisionWarnings enables or disables precision loss warnings when converting
 // float64 values to float32 for vector operations. When enabled, warnings are logged
 // to the standard logger for each value that loses precision.
 func SetVectorPrecisionWarnings(enabled bool) {
-	vectorPrecisionMu.Lock()
-	defer vectorPrecisionMu.Unlock()
 	if enabled {
-		VectorPrecisionLossHandler = defaultPrecisionLossHandler
+		SetVectorPrecisionLossHandler(defaultPrecisionLossHandler)
 	} else {
-		VectorPrecisionLossHandler = nil
+		SetVectorPrecisionLossHandler(nil)
 	}
 }
 
-var vectorPrecisionMu sync.Mutex
-
 // defaultPrecisionLossHandler is the default handler that logs precision loss warnings.
-// Users who want to integrate with their own logging framework should set
-// VectorPrecisionLossHandler to a custom function or nil to disable warnings.
+// Users who want to integrate with their own logging framework should use
+// SetVectorPrecisionLossHandler to set a custom function or pass nil to disable warnings.
 func defaultPrecisionLossHandler(index int, original float64, converted float32) {
 	log.Printf("mssql: vector precision loss at index %d: float64(%v) -> float32(%v)", index, original, converted)
 }
 
 // checkFloat64PrecisionLoss checks if converting float64 to float32 loses precision
-// and invokes VectorPrecisionLossHandler on the first value that loses precision.
+// and invokes the precision loss handler on the first value that loses precision.
 // Only reports the first loss for performance with large vectors.
 func checkFloat64PrecisionLoss(values []float64, converted []float32) {
 	vectorPrecisionMu.Lock()
-	handler := VectorPrecisionLossHandler
+	handler := vectorPrecisionLossHandler
 	vectorPrecisionMu.Unlock()
 	if handler == nil {
 		return
@@ -397,7 +402,7 @@ func (v *Vector) decodeFromBytes(buf []byte) error {
 
 	bytesPerElement := elementType.BytesPerElement()
 	expectedDataSize := vectorHeaderSize + dimensions*bytesPerElement
-	if len(buf) < expectedDataSize {
+	if len(buf) != expectedDataSize {
 		return fmt.Errorf("mssql: vector data size mismatch: got %d bytes, expected %d bytes for %d %s dimensions",
 			len(buf), expectedDataSize, dimensions, elementType)
 	}
