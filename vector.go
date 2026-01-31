@@ -614,8 +614,12 @@ func NewVector(values []float32) (Vector, error) {
 }
 
 // NewVectorWithType creates a new Vector with the specified element type from a slice of float32 values.
-// Returns an error if the number of dimensions exceeds the maximum allowed for the element type.
+// Returns an error if the element type is unsupported or the number of dimensions exceeds the maximum allowed.
 func NewVectorWithType(elementType VectorElementType, values []float32) (Vector, error) {
+	// Validate element type
+	if elementType != VectorElementFloat32 && elementType != VectorElementFloat16 {
+		return Vector{}, fmt.Errorf("mssql: unsupported vector element type %d", elementType)
+	}
 	maxDimensions := elementType.MaxDimensions()
 	if len(values) > maxDimensions {
 		return Vector{}, fmt.Errorf("mssql: vector dimensions %d exceeds maximum %d for %s",

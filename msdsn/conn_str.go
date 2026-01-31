@@ -670,7 +670,7 @@ func Parse(dsn string) (Config, error) {
 		case "v1", "1":
 			p.VectorTypeSupport = VectorTypeSupportV1
 		default:
-			return p, fmt.Errorf("invalid vectorTypeSupport '%s': must be 'off' or 'v1'", vectorSupport)
+			return p, fmt.Errorf("invalid vectortypesupport '%s': must be 'off' or 'v1'", vectorSupport)
 		}
 	}
 

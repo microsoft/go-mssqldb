@@ -597,7 +597,12 @@ func readVectorType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msds
 	if err := v.decodeFromBytes(buf); err != nil {
 		badStreamPanicf("Failed to decode vector: %s", err.Error())
 	}
-	// Return []float32 for better framework compatibility
+	// For float16 vectors, return the Vector itself so ElementType metadata
+	// is preserved through the scan path (e.g., for mssql.Vector/NullVector).
+	// For float32, return []float32 for better framework compatibility.
+	if v.ElementType == VectorElementFloat16 {
+		return v
+	}
 	return v.Data
 }
 
@@ -826,6 +831,11 @@ func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.E
 		var v Vector
 		if err := v.decodeFromBytes(bytesToDecode); err != nil {
 			badStreamPanicf("Failed to decode vector: %s", err.Error())
+		}
+		// For float16 vectors, return the Vector itself so ElementType metadata
+		// is preserved through the scan path (e.g., for mssql.Vector/NullVector).
+		if v.ElementType == VectorElementFloat16 {
+			return v
 		}
 		return v.Data
 	}
