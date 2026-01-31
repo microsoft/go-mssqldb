@@ -424,6 +424,9 @@ func (v *Vector) decodeFromBytes(buf []byte) error {
 
 // decodeFromJSON decodes a Vector from a JSON array string.
 // Format: "[1.0, 2.0, 3.0]"
+// Note: JSON null values are decoded as NaN since JSON does not support
+// special floating-point values (NaN, Inf) as numeric literals.
+// This allows round-tripping of NaN values through ToJSON()/decodeFromJSON().
 func (v *Vector) decodeFromJSON(jsonStr string) error {
 	// Trim whitespace
 	jsonStr = strings.TrimSpace(jsonStr)
@@ -435,16 +438,22 @@ func (v *Vector) decodeFromJSON(jsonStr string) error {
 		return nil
 	}
 
-	// Parse JSON array
-	var values []float64
+	// Parse JSON array using []*float64 to handle null values
+	// (null is used to represent NaN/Inf since JSON doesn't support them)
+	var values []*float64
 	if err := json.Unmarshal([]byte(jsonStr), &values); err != nil {
 		return fmt.Errorf("mssql: failed to parse vector JSON: %w", err)
 	}
 
-	// Convert to float32
+	// Convert to float32, mapping null to NaN
 	data := make([]float32, len(values))
 	for i, val := range values {
-		data[i] = float32(val)
+		if val == nil {
+			// null represents NaN (JSON doesn't support NaN/Inf literals)
+			data[i] = float32(math.NaN())
+		} else {
+			data[i] = float32(*val)
+		}
 	}
 
 	v.ElementType = VectorElementFloat32

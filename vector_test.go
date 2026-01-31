@@ -411,6 +411,54 @@ func TestVectorValue(t *testing.T) {
 	}
 }
 
+func TestVectorValueNaNRoundTrip(t *testing.T) {
+	// Test that NaN values can round-trip through ToJSON/decodeFromJSON
+	// ToJSON encodes NaN as null, decodeFromJSON should decode null back to NaN
+	v := Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, float32(math.NaN()), 3.0}}
+
+	val, err := v.Value()
+	if err != nil {
+		t.Fatalf("Value() failed: %v", err)
+	}
+
+	jsonStr, ok := val.(string)
+	if !ok {
+		t.Fatalf("Value() should return string, got %T", val)
+	}
+
+	// NaN should be encoded as null
+	expectedJSON := "[1, null, 3]"
+	if jsonStr != expectedJSON {
+		t.Errorf("Value() returned %q, expected %q", jsonStr, expectedJSON)
+	}
+
+	// Test that the JSON can be decoded back to a Vector with NaN
+	var decoded Vector
+	err = decoded.decodeFromJSON(jsonStr)
+	if err != nil {
+		t.Fatalf("decodeFromJSON failed: %v", err)
+	}
+
+	if len(decoded.Data) != len(v.Data) {
+		t.Fatalf("length mismatch: got %d, want %d", len(decoded.Data), len(v.Data))
+	}
+
+	// First element should match
+	if decoded.Data[0] != 1.0 {
+		t.Errorf("index 0: got %v, want 1.0", decoded.Data[0])
+	}
+
+	// Second element should be NaN (null in JSON -> NaN)
+	if !math.IsNaN(float64(decoded.Data[1])) {
+		t.Errorf("index 1: got %v, want NaN", decoded.Data[1])
+	}
+
+	// Third element should match
+	if decoded.Data[2] != 3.0 {
+		t.Errorf("index 2: got %v, want 3.0", decoded.Data[2])
+	}
+}
+
 func TestVectorScan(t *testing.T) {
 	original := Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, 2.0, 3.0}}
 	encoded, _ := original.encodeToBytes()
