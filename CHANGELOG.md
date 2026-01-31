@@ -3,6 +3,7 @@
 
 ### Features
 
+* Add native JSON type support for SQL Server 2025 Preview. The driver now negotiates JSON support during TDS login and properly handles the new JSON data type (0xF4). JSON data is decoded using the NVARCHAR string path and returned as `string`; it can be scanned into `string`, `[]byte`, `mssql.NullJSON`, or types implementing `sql.Scanner`.
 * Added new `serverCertificate` connection parameter for byte-for-byte certificate validation, matching Microsoft.Data.SqlClient behavior. This parameter skips hostname validation, chain validation, and expiry checks, only verifying that the server's certificate exactly matches the provided file. This is useful when the server's hostname doesn't match the certificate CN/SAN. (#304)
 * The existing `certificate` parameter maintains backward compatibility with traditional X.509 chain validation including hostname checks, expiry validation, and chain-of-trust verification.
 * `serverCertificate` cannot be used with `certificate` or `hostnameincertificate` parameters to prevent conflicting validation methods.

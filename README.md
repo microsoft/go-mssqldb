@@ -492,6 +492,8 @@ are supported:
 
 * string -> nvarchar
 * mssql.VarChar -> varchar
+* mssql.JSON -> json (SQL Server 2025+) or nvarchar(max) (older versions)
+* mssql.NullJSON -> json (nullable, SQL Server 2025+) or nvarchar(max) (older versions)
 * time.Time -> datetimeoffset or datetime (TDS version dependent)
 * mssql.DateTime1 -> datetime
 * mssql.DateTimeOffset -> datetimeoffset
@@ -513,6 +515,41 @@ name := "Bob"
 // it needs to be converted like this:
 db.QueryContext(ctx, `select * from t2 where user_name = @p1;`, mssql.VarChar(name))
 // Note: Mismatched data types on table and parameter may cause long running queries
+```
+
+### JSON Type
+
+The driver provides `mssql.JSON` and `mssql.NullJSON` types for working with JSON data. These types work seamlessly across all supported SQL Server versions with automatic fallback behavior.
+
+**Server Compatibility:**
+- **SQL Server 2025+ / Azure SQL Database**: Uses the native JSON data type (type ID 0xF4) for optimal performance and type safety
+- **SQL Server 2016-2022**: Automatically falls back to `nvarchar(max)` parameter declaration, allowing JSON data to work with the built-in JSON functions (JSON_VALUE, JSON_QUERY, ISJSON, etc.)
+
+The driver automatically detects server capabilities during connection and chooses the appropriate behavior. You can use the same `mssql.JSON` and `mssql.NullJSON` types regardless of the SQL Server version - no code changes required.
+
+**Note:** Native JSON *columns* (using the JSON data type in CREATE TABLE) require SQL Server 2025+ or Azure SQL Database. On older versions, store JSON in `nvarchar(max)` columns.
+
+```go
+// Insert JSON data
+jsonData := json.RawMessage(`{"name":"John","age":30,"active":true}`)
+_, err := db.ExecContext(ctx, "INSERT INTO users (profile) VALUES (@p1)", mssql.JSON(jsonData))
+
+// Insert nullable JSON
+nullableJSON := mssql.NullJSON{JSON: json.RawMessage(`{"key":"value"}`), Valid: true}
+_, err = db.ExecContext(ctx, "INSERT INTO users (metadata) VALUES (@p1)", nullableJSON)
+
+// Insert NULL JSON value
+nullJSON := mssql.NullJSON{Valid: false}
+_, err = db.ExecContext(ctx, "INSERT INTO users (metadata) VALUES (@p1)", nullJSON)
+
+// Read JSON data
+var result mssql.NullJSON
+err = db.QueryRowContext(ctx, "SELECT metadata FROM users WHERE id = @p1", 1).Scan(&result)
+if result.Valid {
+    fmt.Println("JSON data:", result.JSON)
+} else {
+    fmt.Println("JSON is NULL")
+}
 ```
 
 ## Using Always Encrypted
@@ -590,6 +627,7 @@ Constrain the provider to an allowed list of key vaults by appending vault host 
 * Can be used with Microsoft Azure SQL Database
 * Can be used on all go supported platforms (e.g. Linux, Mac OS X and Windows)
 * Supports new date/time types: date, time, datetime2, datetimeoffset
+* Supports JSON data with automatic fallback (SQL Server 2016+, native JSON type in 2025+)
 * Supports string parameters longer than 8000 characters
 * Supports encryption using SSL/TLS
 * Supports SQL Server and Windows Authentication
@@ -646,6 +684,8 @@ To fix SQL Server 2008 issue, install Microsoft SQL Server 2008 Service Pack 3 a
 More information: <http://support.microsoft.com/kb/2653857>
 
 * Bulk copy does not yet support encrypting column values using Always Encrypted. Tracked in [#127](https://github.com/microsoft/go-mssqldb/issues/127)
+
+* The JSON data type is not supported with Always Encrypted. This is a SQL Server limitation - the JSON type is not included in the list of [supported data types for Always Encrypted](https://learn.microsoft.com/en-us/sql/relational-databases/security/encryption/always-encrypted-cryptography).
 
 # Contributing
 This project is a fork of [https://github.com/denisenkom/go-mssqldb](https://github.com/denisenkom/go-mssqldb) and welcomes new and previous contributors. For more informaton on contributing to this project, please see [Contributing](./CONTRIBUTING.md).

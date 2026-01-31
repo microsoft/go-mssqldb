@@ -156,8 +156,12 @@ const (
 	featExtAZURESQLSUPPORT    byte = 0x08
 	featExtDATACLASSIFICATION byte = 0x09
 	featExtUTF8SUPPORT        byte = 0x0A
+	featExtJSONSUPPORT        byte = 0x0D
 	featExtTERMINATOR         byte = 0xFF
 )
+
+// JSON Support version
+const jsonSupportVersion byte = 0x01
 
 type tdsSession struct {
 	buf             *tdsBuffer
@@ -175,6 +179,7 @@ type tdsSession struct {
 	connid          UniqueIdentifier
 	activityid      UniqueIdentifier
 	encoding        msdsn.EncodeParameters
+	jsonSupported   bool
 }
 
 type alwaysEncryptedSettings struct {
@@ -450,8 +455,16 @@ func (e featureExts) toBytes() []byte {
 	if len(e.features) == 0 {
 		return nil
 	}
+	// Sort feature IDs for deterministic ordering in the login packet
+	featureIDs := make([]byte, 0, len(e.features))
+	for id := range e.features {
+		featureIDs = append(featureIDs, id)
+	}
+	sort.Slice(featureIDs, func(i, j int) bool { return featureIDs[i] < featureIDs[j] })
+
 	var d []byte
-	for featureID, f := range e.features {
+	for _, featureID := range featureIDs {
+		f := e.features[featureID]
 		featureData := f.toBytes()
 
 		hdr := make([]byte, 5)
@@ -1062,6 +1075,8 @@ func prepareLogin(ctx context.Context, c *Connector, p msdsn.Config, logger Cont
 	if p.ColumnEncryption {
 		_ = l.FeatureExt.Add(&featureExtColumnEncryption{})
 	}
+	// Always request JSON support to enable native JSON type handling
+	_ = l.FeatureExt.Add(&featureExtJsonSupport{})
 	switch {
 	case fe.FedAuthLibrary == FedAuthLibrarySecurityToken:
 		if uint64(p.LogFlags)&logDebug != 0 {
@@ -1361,14 +1376,21 @@ initiate_connection:
 				sess.loginAck = token
 				loginAck = true
 			case featureExtAck:
-				for _, v := range token {
-					switch v := v.(type) {
-					case colAckStruct:
-						if v.Version <= 2 && v.Version > 0 {
-							sess.alwaysEncrypted = true
-							if len(v.EnclaveType) > 0 {
-								sess.aeSettings.enclaveType = string(v.EnclaveType)
+				for k, v := range token {
+					switch k {
+					case featExtCOLUMNENCRYPTION:
+						if colAck, ok := v.(colAckStruct); ok {
+							if colAck.Version <= 2 && colAck.Version > 0 {
+								sess.alwaysEncrypted = true
+								if len(colAck.EnclaveType) > 0 {
+									sess.aeSettings.enclaveType = string(colAck.EnclaveType)
+								}
 							}
+						}
+					case featExtJSONSUPPORT:
+						// JSON support acknowledged by server for a known version
+						if version, ok := v.(byte); ok && version == jsonSupportVersion {
+							sess.jsonSupported = true
 						}
 					}
 				}
@@ -1419,6 +1441,18 @@ func (f *featureExtColumnEncryption) toBytes() []byte {
 		and the ability to retry queries when the keys sent by the client do not match what is needed for the query to run.
 	*/
 	return []byte{0x01}
+}
+
+// featureExtJsonSupport is used to request JSON type support during login
+type featureExtJsonSupport struct{}
+
+func (f *featureExtJsonSupport) featureID() byte {
+	return featExtJSONSUPPORT
+}
+
+func (f *featureExtJsonSupport) toBytes() []byte {
+	// Version 1 of JSON support
+	return []byte{jsonSupportVersion}
 }
 
 // return the 6 byte hardware identifier for the LOGIN7 packet
