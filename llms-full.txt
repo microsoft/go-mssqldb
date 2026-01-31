@@ -185,9 +185,8 @@ err := db.QueryRowContext(ctx,
 ).Scan(&newID)
 
 // ✅ CORRECT: Use SCOPE_IDENTITY()
-var newID int64
-err := db.QueryRowContext(ctx,
-    "INSERT INTO users (name) VALUES (@p1); SELECT SCOPE_IDENTITY()",
+err = db.QueryRowContext(ctx,
+    "INSERT INTO users (name) VALUES (@p1); SELECT CAST(SCOPE_IDENTITY() AS bigint)",
     "John",
 ).Scan(&newID)
 

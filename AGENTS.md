@@ -169,7 +169,10 @@ err := db.QueryRowContext(ctx,
 ).Scan(&newID)
 
 // ✅ Alternative: Use SCOPE_IDENTITY()
-_, err := db.ExecContext(ctx, "INSERT INTO users (name) VALUES (@p1); SELECT SCOPE_IDENTITY()", "John")
+err = db.QueryRowContext(ctx,
+    "INSERT INTO users (name) VALUES (@p1); SELECT CAST(SCOPE_IDENTITY() AS bigint)",
+    "John",
+).Scan(&newID)
 ```
 
 ## Documentation Links
