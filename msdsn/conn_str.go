@@ -647,7 +647,7 @@ func Parse(dsn string) (Config, error) {
 	if !ok {
 		epaString = os.Getenv("MSSQL_USE_EPA")
 	}
-	if epaString !=  "" {
+	if epaString != "" {
 		epaEnabled, err := strconv.ParseBool(epaString)
 		if err != nil {
 			return p, fmt.Errorf("invalid epa enabled value '%s': %v", epaString, err)
@@ -679,7 +679,8 @@ func (p Config) URL() *url.URL {
 		}
 	}
 	if p.Port > 0 {
-		host = fmt.Sprintf("%s:%d", host, p.Port)
+		// Use net.JoinHostPort to properly handle IPv6 addresses (e.g., [::1]:1433)
+		host = net.JoinHostPort(host, strconv.Itoa(int(p.Port)))
 	}
 	q.Add(DisableRetry, fmt.Sprintf("%t", p.DisableRetry))
 	protocolParam, ok := p.Parameters[Protocol]

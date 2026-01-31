@@ -11,14 +11,22 @@ jobs:
     strategy:
       matrix:
         go: ['1.24']
-        sqlImage: ['2019-latest','2022-latest']
+        sqlImage: ['2017-latest','2019-latest','2022-latest','2025-latest']
     steps:
     - uses: actions/checkout@v2
     - name: Setup go
       uses: actions/setup-go@v2
       with:
         go-version: '${{ matrix.go }}'
+    - name: Install sqlcmd
+      run: |
+        curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
+        curl -sSL https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+        sudo apt-get update
+        sudo ACCEPT_EULA=Y apt-get install -y mssql-tools18
+        echo "/opt/mssql-tools18/bin" >> $GITHUB_PATH
     - name: Run tests against Linux SQL
+      shell: bash
       run: |
         go version
         export SQLCMDPASSWORD=$(date +%s|sha256sum|base64|head -c 32)
@@ -26,7 +34,24 @@ jobs:
         export SQLUSER=sa
         export SQLPASSWORD=$SQLCMDPASSWORD
         export DATABASE=master
-        export HOST=.
+        export HOST=localhost
+        # Build connection string - SQL 2017 and 2025 Docker images use self-signed certificates
+        if [ "${{ matrix.sqlImage }}" = "2017-latest" ]; then
+          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
+          # SQL 2017's self-signed certificate has a negative serial number that Go 1.23+ rejects by default.
+          # This GODEBUG override is only for CI testing against SQL Server 2017 and MUST NOT be used in production.
+          export GODEBUG=x509negativeserial=1
+        elif [ "${{ matrix.sqlImage }}" = "2025-latest" ]; then
+          # SQL 2025 Docker image also uses a self-signed certificate
+          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
+        else
+          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}"
+        fi
         docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver -p:1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD mcr.microsoft.com/mssql/server:${{ matrix.sqlImage }}
-        sleep 10
+        # Wait for SQL Server to start - retry connection up to 30 seconds
+        for i in {1..6}; do
+          sleep 5
+          sqlcmd -S localhost -U sa -P "$SQLCMDPASSWORD" -C -Q "SELECT 1" > /dev/null 2>&1 && break
+          echo "Waiting for SQL Server to start... (attempt $i)"
+        done || { echo "SQL Server did not start within expected time; aborting tests."; exit 1; }
         go test -v ./...

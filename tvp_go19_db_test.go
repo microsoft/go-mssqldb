@@ -100,7 +100,7 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 		SMoneyNull   *Money[decimal.Decimal]
 	}
 
-	sqltextdropsp := `DROP PROCEDURE spwithtvpGoSQLTypesWithStandardType;`
+	sqltextdropsp := `DROP PROCEDURE IF EXISTS spwithtvpGoSQLTypesWithStandardType;`
 
 	_, err = db.ExecContext(ctx, sqltextcreatetable)
 	if err != nil {
@@ -108,6 +108,7 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 	}
 	defer db.ExecContext(ctx, sqltextdroptable)
 
+	db.ExecContext(ctx, sqltextdropsp) // Clean up from previous runs
 	_, err = db.ExecContext(ctx, sqltextcreatesp)
 	if err != nil {
 		t.Fatal(err)
@@ -395,7 +396,7 @@ func TestTVPGoSQLTypes(t *testing.T) {
 		PMoneyNull   Money[decimal.NullDecimal]
 	}
 
-	sqltextdropsp := `DROP PROCEDURE spwithtvpGoSQLTypes;`
+	sqltextdropsp := `DROP PROCEDURE IF EXISTS spwithtvpGoSQLTypes;`
 
 	_, err = db.ExecContext(ctx, sqltextcreatetable)
 	if err != nil {
@@ -403,6 +404,7 @@ func TestTVPGoSQLTypes(t *testing.T) {
 	}
 	defer db.ExecContext(ctx, sqltextdroptable)
 
+	db.ExecContext(ctx, sqltextdropsp) // Clean up from previous runs
 	_, err = db.ExecContext(ctx, sqltextcreatesp)
 	if err != nil {
 		t.Fatal(err)
@@ -634,7 +636,7 @@ func testTVP(t *testing.T, guidConversion bool) {
 		PMoneyNull    *Money[decimal.Decimal] `db:"p_moneyNull"`
 	}
 
-	sqltextdropsp := `DROP PROCEDURE spwithtvp;`
+	sqltextdropsp := `DROP PROCEDURE IF EXISTS spwithtvp;`
 
 	_, err = db.ExecContext(ctx, sqltextcreatetable)
 	if err != nil {
@@ -642,6 +644,7 @@ func testTVP(t *testing.T, guidConversion bool) {
 	}
 	defer db.ExecContext(ctx, sqltextdroptable)
 
+	db.ExecContext(ctx, sqltextdropsp) // Clean up from previous runs
 	_, err = db.ExecContext(ctx, sqltextcreatesp)
 	if err != nil {
 		t.Fatal(err)
@@ -936,7 +939,7 @@ func testTVP_WithTag(t *testing.T, guidConversion bool) {
 		SELECT * FROM @param2;
 		SELECT @param3;
 	END;`
-	sqltextdropsp := `DROP PROCEDURE spwithtvp;`
+	sqltextdropsp := `DROP PROCEDURE IF EXISTS spwithtvp;`
 
 	type TvptableRowWithSkipTag struct {
 		PBinary           []byte                  `db:"p_binary"`
@@ -1267,7 +1270,7 @@ func TestTVPSchema(t *testing.T) {
 	END;
 	`
 
-		dropProcedure = `drop PROCEDURE ExecTVP`
+		dropProcedure = `DROP PROCEDURE IF EXISTS ExecTVP`
 
 		execTvp = `exec ExecTVP @param1;`
 	)
@@ -1458,7 +1461,7 @@ func TestTVPUnsigned(t *testing.T) {
 		PintNull      *uint   `db:"pIntNull"`
 	}
 
-	sqltextdropsp := `DROP PROCEDURE spwithtvpUnsigned;`
+	sqltextdropsp := `DROP PROCEDURE IF EXISTS spwithtvpUnsigned;`
 
 	_, err = db.ExecContext(ctx, sqltextcreatetable)
 	if err != nil {
@@ -1466,6 +1469,7 @@ func TestTVPUnsigned(t *testing.T) {
 	}
 	defer db.ExecContext(ctx, sqltextdroptable)
 
+	db.ExecContext(ctx, sqltextdropsp) // Clean up from previous runs
 	_, err = db.ExecContext(ctx, sqltextcreatesp)
 	if err != nil {
 		t.Fatal(err)
@@ -1614,7 +1618,7 @@ func TestTVPIdentity(t *testing.T) {
 	END;
 	`
 
-		dropProcedure = `drop PROCEDURE ExecIdentityTVP`
+		dropProcedure = `DROP PROCEDURE IF EXISTS ExecIdentityTVP`
 
 		execTvp = `exec ExecIdentityTVP @param1;`
 	)
