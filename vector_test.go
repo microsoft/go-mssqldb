@@ -901,12 +901,20 @@ func TestVectorTypeFunctions(t *testing.T) {
 
 	// Test makeGoLangScanType for typeVectorN
 	t.Run("makeGoLangScanType", func(t *testing.T) {
-		ti := typeInfo{TypeId: typeVectorN}
+		// float32 vectors should return []float32
+		ti := typeInfo{TypeId: typeVectorN, Scale: 0}
 		scanType := makeGoLangScanType(ti)
-		// Vector scan type should be []float32
 		expected := "[]float32"
 		if scanType.String() != expected {
-			t.Errorf("Expected scan type %s for Vector, got %s", expected, scanType.String())
+			t.Errorf("Expected scan type %s for float32 Vector, got %s", expected, scanType.String())
+		}
+
+		// float16 vectors should return Vector to preserve ElementType
+		ti16 := typeInfo{TypeId: typeVectorN, Scale: 1}
+		scanType16 := makeGoLangScanType(ti16)
+		expected16 := "mssql.Vector"
+		if scanType16.String() != expected16 {
+			t.Errorf("Expected scan type %s for float16 Vector, got %s", expected16, scanType16.String())
 		}
 	})
 

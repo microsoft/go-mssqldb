@@ -123,6 +123,7 @@ err := row.Scan(&embedding)
 
 When scanning to `interface{}`, the driver returns `[]float32` when native vector type support is enabled
 (for example, by using `vectortypesupport=v1` in the connection string) and the server supports vector types.
+For **float16 vectors**, the driver returns `mssql.Vector` to preserve the element type metadata.
 If native vector support is not available, the value may instead be returned as a JSON-encoded `string`.
 
 ```go
@@ -133,8 +134,12 @@ if err := row.Scan(&result); err != nil {
 
 switch v := result.(type) {
 case []float32:
-    // Native vector support: v already contains the float32 values.
+    // Native vector support (float32): v already contains the float32 values.
     floats := v
+    _ = floats
+case mssql.Vector:
+    // Native vector support (float16): v is a Vector with ElementType preserved.
+    floats := v.Values()
     _ = floats
 case string:
     // Fallback: parse JSON string into []float32 as needed.

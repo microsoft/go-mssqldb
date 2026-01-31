@@ -1290,8 +1290,13 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 	case typeUdt:
 		return reflect.TypeOf([]byte{})
 	case typeVectorN:
-		// Return []float32 by default for better framework compatibility (e.g., GORM).
-		// Applications can still scan directly to Vector or NullVector types.
+		// For float16 vectors, readVectorType returns mssql.Vector, so expose that as the scan type
+		// to keep ColumnTypes()[...].ScanType() consistent with the actual driver value.
+		// For other element types (e.g., float32), we keep returning []float32 for better framework
+		// compatibility (e.g., GORM), matching the existing behavior.
+		if ti.Scale == 1 { // ti.Scale == 1 is used for float16 element type
+			return reflect.TypeOf(Vector{})
+		}
 		return reflect.TypeOf([]float32{})
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangScanType for type %d", ti.TypeId))

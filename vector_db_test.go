@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -52,8 +53,9 @@ func setupVectorTestDB(t *testing.T, conn *sql.DB) {
 		}
 
 		// We need to use a test database
-		// Use a fixed name - each test run drops and recreates to ensure clean state
-		vectorTestDBName = "go_mssqldb_vector_test"
+		// Use a unique name with PID to avoid accidentally dropping a user's database
+		// The prefix makes it obviously a test database, and PID provides uniqueness
+		vectorTestDBName = fmt.Sprintf("go_mssqldb_test_%d", os.Getpid())
 		t.Logf("Connected to system database '%s', will use test database '%s'", currentDB, vectorTestDBName)
 
 		// Drop any existing test database from previous runs, then create fresh
@@ -84,11 +86,10 @@ func setupVectorTestDB(t *testing.T, conn *sql.DB) {
 
 // skipIfVectorNotSupported checks if the SQL Server instance supports VECTOR type.
 // VECTOR is only supported in SQL Server 2025+. If not supported, the test is skipped.
+// This function checks VECTOR support FIRST before any database setup to ensure
+// clean skips on pre-2025 servers without risking permission errors.
 func skipIfVectorNotSupported(t *testing.T, conn *sql.DB) {
 	t.Helper()
-
-	// Ensure we're in a user database
-	setupVectorTestDB(t, conn)
 
 	// Use a dedicated connection to ensure the temp table CREATE and DROP
 	// happen on the same session. Temp tables are session-scoped, so using
@@ -101,7 +102,9 @@ func skipIfVectorNotSupported(t *testing.T, conn *sql.DB) {
 	}
 	defer singleConn.Close()
 
-	// Try to create a table with VECTOR column to check support
+	// Check VECTOR support FIRST, before any database setup.
+	// This ensures pre-2025 servers skip cleanly without running into
+	// potential permission errors from DROP/CREATE DATABASE operations.
 	_, err = singleConn.ExecContext(ctx, "CREATE TABLE #vector_check (v VECTOR(1))")
 	if err != nil {
 		errStr := err.Error()
@@ -124,6 +127,10 @@ func skipIfVectorNotSupported(t *testing.T, conn *sql.DB) {
 	}
 	// Clean up the check table on the same connection where it was created
 	singleConn.ExecContext(ctx, "DROP TABLE #vector_check")
+
+	// Now that we know VECTOR is supported, ensure we're in a user database
+	// for tests that need PREVIEW_FEATURES (float16 tests).
+	setupVectorTestDB(t, conn)
 }
 
 // mustNewVector is a test helper that creates a Vector and panics on error.
