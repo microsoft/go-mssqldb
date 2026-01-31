@@ -835,3 +835,65 @@ func TestJSONFallback_PreSQL2025(t *testing.T) {
 		}
 	})
 }
+
+// TestJSONPointerTypes tests *JSON and *NullJSON pointer type handling.
+func TestJSONPointerTypes(t *testing.T) {
+	t.Run("convertInputParameter with *JSON", func(t *testing.T) {
+		// Non-nil *JSON
+		jsonVal := JSON(`{"pointer":"test"}`)
+		result, err := convertInputParameter(&jsonVal)
+		if err != nil {
+			t.Fatalf("convertInputParameter(*JSON) returned error: %v", err)
+		}
+		if converted, ok := result.(JSON); !ok {
+			t.Errorf("Expected JSON type, got %T", result)
+		} else if string(converted) != string(jsonVal) {
+			t.Errorf("Expected %s, got %s", jsonVal, converted)
+		}
+
+		// nil *JSON
+		var nilJSON *JSON
+		result, err = convertInputParameter(nilJSON)
+		if err != nil {
+			t.Fatalf("convertInputParameter(nil *JSON) returned error: %v", err)
+		}
+		if result != nil {
+			t.Errorf("Expected nil for nil *JSON, got %v", result)
+		}
+	})
+
+	t.Run("convertInputParameter with *NullJSON", func(t *testing.T) {
+		// Non-nil *NullJSON with valid value
+		nullJSON := NullJSON{JSON: json.RawMessage(`{"pointer":"nulljson"}`), Valid: true}
+		result, err := convertInputParameter(&nullJSON)
+		if err != nil {
+			t.Fatalf("convertInputParameter(*NullJSON) returned error: %v", err)
+		}
+		if converted, ok := result.(NullJSON); !ok {
+			t.Errorf("Expected NullJSON type, got %T", result)
+		} else if string(converted.JSON) != string(nullJSON.JSON) {
+			t.Errorf("Expected %s, got %s", nullJSON.JSON, converted.JSON)
+		}
+
+		// nil *NullJSON
+		var nilNullJSON *NullJSON
+		result, err = convertInputParameter(nilNullJSON)
+		if err != nil {
+			t.Fatalf("convertInputParameter(nil *NullJSON) returned error: %v", err)
+		}
+		if result != nil {
+			t.Errorf("Expected nil for nil *NullJSON, got %v", result)
+		}
+	})
+}
+
+// TestJSONGoLangScanType tests makeGoLangScanType for JSON type.
+func TestJSONGoLangScanType(t *testing.T) {
+	ti := typeInfo{TypeId: typeJson}
+	scanType := makeGoLangScanType(ti)
+	// JSON scan type should be string
+	expectedType := "string"
+	if scanType.String() != expectedType {
+		t.Errorf("Expected scan type %s for JSON, got %s", expectedType, scanType.String())
+	}
+}

@@ -1019,15 +1019,15 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		if valuer != nil {
 			return s.makeParamExtra(*valuer)
 		}
-		// nil *JSON -> NULL parameter
-		return
+		// nil *JSON -> JSON-typed NULL parameter
+		return s.makeParamExtra(NullJSON{})
 	case *NullJSON:
 		// Handle *NullJSON before driver.Valuer so pointer usage still uses native JSON type
 		if valuer != nil {
 			return s.makeParamExtra(*valuer)
 		}
-		// nil *NullJSON -> NULL parameter
-		return
+		// nil *NullJSON -> JSON-typed NULL parameter
+		return s.makeParamExtra(NullJSON{})
 	default:
 		break
 	case driver.Valuer:

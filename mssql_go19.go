@@ -116,6 +116,16 @@ func convertInputParameter(val interface{}) (interface{}, error) {
 		return val, nil
 	case NullJSON:
 		return val, nil
+	case *JSON:
+		if v == nil {
+			return nil, nil
+		}
+		return *v, nil
+	case *NullJSON:
+		if v == nil {
+			return nil, nil
+		}
+		return *v, nil
 	case civil.Date:
 		return val, nil
 	case civil.DateTime:

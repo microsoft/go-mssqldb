@@ -1388,8 +1388,8 @@ initiate_connection:
 							}
 						}
 					case featExtJSONSUPPORT:
-						// JSON support acknowledged by server
-						if version, ok := v.(byte); ok && version > 0 {
+						// JSON support acknowledged by server for a known version
+						if version, ok := v.(byte); ok && version == jsonSupportVersion {
 							sess.jsonSupported = true
 						}
 					}
