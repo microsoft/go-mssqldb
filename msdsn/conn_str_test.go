@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -516,4 +517,85 @@ func TestEpaEnabledFromEnvironment(t *testing.T) {
 	config, err = Parse("server=testhost")
 	assert.Nil(t, err, "Expected no error parsing connection string")
 	assert.False(t, config.EpaEnabled, "Expected EpaEnabled to be false when MSSQL_USE_EPA is empty")
+}
+
+func TestTrustServerCertificateField(t *testing.T) {
+	tests := []struct {
+		name     string
+		connStr  string
+		expected bool
+	}{
+		{"TrustServerCertificate=true", "sqlserver://user:pass@host?TrustServerCertificate=true", true},
+		{"TrustServerCertificate=false", "sqlserver://user:pass@host?TrustServerCertificate=false", false},
+		{"TrustServerCertificate=1", "sqlserver://user:pass@host?TrustServerCertificate=1", true},
+		{"TrustServerCertificate=0", "sqlserver://user:pass@host?TrustServerCertificate=0", false},
+		{"No TrustServerCertificate with encrypt", "sqlserver://user:pass@host?encrypt=true", false},
+		{"No TrustServerCertificate without encrypt defaults true", "sqlserver://user:pass@host", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config, err := Parse(tt.connStr)
+			if err != nil {
+				t.Fatalf("Failed to parse connection string: %v", err)
+			}
+			if config.TrustServerCertificate != tt.expected {
+				t.Errorf("Expected TrustServerCertificate=%v, got %v", tt.expected, config.TrustServerCertificate)
+			}
+		})
+	}
+}
+
+func TestTrustServerCertificateRoundTrip(t *testing.T) {
+	tests := []struct {
+		name    string
+		connStr string
+	}{
+		{"TrustServerCertificate=true round-trips", "sqlserver://user:pass@host?TrustServerCertificate=true"},
+		{"TrustServerCertificate=false round-trips", "sqlserver://user:pass@host?TrustServerCertificate=false&encrypt=true"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config, err := Parse(tt.connStr)
+			if err != nil {
+				t.Fatalf("Failed to parse connection string: %v", err)
+			}
+			urlStr := config.URL().String()
+			config2, err := Parse(urlStr)
+			if err != nil {
+				t.Fatalf("Failed to parse round-tripped URL: %v", err)
+			}
+			if config.TrustServerCertificate != config2.TrustServerCertificate {
+				t.Errorf("TrustServerCertificate changed after round-trip: %v -> %v (URL: %s)",
+					config.TrustServerCertificate, config2.TrustServerCertificate, urlStr)
+			}
+		})
+	}
+}
+
+func TestIPv6URLGeneration(t *testing.T) {
+	tests := []struct {
+		name        string
+		connStr     string
+		expectInURL string
+	}{
+		{"IPv6 localhost", "sqlserver://user:pass@[::1]:1433?database=testdb", "[::1]:1433"},
+		{"IPv6 full address", "sqlserver://user:pass@[2001:db8::1]:1433?database=testdb", "[2001:db8::1]:1433"},
+		{"IPv4 address", "sqlserver://user:pass@192.168.1.1:1433?database=testdb", "192.168.1.1:1433"},
+		{"Hostname", "sqlserver://user:pass@myserver:1433?database=testdb", "myserver:1433"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config, err := Parse(tt.connStr)
+			if err != nil {
+				t.Fatalf("Failed to parse connection string: %v", err)
+			}
+			urlStr := config.URL().String()
+			if !strings.Contains(urlStr, tt.expectInURL) {
+				t.Errorf("Expected URL to contain %q, got %q", tt.expectInURL, urlStr)
+			}
+		})
+	}
 }
