@@ -12,6 +12,9 @@ The following is a list of datatypes that can be used to insert data into a SQL 
 - "github.com/golang-sql/civil".Date
 - "github.com/golang-sql/civil".Time
 - "github.com/golang-sql/civil".DateTime
+- mssql.NullDate (nullable civil.Date)
+- mssql.NullTime (nullable civil.Time)
+- mssql.NullDateTime (nullable civil.DateTime)
 
 `time.Time` and `mssql.DateTimeOffset` contain the most information (time zone and over 7 digits precision). Designed to match the SQL Server `datetime` type, `mssql.DateTime1` does not have time zone information, only has up to 3 digits precision and they are rouded to increments of .000, .003 or .007 seconds when the data is passed to SQL Server. If you use `mssql.DateTime1` to hold time zone information or very precised time data (more than 3 decimal digits), you will see data lost when inserting into columns with types that can hold more information. For example:
 
@@ -32,6 +35,18 @@ _, err = stmt.Exec(param, param, param)
 
  `"github.com/golang-sql/civil".DateTime` does not have time zone information. `"github.com/golang-sql/civil".Date` only has the date information, and `"github.com/golang-sql/civil".Time` only has the time information. `string` can also be used to insert data into date and time types columns, but you have to make sure the format is accepted by SQL Server.
 
+The nullable civil types (`mssql.NullDate`, `mssql.NullDateTime`, `mssql.NullTime`) can be used when you need to handle NULL values, particularly useful for OUT parameters:
+
+```go
+var nullDate mssql.NullDate
+_, err := conn.ExecContext(ctx, "SELECT @p1 = NULL", sql.Out{Dest: &nullDate})
+// nullDate.Valid will be false
+
+var nullDateTime mssql.NullDateTime  
+_, err = conn.ExecContext(ctx, "SELECT @p1 = '2023-12-25 14:30:45'", sql.Out{Dest: &nullDateTime})
+// nullDateTime.Valid will be true, nullDateTime.DateTime contains the value
+```
+
 ## Retrieving Date and Time Data
 
 The following is a list of datatypes that can be used to retrieved data from a SQL Server date and/or time type column:
@@ -40,6 +55,9 @@ The following is a list of datatypes that can be used to retrieved data from a S
 - time.Time
 - mssql.DateTime1
 - mssql.DateTiimeOffset
+- mssql.NullDate (for nullable date columns)
+- mssql.NullTime (for nullable time columns)
+- mssql.NullDateTime (for nullable datetime2 columns)
 
 When using these data types to retrieve information from a date and/or time type column, you may end up with some extra unexpected information. For example, if you use Go type `time.Time` to retrieve information from a SQL Server `date` column:
 

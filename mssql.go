@@ -1006,6 +1006,36 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		if valuer.Decimal.Valid {
 			return s.makeParam(Money[decimal.Decimal]{valuer.Decimal.Decimal})
 		}
+	case NullDate:
+		if valuer.Valid {
+			return s.makeParamExtra(valuer.Date)
+		}
+		return s.makeParamExtra(valuer)
+	case NullDateTime:
+		if valuer.Valid {
+			return s.makeParamExtra(valuer.DateTime)
+		}
+		return s.makeParamExtra(valuer)
+	case NullTime:
+		if valuer.Valid {
+			return s.makeParamExtra(valuer.Time)
+		}
+		return s.makeParamExtra(valuer)
+	case *NullDate:
+		if valuer.Valid {
+			return s.makeParamExtra(valuer.Date)
+		}
+		return s.makeParamExtra(*valuer)
+	case *NullDateTime:
+		if valuer.Valid {
+			return s.makeParamExtra(valuer.DateTime)
+		}
+		return s.makeParamExtra(*valuer)
+	case *NullTime:
+		if valuer.Valid {
+			return s.makeParamExtra(valuer.Time)
+		}
+		return s.makeParamExtra(*valuer)
 	case UniqueIdentifier:
 	case NullUniqueIdentifier:
 	default:
@@ -1099,6 +1129,34 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		res.ti.TypeId = typeNVarChar
 		res.buffer = nil
 		res.ti.Size = 8000
+	case NullDate: // only null values reach here
+		res.ti.TypeId = typeDateN
+		res.ti.Size = 3
+		res.buffer = []byte{}
+	case NullDateTime: // only null values reach here
+		res.ti.TypeId = typeDateTime2N
+		res.ti.Scale = 7
+		res.ti.Size = calcTimeSize(int(res.ti.Scale)) + 3
+		res.buffer = []byte{}
+	case NullTime: // only null values reach here
+		res.ti.TypeId = typeTimeN
+		res.ti.Scale = 7
+		res.ti.Size = calcTimeSize(int(res.ti.Scale))
+		res.buffer = []byte{}
+	case *NullDate: // only null values reach here
+		res.ti.TypeId = typeDateN
+		res.ti.Size = 3
+		res.buffer = []byte{}
+	case *NullDateTime: // only null values reach here
+		res.ti.TypeId = typeDateTime2N
+		res.ti.Scale = 7
+		res.ti.Size = calcTimeSize(int(res.ti.Scale)) + 3
+		res.buffer = []byte{}
+	case *NullTime: // only null values reach here
+		res.ti.TypeId = typeTimeN
+		res.ti.Scale = 7
+		res.ti.Size = calcTimeSize(int(res.ti.Scale))
+		res.buffer = []byte{}
 	case byte:
 		res.ti.TypeId = typeIntN
 		res.buffer = []byte{val}
