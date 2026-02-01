@@ -25,7 +25,14 @@ func TestDatetimeNearMidnightBoundaries(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Test encoding/decoding
-			encoded := encodeDateTime(tc.time)
+			encoded := encodeDateTime(
+				tc.time.Day(),
+				tc.time.YearDay(),
+				tc.time.Hour(),
+				tc.time.Minute(),
+				tc.time.Second(),
+				tc.time.Nanosecond(),
+			)
 			decoded := decodeDateTime(encoded, time.UTC)
 
 			t.Logf("Original: %s", tc.time.Format(time.RFC3339Nano))

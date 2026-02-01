@@ -482,14 +482,30 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 	case typeDateTime2N:
 		switch val := val.(type) {
 		case time.Time:
-			res.buffer = encodeDateTime2(val, int(col.ti.Scale))
+			res.buffer = encodeDateTime2(
+				val.Day(),
+				val.YearDay(),
+				val.Hour(),
+				val.Minute(),
+				val.Second(),
+				val.Nanosecond(),
+				int(col.ti.Scale),
+			)
 			res.ti.Size = len(res.buffer)
 		case string:
 			var t time.Time
 			if t, err = time.Parse(sqlDateTimeFormat, val); err != nil {
 				return res, fmt.Errorf("bulk: unable to convert string to date: %v", err)
 			}
-			res.buffer = encodeDateTime2(t, int(col.ti.Scale))
+			res.buffer = encodeDateTime2(
+				t.Day(),
+				t.YearDay(),
+				t.Hour(),
+				t.Minute(),
+				t.Second(),
+				t.Nanosecond(),
+				int(col.ti.Scale),
+			)
 			res.ti.Size = len(res.buffer)
 		default:
 			err = fmt.Errorf("mssql: invalid type for datetime2 column: %T %s", val, val)
@@ -514,14 +530,14 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 	case typeDateN:
 		switch val := val.(type) {
 		case time.Time:
-			res.buffer = encodeDate(val)
+			res.buffer = encodeDate(val.Year(), val.YearDay())
 			res.ti.Size = len(res.buffer)
 		case string:
 			var t time.Time
 			if t, err = time.ParseInLocation(sqlDateFormat, val, loc); err != nil {
 				return res, fmt.Errorf("bulk: unable to convert string to date: %v", err)
 			}
-			res.buffer = encodeDate(t)
+			res.buffer = encodeDate(t.Year(), t.YearDay())
 			res.ti.Size = len(res.buffer)
 		default:
 			err = fmt.Errorf("mssql: invalid type for date column: %T %s", val, val)
@@ -545,7 +561,14 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			res.buffer = encodeDateTim4(t, loc)
 			res.ti.Size = len(res.buffer)
 		} else if col.ti.Size == 8 {
-			res.buffer = encodeDateTime(t)
+			res.buffer = encodeDateTime(
+				t.Day(),
+				t.YearDay(),
+				t.Hour(),
+				t.Minute(),
+				t.Second(),
+				t.Nanosecond(),
+			)
 			res.ti.Size = len(res.buffer)
 		} else {
 			err = fmt.Errorf("mssql: invalid size of column %d", col.ti.Size)

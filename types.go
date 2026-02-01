@@ -287,12 +287,12 @@ func encodeDateTim4(val time.Time, loc *time.Location) (buf []byte) {
 
 // encodes datetime value
 // type identifier is typeDateTimeN
-func encodeDateTime(t time.Time) (res []byte) {
+func encodeDateTime(year, yearDay, hour, minute, second, nanosecond int) (res []byte) {
 	// base date in days since Jan 1st 1900
 	basedays := gregorianDays(1900, 1)
 	// days since Jan 1st 1900 (same TZ as t)
-	days := gregorianDays(t.Year(), t.YearDay()) - basedays
-	tm := 300*(t.Second()+t.Minute()*60+t.Hour()*60*60) + nanosToThreeHundredthsOfASecond(t.Nanosecond())
+	days := gregorianDays(year, yearDay) - basedays
+	tm := 300*(second+minute*60+hour*60*60) + nanosToThreeHundredthsOfASecond(nanosecond)
 
 	// Handle day overflow when time calculation exceeds one day
 	// One day = 86400 seconds = 86400 * 300 three-hundredths = 25,920,000
@@ -932,8 +932,8 @@ func decodeDate(buf []byte, loc *time.Location) time.Time {
 	return time.Date(1, 1, 1+decodeDateInt(buf), 0, 0, 0, 0, loc)
 }
 
-func encodeDate(val time.Time) (buf []byte) {
-	days, _, _ := dateTime2(val)
+func encodeDate(year, yearDay int) (buf []byte) {
+	days, _, _ := dateTime2(year, yearDay, 0, 0, 0, 0)
 	buf = make([]byte, 3)
 	buf[0] = byte(days)
 	buf[1] = byte(days >> 8)
@@ -998,8 +998,8 @@ func decodeDateTime2(scale uint8, buf []byte, loc *time.Location) time.Time {
 	return time.Date(1, 1, 1+days, 0, 0, sec, ns, loc)
 }
 
-func encodeDateTime2(val time.Time, scale int) (buf []byte) {
-	days, seconds, ns := dateTime2(val)
+func encodeDateTime2(year, yearDay, hour, minute, second, nanosecond, scale int) (buf []byte) {
+	days, seconds, ns := dateTime2(year, yearDay, hour, minute, second, nanosecond)
 	timesize := calcTimeSize(scale)
 	buf = make([]byte, 3+timesize)
 	encodeTimeInt(seconds, ns, scale, buf)
@@ -1023,7 +1023,15 @@ func decodeDateTimeOffset(scale uint8, buf []byte) time.Time {
 func encodeDateTimeOffset(val time.Time, scale int) (buf []byte) {
 	timesize := calcTimeSize(scale)
 	buf = make([]byte, timesize+2+3)
-	days, seconds, ns := dateTime2(val.In(time.UTC))
+	t := val.In(time.UTC)
+	days, seconds, ns := dateTime2(
+		t.Year(),
+		t.YearDay(),
+		t.Hour(),
+		t.Minute(),
+		t.Second(),
+		t.Nanosecond(),
+	)
 	encodeTimeInt(seconds, ns, scale, buf)
 	buf[timesize] = byte(days)
 	buf[timesize+1] = byte(days >> 8)
@@ -1041,11 +1049,11 @@ func gregorianDays(year, yearday int) int {
 	return year0*365 + year0/4 - year0/100 + year0/400 + yearday - 1
 }
 
-func dateTime2(t time.Time) (days int, seconds int, ns int) {
+func dateTime2(year, yearDay, hour, minute, second, nanosecond int) (days int, seconds int, ns int) {
 	// days since Jan 1 1 (in same TZ as t)
-	days = gregorianDays(t.Year(), t.YearDay())
-	seconds = t.Second() + t.Minute()*60 + t.Hour()*60*60
-	ns = t.Nanosecond()
+	days = gregorianDays(year, yearDay)
+	seconds = second + minute*60 + hour*60*60
+	ns = nanosecond
 	if days < 0 {
 		days = 0
 		seconds = 0

@@ -159,9 +159,66 @@ func makeMoneyParam(val decimal.Decimal) (res param) {
 	return
 }
 
-func (s *Stmt) makeParamExtra(val driver.Value) (res param, err error) {
-	loc := getTimezone(s.c)
+func makeDate(val civil.Date, res *param) {
+	res.ti.TypeId = typeDateN
+	res.buffer = encodeDate(
+		val.Year,
+		val.DaysSince(civil.Date{Year: val.Year, Month: 1, Day: 1}),
+	)
+	res.ti.Size = len(res.buffer)
+}
 
+func makeDateTime(val civil.DateTime, res *param) {
+	res.ti.TypeId = typeDateTime2N
+	res.ti.Scale = 7
+	res.buffer = encodeDateTime2(
+		val.Date.Year,
+		val.Date.DaysSince(civil.Date{Year: val.Date.Year, Month: 1, Day: 1}),
+		val.Time.Hour,
+		val.Time.Minute,
+		val.Time.Second,
+		val.Time.Nanosecond,
+		int(res.ti.Scale),
+	)
+	res.ti.Size = len(res.buffer)
+}
+
+func makeDateTime2(val civil.DateTime, res *param) {
+	res.ti.TypeId = typeDateTime2N
+	res.ti.Scale = 7
+	res.buffer = encodeDateTime2(
+		val.Date.Year,
+		val.Date.DaysSince(civil.Date{Year: val.Date.Year, Month: 1, Day: 1}),
+		val.Time.Hour,
+		val.Time.Minute,
+		val.Time.Second,
+		val.Time.Nanosecond,
+		int(res.ti.Scale),
+	)
+	res.ti.Size = len(res.buffer)
+}
+
+func makeTime(val civil.Time, res *param) {
+	res.ti.TypeId = typeTimeN
+	res.ti.Scale = 7
+	res.buffer = encodeTime(
+		val.Hour,
+		val.Minute,
+		val.Second,
+		val.Nanosecond,
+		int(res.ti.Scale),
+	)
+	res.ti.Size = len(res.buffer)
+}
+
+func makeDateTimeOffset(val time.Time, res *param) {
+	res.ti.TypeId = typeDateTimeOffsetN
+	res.ti.Scale = 7
+	res.buffer = encodeDateTimeOffset(val, int(res.ti.Scale))
+	res.ti.Size = len(res.buffer)
+}
+
+func (s *Stmt) makeParamExtra(val driver.Value) (res param, err error) {
 	switch val := val.(type) {
 	case VarChar:
 		res.ti.TypeId = typeBigVarChar
@@ -180,29 +237,57 @@ func (s *Stmt) makeParamExtra(val driver.Value) (res param, err error) {
 		res.buffer = str2ucs2(string(val))
 		res.ti.Size = len(res.buffer)
 	case DateTime1:
-		t := time.Time(val)
-		res.ti.TypeId = typeDateTimeN
-		res.buffer = encodeDateTime(t)
-		res.ti.Size = len(res.buffer)
-	case DateTimeOffset:
-		res.ti.TypeId = typeDateTimeOffsetN
-		res.ti.Scale = 7
-		res.buffer = encodeDateTimeOffset(time.Time(val), int(res.ti.Scale))
-		res.ti.Size = len(res.buffer)
+		makeDateTime(civil.DateTimeOf(time.Time(val)), &res)
+
 	case civil.Date:
-		res.ti.TypeId = typeDateN
-		res.buffer = encodeDate(val.In(loc))
-		res.ti.Size = len(res.buffer)
+		makeDate(val, &res)
 	case civil.DateTime:
-		res.ti.TypeId = typeDateTime2N
-		res.ti.Scale = 7
-		res.buffer = encodeDateTime2(val.In(loc), int(res.ti.Scale))
-		res.ti.Size = len(res.buffer)
+		makeDateTime2(val, &res)
 	case civil.Time:
-		res.ti.TypeId = typeTimeN
-		res.ti.Scale = 7
-		res.buffer = encodeTime(val.Hour, val.Minute, val.Second, val.Nanosecond, int(res.ti.Scale))
-		res.ti.Size = len(res.buffer)
+		makeTime(val, &res)
+
+	case Date:
+		makeDate(civil.Date(val), &res)
+	case DateTime:
+		makeDateTime(civil.DateTime(val), &res)
+	case DateTime2:
+		makeDateTime2(civil.DateTime(val), &res)
+	case Time:
+		makeTime(civil.Time(val), &res)
+	case DateTimeOffset:
+		makeDateTimeOffset(time.Time(val), &res)
+
+	case NullDate:
+		makeDate(civil.Date(val.Date), &res)
+
+		if !val.Valid {
+			res.buffer = []byte{}
+		}
+	case NullDateTime:
+		makeDateTime(civil.DateTime(val.DateTime), &res)
+
+		if !val.Valid {
+			res.buffer = []byte{}
+		}
+	case NullDateTime2:
+		makeDateTime2(civil.DateTime(val.DateTime), &res)
+
+		if !val.Valid {
+			res.buffer = []byte{}
+		}
+	case NullTime:
+		makeTime(civil.Time(val.Time), &res)
+
+		if !val.Valid {
+			res.buffer = []byte{}
+		}
+	case NullDateTimeOffset:
+		makeDateTimeOffset(time.Time(val.DateTimeOffset), &res)
+
+		if !val.Valid {
+			res.buffer = []byte{}
+		}
+
 	case sql.Out:
 		switch dest := val.Dest.(type) {
 		case Money[decimal.Decimal]:

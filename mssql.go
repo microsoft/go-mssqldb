@@ -1151,7 +1151,14 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 			res.ti.Size = len(res.buffer)
 		} else {
 			res.ti.TypeId = typeDateTimeN
-			res.buffer = encodeDateTime(val)
+			res.buffer = encodeDateTime(
+				val.Year(),
+				val.YearDay(),
+				val.Hour(),
+				val.Minute(),
+				val.Second(),
+				val.Nanosecond(),
+			)
 			res.ti.Size = len(res.buffer)
 		}
 	case sql.NullTime: // only null values reach here

@@ -40,7 +40,14 @@ func TestEncodeDateTimeOverflow(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Encode the time
-			encoded := encodeDateTime(tc.input)
+			encoded := encodeDateTime(
+				tc.input.Day(),
+				tc.input.YearDay(),
+				tc.input.Hour(),
+				tc.input.Minute(),
+				tc.input.Second(),
+				tc.input.Nanosecond(),
+			)
 
 			// Verify round-trip decoding gives the expected result
 			decoded := decodeDateTime(encoded, time.UTC)
@@ -59,7 +66,14 @@ func TestEncodeDateTimeMaxDateOverflow(t *testing.T) {
 	maxTime := time.Date(9999, 12, 31, 23, 59, 59, 998_350_000, time.UTC)
 
 	// Encode the time
-	encoded := encodeDateTime(maxTime)
+	encoded := encodeDateTime(
+		maxTime.Day(),
+		maxTime.YearDay(),
+		maxTime.Hour(),
+		maxTime.Minute(),
+		maxTime.Second(),
+		maxTime.Nanosecond(),
+	)
 
 	// Decode it back
 	decoded := decodeDateTime(encoded, time.UTC)
@@ -78,7 +92,14 @@ func TestEncodeDateTimeNoOverflow(t *testing.T) {
 	normalTime := time.Date(2025, 1, 1, 23, 59, 59, 997_000_000, time.UTC)
 
 	// Encode the time
-	encoded := encodeDateTime(normalTime)
+	encoded := encodeDateTime(
+		normalTime.Day(),
+		normalTime.YearDay(),
+		normalTime.Hour(),
+		normalTime.Minute(),
+		normalTime.Second(),
+		normalTime.Nanosecond(),
+	)
 
 	// Decode the days and time portions
 	days := int32(binary.LittleEndian.Uint32(encoded[0:4]))

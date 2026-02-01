@@ -278,9 +278,9 @@ func testSelect(t *testing.T, guidConversion bool) {
 			return
 		}
 
-		nd := NullDate{Date: civil.Date{Year: 2006, Month: 1, Day: 2}, Valid: true}
+		nd := NullDate{Date: Date(civil.Date{Year: 2006, Month: 1, Day: 2}), Valid: true}
 		if out.Date != nd.Date || !out.Valid {
-			t.Errorf("got back a NullDate with value: %t, %s", out.Valid, out.Date.String())
+			t.Errorf("got back a NullDate with value: %t, %s", out.Valid, civil.Date(out.Date).String())
 		}
 	})
 	t.Run("scan into NullDate from NULL", func(t *testing.T) {
@@ -293,7 +293,7 @@ func testSelect(t *testing.T, guidConversion bool) {
 		}
 
 		if out.Valid {
-			t.Errorf("got back a NullDate with value: %t, %s", out.Valid, out.Date.String())
+			t.Errorf("got back a NullDate with value: %t, %s", out.Valid, civil.Date(out.Date).String())
 		}
 	})
 }
