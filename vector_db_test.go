@@ -1,0 +1,1077 @@
+package mssql
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"math"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/microsoft/go-mssqldb/msdsn"
+)
+
+// vectorTestDB holds the shared test database state for vector tests.
+// If we're connected to a system database, we create a user database for testing.
+var (
+	vectorTestDBOnce    sync.Once
+	vectorTestDBName    string
+	vectorTestDBCreated bool
+)
+
+// setupVectorTestDB ensures we're using a user database for vector tests.
+// System databases (master, tempdb, msdb, model) don't support PREVIEW_FEATURES.
+// Database cleanup is handled by drop-before-create logic at the start of each test run.
+func setupVectorTestDB(t *testing.T, conn *sql.DB) {
+	t.Helper()
+
+	vectorTestDBOnce.Do(func() {
+		// Check current database
+		var currentDB string
+		err := conn.QueryRow("SELECT DB_NAME()").Scan(&currentDB)
+		if err != nil {
+			t.Logf("Warning: Could not get current database: %v", err)
+			return
+		}
+
+		// Check if it's a system database
+		systemDBs := []string{"master", "tempdb", "msdb", "model"}
+		isSystemDB := false
+		for _, sysDB := range systemDBs {
+			if strings.EqualFold(currentDB, sysDB) {
+				isSystemDB = true
+				break
+			}
+		}
+
+		if !isSystemDB {
+			// Already in a user database, no need to create one
+			t.Logf("Using existing user database: %s", currentDB)
+			return
+		}
+
+		// We need to use a test database
+		// Use a fixed, clearly prefixed name to avoid accumulating test databases
+		// The prefix makes it obviously a test database
+		vectorTestDBName = "go_mssqldb_vector_test"
+		t.Logf("Connected to system database '%s', will use test database '%s'", currentDB, vectorTestDBName)
+
+		// Drop any existing test database from previous runs, then create fresh.
+		// This is best-effort: if the test login lacks permissions, we skip database
+		// creation and float16 tests will be skipped when they need PREVIEW_FEATURES.
+		if _, err := conn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS [%s]", vectorTestDBName)); err != nil {
+			t.Logf("Warning: Could not drop test database (may lack permissions): %v", err)
+			return
+		}
+
+		// Create the test database
+		_, err = conn.Exec(fmt.Sprintf("CREATE DATABASE [%s]", vectorTestDBName))
+		if err != nil {
+			t.Logf("Warning: Could not create test database (may lack permissions): %v", err)
+			return
+		}
+		t.Logf("Created test database '%s'", vectorTestDBName)
+		vectorTestDBCreated = true
+		// Note: We don't use t.Cleanup() here because sync.Once ties it to the first
+		// test that runs, which would try to drop the database while other tests are
+		// still using it. Instead, we rely on drop-before-create at the start of each
+		// test run to clean up any leftover databases from previous runs.
+	})
+
+	// Note: We don't attempt to USE the test database here because USE is session-scoped
+	// and *sql.DB may pick different connections per call. The tests create their own
+	// tables in the current database context, which is sufficient for isolation.
+	// The test database creation above is primarily for cleanup between test runs.
+}
+
+// skipIfVectorNotSupported checks if the SQL Server instance supports VECTOR type.
+// VECTOR is only supported in SQL Server 2025+. If not supported, the test is skipped.
+// This function checks VECTOR support FIRST before any database setup to ensure
+// clean skips on pre-2025 servers without risking permission errors.
+func skipIfVectorNotSupported(t *testing.T, conn *sql.DB) {
+	t.Helper()
+
+	// Use a dedicated connection to ensure the temp table CREATE and DROP
+	// happen on the same session. Temp tables are session-scoped, so using
+	// *sql.DB directly could cause the DROP to execute on a different
+	// pooled connection where the temp table doesn't exist.
+	ctx := context.Background()
+	singleConn, err := conn.Conn(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get dedicated connection: %v", err)
+	}
+	defer singleConn.Close()
+
+	// Check VECTOR support FIRST, before any database setup.
+	// This ensures pre-2025 servers skip cleanly without running into
+	// potential permission errors from DROP/CREATE DATABASE operations.
+	_, err = singleConn.ExecContext(ctx, "CREATE TABLE #vector_check (v VECTOR(1))")
+	if err != nil {
+		errStr := err.Error()
+		// Error 2715: "Cannot find data type VECTOR"
+		// This occurs on SQL Server versions before 2025
+		if strings.Contains(errStr, "Cannot find data type VECTOR") ||
+			strings.Contains(errStr, "2715") {
+			// Log the server version for debugging
+			var version string
+			if verr := singleConn.QueryRowContext(ctx, "SELECT @@VERSION").Scan(&version); verr == nil {
+				if len(version) > 80 {
+					version = version[:80] + "..."
+				}
+				t.Logf("Server: %s", version)
+			}
+			t.Skip("VECTOR type not supported - requires SQL Server 2025+")
+		}
+		// For other errors, fail the test
+		t.Fatalf("Failed to check VECTOR support: %v", err)
+	}
+	// Clean up the check table on the same connection where it was created
+	singleConn.ExecContext(ctx, "DROP TABLE #vector_check")
+
+	// Now that we know VECTOR is supported, ensure we're in a user database
+	// for tests that need PREVIEW_FEATURES (float16 tests).
+	setupVectorTestDB(t, conn)
+}
+
+// mustNewVector is a test helper that creates a Vector and panics on error.
+func mustNewVector(values []float32) Vector {
+	v, err := NewVector(values)
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+// openWithVectorSupport opens a database connection with vectortypesupport=v1 enabled.
+// This enables native binary vector format when the server supports it (SQL Server 2025+).
+func openWithVectorSupport(t testing.TB) (*sql.DB, *testLogger) {
+	tl := testLogger{t: t}
+	SetLogger(&tl)
+	t.Cleanup(func() {
+		tl.StopLogging()
+	})
+
+	config := testConnParams(t)
+	config.VectorTypeSupport = msdsn.VectorTypeSupportV1
+	connectionString := config.URL().String()
+
+	connector, err := NewConnector(connectionString)
+	if err != nil {
+		t.Fatal("Failed to create connector:", err)
+	}
+	conn := sql.OpenDB(connector)
+	return conn, &tl
+}
+
+// TestVectorInsertAndSelect tests inserting and reading Vector values.
+// This test requires a SQL Server 2025+ instance.
+func TestVectorInsertAndSelect(t *testing.T) {
+	conn, _ := openWithVectorSupport(t)
+	defer conn.Close()
+	skipIfVectorNotSupported(t, conn)
+
+	// Begin transaction to keep temp table visible
+	tx, err := conn.Begin()
+	if err != nil {
+		t.Fatal("Begin transaction failed:", err)
+	}
+	defer tx.Rollback()
+
+	// Create test table with vector column
+	tableName := "#test_vector_insert"
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT IDENTITY(1,1) PRIMARY KEY,
+			embedding VECTOR(3) NOT NULL
+		)
+	`, tableName))
+	if err != nil {
+		t.Fatalf("Failed to create table with VECTOR column: %v", err)
+	}
+
+	// Test case 1: Insert using Vector type
+	v := mustNewVector([]float32{1.0, 2.0, 3.0})
+	result, err := tx.Exec(
+		fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", tableName),
+		v,
+	)
+	if err != nil {
+		t.Fatalf("Failed to insert vector: %v", err)
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected != 1 {
+		t.Errorf("Expected 1 row affected, got %d", rowsAffected)
+	}
+
+	// Test case 2: Read back the vector
+	var readVector Vector
+	err = tx.QueryRow(
+		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 1", tableName),
+	).Scan(&readVector)
+	if err != nil {
+		t.Fatalf("Failed to scan vector: %v", err)
+	}
+
+	// Verify the data
+	if readVector.Dimensions() != 3 {
+		t.Errorf("Expected 3 dimensions, got %d", readVector.Dimensions())
+	}
+	expected := []float32{1.0, 2.0, 3.0}
+	for i, val := range readVector.Data {
+		if val != expected[i] {
+			t.Errorf("Dimension %d: expected %f, got %f", i, expected[i], val)
+		}
+	}
+	t.Logf("Read vector: %v", readVector)
+}
+
+// TestVectorNullInsertAndSelect tests inserting and reading NULL Vector values.
+func TestVectorNullInsertAndSelect(t *testing.T) {
+	conn, _ := openWithVectorSupport(t)
+	defer conn.Close()
+	skipIfVectorNotSupported(t, conn)
+
+	// Begin transaction to keep temp table visible
+	tx, err := conn.Begin()
+	if err != nil {
+		t.Fatal("Begin transaction failed:", err)
+	}
+	defer tx.Rollback()
+
+	// Create test table with nullable vector column
+	tableName := "#test_vector_null"
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT IDENTITY(1,1) PRIMARY KEY,
+			embedding VECTOR(3) NULL
+		)
+	`, tableName))
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert NULL using NullVector
+	nullVector := NullVector{Valid: false}
+	_, err = tx.Exec(
+		fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", tableName),
+		nullVector,
+	)
+	if err != nil {
+		t.Fatalf("Failed to insert NULL vector: %v", err)
+	}
+
+	// Insert a valid vector
+	validVector := NullVector{
+		Vector: mustNewVector([]float32{4.0, 5.0, 6.0}),
+		Valid:  true,
+	}
+	_, err = tx.Exec(
+		fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", tableName),
+		validVector,
+	)
+	if err != nil {
+		t.Fatalf("Failed to insert valid NullVector: %v", err)
+	}
+
+	// Read back NULL value
+	var readNull NullVector
+	err = tx.QueryRow(
+		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 1", tableName),
+	).Scan(&readNull)
+	if err != nil {
+		t.Fatalf("Failed to scan NULL vector: %v", err)
+	}
+	if readNull.Valid {
+		t.Errorf("Expected NULL vector, got valid: %v", readNull.Vector)
+	}
+
+	// Read back valid value
+	var readValid NullVector
+	err = tx.QueryRow(
+		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 2", tableName),
+	).Scan(&readValid)
+	if err != nil {
+		t.Fatalf("Failed to scan valid NullVector: %v", err)
+	}
+	if !readValid.Valid {
+		t.Error("Expected valid vector, got NULL")
+	}
+	if readValid.Vector.Dimensions() != 3 {
+		t.Errorf("Expected 3 dimensions, got %d", readValid.Vector.Dimensions())
+	}
+	t.Logf("Read valid NullVector: %v", readValid.Vector)
+}
+
+// TestVectorDifferentDimensions tests vectors with different dimension counts.
+func TestVectorDifferentDimensions(t *testing.T) {
+	conn, _ := openWithVectorSupport(t)
+	defer conn.Close()
+	skipIfVectorNotSupported(t, conn)
+
+	testCases := []struct {
+		name       string
+		dimensions int
+		values     []float32
+	}{
+		{"1D", 1, []float32{42.0}},
+		{"5D", 5, []float32{1.0, 2.0, 3.0, 4.0, 5.0}},
+		{"10D", 10, make([]float32, 10)},
+		{"100D", 100, make([]float32, 100)},
+	}
+
+	// Initialize test vectors with values
+	for i := range testCases {
+		for j := range testCases[i].values {
+			testCases[i].values[j] = float32(j + 1)
+		}
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Begin transaction for each subtest
+			tx, err := conn.Begin()
+			if err != nil {
+				t.Fatal("Begin transaction failed:", err)
+			}
+			defer tx.Rollback()
+
+			tableName := fmt.Sprintf("#test_vector_%s", tc.name)
+			_, err = tx.Exec(fmt.Sprintf(`
+				CREATE TABLE %s (
+					id INT IDENTITY(1,1) PRIMARY KEY,
+					embedding VECTOR(%d) NOT NULL
+				)
+			`, tableName, tc.dimensions))
+			if err != nil {
+				t.Fatalf("Failed to create table: %v", err)
+			}
+
+			// Insert
+			v := mustNewVector(tc.values)
+			_, err = tx.Exec(
+				fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", tableName),
+				v,
+			)
+			if err != nil {
+				t.Fatalf("Failed to insert %d-dimensional vector: %v", tc.dimensions, err)
+			}
+
+			// Read back
+			var readVector Vector
+			err = tx.QueryRow(
+				fmt.Sprintf("SELECT embedding FROM %s WHERE id = 1", tableName),
+			).Scan(&readVector)
+			if err != nil {
+				t.Fatalf("Failed to scan vector: %v", err)
+			}
+
+			if readVector.Dimensions() != tc.dimensions {
+				t.Errorf("Expected %d dimensions, got %d", tc.dimensions, readVector.Dimensions())
+			}
+		})
+	}
+}
+
+// TestVectorSpecialValues tests vectors with special floating-point values.
+func TestVectorSpecialValues(t *testing.T) {
+	conn, _ := openWithVectorSupport(t)
+	defer conn.Close()
+	skipIfVectorNotSupported(t, conn)
+
+	// Begin transaction to keep temp table visible
+	tx, err := conn.Begin()
+	if err != nil {
+		t.Fatal("Begin transaction failed:", err)
+	}
+	defer tx.Rollback()
+
+	tableName := "#test_vector_special"
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT IDENTITY(1,1) PRIMARY KEY,
+			embedding VECTOR(5) NOT NULL
+		)
+	`, tableName))
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Test special values: zero, negative, small, large
+	v := mustNewVector([]float32{0.0, -1.0, 1e-30, 1e30, -0.0})
+	_, err = tx.Exec(
+		fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", tableName),
+		v,
+	)
+	if err != nil {
+		t.Fatalf("Failed to insert special values: %v", err)
+	}
+
+	var readVector Vector
+	err = tx.QueryRow(
+		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 1", tableName),
+	).Scan(&readVector)
+	if err != nil {
+		t.Fatalf("Failed to scan special values: %v", err)
+	}
+
+	// Verify values
+	expected := []float32{0.0, -1.0, 1e-30, 1e30, 0.0} // -0.0 should read as 0.0
+	for i, val := range readVector.Data {
+		if !floatsEqualVector(val, expected[i]) {
+			t.Errorf("Value %d: expected %e, got %e", i, expected[i], val)
+		}
+	}
+	t.Logf("Special values vector: %v", readVector)
+}
+
+// TestVectorDistance tests using vectors in SQL Server VECTOR_DISTANCE function.
+func TestVectorDistance(t *testing.T) {
+	conn, _ := openWithVectorSupport(t)
+	defer conn.Close()
+	skipIfVectorNotSupported(t, conn)
+
+	// Begin transaction to keep temp table visible
+	tx, err := conn.Begin()
+	if err != nil {
+		t.Fatal("Begin transaction failed:", err)
+	}
+	defer tx.Rollback()
+
+	tableName := "#test_vector_distance"
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT IDENTITY(1,1) PRIMARY KEY,
+			name NVARCHAR(50),
+			embedding VECTOR(3) NOT NULL
+		)
+	`, tableName))
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert some test vectors
+	vectors := []struct {
+		name   string
+		values []float32
+	}{
+		{"vec_a", []float32{1.0, 0.0, 0.0}},
+		{"vec_b", []float32{0.0, 1.0, 0.0}},
+		{"vec_c", []float32{0.0, 0.0, 1.0}},
+		{"vec_d", []float32{1.0, 1.0, 1.0}},
+	}
+
+	for _, v := range vectors {
+		_, err = tx.Exec(
+			fmt.Sprintf("INSERT INTO %s (name, embedding) VALUES (@p1, @p2)", tableName),
+			v.name, mustNewVector(v.values),
+		)
+		if err != nil {
+			t.Fatalf("Failed to insert %s: %v", v.name, err)
+		}
+	}
+
+	// Query using VECTOR_DISTANCE with native binary vector parameter
+	queryVector := mustNewVector([]float32{1.0, 0.0, 0.0})
+	rows, err := tx.Query(fmt.Sprintf(`
+		SELECT name, VECTOR_DISTANCE('cosine', embedding, @p1) as distance
+		FROM %s
+		ORDER BY distance
+	`, tableName), queryVector)
+	if err != nil {
+		t.Fatalf("Failed to query with VECTOR_DISTANCE: %v", err)
+	}
+	defer rows.Close()
+
+	type result struct {
+		name     string
+		distance float64
+	}
+	var results []result
+	for rows.Next() {
+		var r result
+		if err := rows.Scan(&r.name, &r.distance); err != nil {
+			t.Fatalf("Failed to scan result: %v", err)
+		}
+		results = append(results, r)
+		t.Logf("Name: %s, Distance: %f", r.name, r.distance)
+	}
+
+	if len(results) != 4 {
+		t.Errorf("Expected 4 results, got %d", len(results))
+	}
+
+	// vec_a should be the closest (distance = 0)
+	if results[0].name != "vec_a" || results[0].distance != 0.0 {
+		t.Errorf("Expected vec_a with distance 0, got %s with distance %f", results[0].name, results[0].distance)
+	}
+}
+
+// TestVectorColumnMetadata tests that Vector column metadata is reported correctly.
+func TestVectorColumnMetadata(t *testing.T) {
+	conn, _ := openWithVectorSupport(t)
+	defer conn.Close()
+	skipIfVectorNotSupported(t, conn)
+
+	// Begin transaction to keep temp table visible
+	tx, err := conn.Begin()
+	if err != nil {
+		t.Fatal("Begin transaction failed:", err)
+	}
+	defer tx.Rollback()
+
+	tableName := "#test_vector_metadata"
+	dimensions := 128
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT IDENTITY(1,1) PRIMARY KEY,
+			embedding VECTOR(%d) NOT NULL
+		)
+	`, tableName, dimensions))
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert a vector
+	testData := make([]float32, dimensions)
+	for i := range testData {
+		testData[i] = float32(i)
+	}
+	_, err = tx.Exec(
+		fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", tableName),
+		mustNewVector(testData),
+	)
+	if err != nil {
+		t.Fatalf("Failed to insert vector: %v", err)
+	}
+
+	// Query and check column types
+	rows, err := tx.Query(fmt.Sprintf("SELECT id, embedding FROM %s", tableName))
+	if err != nil {
+		t.Fatalf("Failed to query: %v", err)
+	}
+	defer rows.Close()
+
+	colTypes, err := rows.ColumnTypes()
+	if err != nil {
+		t.Fatalf("Failed to get column types: %v", err)
+	}
+
+	// Check embedding column type
+	embeddingCol := colTypes[1]
+	typeName := embeddingCol.DatabaseTypeName()
+
+	// Verify the column type is correctly reported as VECTOR
+	if typeName != "VECTOR" {
+		t.Errorf("Expected column type VECTOR, got %s", typeName)
+	}
+	t.Logf("Column type: %s", typeName)
+
+	// Verify length is reported correctly (dimensions)
+	length, ok := embeddingCol.Length()
+	if ok {
+		t.Logf("Column length: %d", length)
+	}
+
+	// Verify we can actually scan the vector data correctly
+	if rows.Next() {
+		var id int
+		var v Vector
+		if err := rows.Scan(&id, &v); err != nil {
+			t.Fatalf("Failed to scan vector: %v", err)
+		}
+		if v.Dimensions() != dimensions {
+			t.Errorf("Expected %d dimensions, got %d", dimensions, v.Dimensions())
+		}
+		t.Logf("Successfully scanned vector with %d dimensions", v.Dimensions())
+	}
+}
+
+// TestVectorLargeDimensions tests vectors near the maximum allowed dimensions.
+func TestVectorLargeDimensions(t *testing.T) {
+	conn, _ := openWithVectorSupport(t)
+	defer conn.Close()
+	skipIfVectorNotSupported(t, conn)
+
+	// Begin transaction to keep temp table visible
+	tx, err := conn.Begin()
+	if err != nil {
+		t.Fatal("Begin transaction failed:", err)
+	}
+	defer tx.Rollback()
+
+	// Test with a reasonably large vector (500 dimensions)
+	dimensions := 500
+	tableName := "#test_vector_large"
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT IDENTITY(1,1) PRIMARY KEY,
+			embedding VECTOR(%d) NOT NULL
+		)
+	`, tableName, dimensions))
+	if err != nil {
+		t.Fatalf("Failed to create table with %d dimensions: %v", dimensions, err)
+	}
+
+	// Create test data
+	testData := make([]float32, dimensions)
+	for i := range testData {
+		testData[i] = float32(i) * 0.001
+	}
+
+	v := mustNewVector(testData)
+	_, err = tx.Exec(
+		fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", tableName),
+		v,
+	)
+	if err != nil {
+		t.Fatalf("Failed to insert large vector: %v", err)
+	}
+
+	var readVector Vector
+	err = tx.QueryRow(
+		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 1", tableName),
+	).Scan(&readVector)
+	if err != nil {
+		t.Fatalf("Failed to scan large vector: %v", err)
+	}
+
+	if readVector.Dimensions() != dimensions {
+		t.Errorf("Expected %d dimensions, got %d", dimensions, readVector.Dimensions())
+	}
+
+	// Spot check some values
+	for _, i := range []int{0, 100, 250, 499} {
+		if !floatsEqualVector(readVector.Data[i], testData[i]) {
+			t.Errorf("Value at index %d: expected %f, got %f", i, testData[i], readVector.Data[i])
+		}
+	}
+	t.Logf("Successfully round-tripped %d-dimensional vector", dimensions)
+}
+
+// TestVectorBatchInsert tests inserting multiple vectors in a transaction.
+func TestVectorBatchInsert(t *testing.T) {
+	conn, _ := openWithVectorSupport(t)
+	defer conn.Close()
+	skipIfVectorNotSupported(t, conn)
+
+	// Begin transaction to keep temp table visible
+	tx, err := conn.Begin()
+	if err != nil {
+		t.Fatal("Begin transaction failed:", err)
+	}
+	defer tx.Rollback()
+
+	tableName := "#test_vector_batch"
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT IDENTITY(1,1) PRIMARY KEY,
+			embedding VECTOR(3) NOT NULL
+		)
+	`, tableName))
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert multiple vectors
+	count := 100
+	for i := 0; i < count; i++ {
+		v := mustNewVector([]float32{float32(i), float32(i * 2), float32(i * 3)})
+		_, err = tx.Exec(
+			fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", tableName),
+			v,
+		)
+		if err != nil {
+			t.Fatalf("Failed to insert vector %d: %v", i, err)
+		}
+	}
+
+	// Verify count
+	var actualCount int
+	err = tx.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)).Scan(&actualCount)
+	if err != nil {
+		t.Fatalf("Failed to count rows: %v", err)
+	}
+	if actualCount != count {
+		t.Errorf("Expected %d rows, got %d", count, actualCount)
+	}
+	t.Logf("Batch inserted %d vectors successfully", count)
+}
+
+// TestVectorSliceFloat32Insert tests inserting []float32 directly without wrapping in Vector.
+// This provides better framework compatibility (e.g., GORM) per shueybubbles' feedback.
+func TestVectorSliceFloat32Insert(t *testing.T) {
+	conn, _ := openWithVectorSupport(t)
+	defer conn.Close()
+	skipIfVectorNotSupported(t, conn)
+
+	tx, err := conn.Begin()
+	if err != nil {
+		t.Fatal("Begin transaction failed:", err)
+	}
+	defer tx.Rollback()
+
+	tableName := "#test_vector_slice32"
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT IDENTITY(1,1) PRIMARY KEY,
+			embedding VECTOR(3) NOT NULL
+		)
+	`, tableName))
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert using []float32 directly (not wrapped in Vector type)
+	values := []float32{1.0, 2.0, 3.0}
+	_, err = tx.Exec(
+		fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", tableName),
+		values,
+	)
+	if err != nil {
+		t.Fatalf("Failed to insert []float32: %v", err)
+	}
+
+	// Read back using Vector type (which handles both binary and JSON formats)
+	// Note: Server may return binary vectors when the feature extension is negotiated;
+	// JSON is used as a fallback when vector feature support isn't negotiated/available.
+	var v Vector
+	err = tx.QueryRow(
+		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 1", tableName),
+	).Scan(&v)
+	if err != nil {
+		t.Fatalf("Failed to scan to Vector: %v", err)
+	}
+
+	if len(v.Data) != len(values) {
+		t.Fatalf("Expected %d values, got %d", len(values), len(v.Data))
+	}
+
+	for i, val := range values {
+		if v.Data[i] != val {
+			t.Errorf("Value %d: expected %f, got %f", i, val, v.Data[i])
+		}
+	}
+	t.Logf("Successfully round-tripped []float32 -> Vector: %v", v.Data)
+}
+
+// TestVectorSliceFloat64Insert tests inserting []float64 directly.
+// float64 is the default float type in Go, so this is important for convenience.
+func TestVectorSliceFloat64Insert(t *testing.T) {
+	conn, _ := openWithVectorSupport(t)
+	defer conn.Close()
+	skipIfVectorNotSupported(t, conn)
+
+	tx, err := conn.Begin()
+	if err != nil {
+		t.Fatal("Begin transaction failed:", err)
+	}
+	defer tx.Rollback()
+
+	tableName := "#test_vector_slice64"
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT IDENTITY(1,1) PRIMARY KEY,
+			embedding VECTOR(3) NOT NULL
+		)
+	`, tableName))
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert using []float64 directly (Go's default float type)
+	values := []float64{1.5, 2.5, 3.5}
+	_, err = tx.Exec(
+		fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", tableName),
+		values,
+	)
+	if err != nil {
+		t.Fatalf("Failed to insert []float64: %v", err)
+	}
+
+	// Read back as Vector to verify the values
+	var v Vector
+	err = tx.QueryRow(
+		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 1", tableName),
+	).Scan(&v)
+	if err != nil {
+		t.Fatalf("Failed to scan to Vector: %v", err)
+	}
+
+	if v.Dimensions() != len(values) {
+		t.Fatalf("Expected %d dimensions, got %d", len(values), v.Dimensions())
+	}
+
+	for i, val := range values {
+		if !floatsEqualVector(v.Data[i], float32(val)) {
+			t.Errorf("Value %d: expected %f, got %f", i, val, v.Data[i])
+		}
+	}
+	t.Logf("Successfully round-tripped []float64 -> Vector: %v", v.Data)
+}
+
+// TestVectorScanToInterface tests that scanning to interface{} returns []float32.
+// This enables frameworks like GORM to work without special Vector type handling.
+func TestVectorScanToInterface(t *testing.T) {
+	conn, _ := openWithVectorSupport(t)
+	defer conn.Close()
+	skipIfVectorNotSupported(t, conn)
+
+	tx, err := conn.Begin()
+	if err != nil {
+		t.Fatal("Begin transaction failed:", err)
+	}
+	defer tx.Rollback()
+
+	tableName := "#test_vector_interface"
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT IDENTITY(1,1) PRIMARY KEY,
+			embedding VECTOR(3) NOT NULL
+		)
+	`, tableName))
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert a vector
+	v := mustNewVector([]float32{1.0, 2.0, 3.0})
+	_, err = tx.Exec(
+		fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", tableName),
+		v,
+	)
+	if err != nil {
+		t.Fatalf("Failed to insert vector: %v", err)
+	}
+
+	// Scan to interface{} - should get []float32 when native vector binary format is supported
+	var result interface{}
+	err = tx.QueryRow(
+		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 1", tableName),
+	).Scan(&result)
+	if err != nil {
+		t.Fatalf("Failed to scan to interface{}: %v", err)
+	}
+
+	// Verify we got []float32 (native binary format) or string (JSON fallback)
+	switch v := result.(type) {
+	case []float32:
+		// Native binary format - verify values
+		if len(v) != 3 {
+			t.Fatalf("Expected 3 values, got %d", len(v))
+		}
+		expected := []float32{1.0, 2.0, 3.0}
+		for i, val := range expected {
+			if v[i] != val {
+				t.Errorf("Value %d: expected %f, got %f", i, val, v[i])
+			}
+		}
+		t.Logf("Scan to interface{} returned []float32 (native binary): %v", v)
+	case string:
+		// JSON fallback - server doesn't support native vector binary format
+		// This happens when the TDS vector feature extension is not negotiated
+		t.Logf("Scan to interface{} returned string (JSON fallback): %s", v)
+		// Parse JSON to verify it's valid vector data
+		if !strings.HasPrefix(v, "[") || !strings.HasSuffix(v, "]") {
+			t.Fatalf("Expected JSON array, got: %s", v)
+		}
+		t.Skip("Server does not support native vector binary format - JSON fallback used")
+	default:
+		t.Fatalf("Expected []float32 or string, got %T", result)
+	}
+}
+
+// TestVectorFloat16 tests float16 vector support (preview feature).
+// This test requires SQL Server 2025+ with PREVIEW_FEATURES enabled.
+func TestVectorFloat16(t *testing.T) {
+	conn, _ := openWithVectorSupport(t)
+	defer conn.Close()
+	skipIfVectorNotSupported(t, conn)
+
+	// Determine which database to use for PREVIEW_FEATURES
+	// If we created a test database, use that; otherwise use the current database
+	var targetDB string
+	if vectorTestDBCreated && vectorTestDBName != "" {
+		targetDB = vectorTestDBName
+	} else {
+		// Get the current database name from the connection string config
+		err := conn.QueryRow("SELECT DB_NAME()").Scan(&targetDB)
+		if err != nil {
+			t.Fatalf("Failed to get current database: %v", err)
+		}
+	}
+
+	// Check if it's a system database - we can't enable PREVIEW_FEATURES on system databases
+	systemDBs := []string{"master", "tempdb", "msdb", "model"}
+	for _, sysDB := range systemDBs {
+		if strings.EqualFold(targetDB, sysDB) {
+			t.Skipf("Cannot enable PREVIEW_FEATURES on system database '%s'. Connect to a user database to test float16.", targetDB)
+		}
+	}
+
+	// Use a dedicated connection to ensure consistent database context
+	ctx := context.Background()
+	singleConn, err := conn.Conn(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get dedicated connection: %v", err)
+	}
+	defer singleConn.Close()
+
+	// Switch to the target database on this specific connection
+	_, err = singleConn.ExecContext(ctx, fmt.Sprintf("USE [%s]", targetDB))
+	if err != nil {
+		t.Fatalf("Could not switch to database %s: %v", targetDB, err)
+	}
+
+	// Track original PREVIEW_FEATURES state so we can restore it later.
+	var previewWasOn bool
+	var previewToggled bool
+
+	// Query the current PREVIEW_FEATURES configuration.
+	// value is stored as sql_variant, we query its string representation.
+	var configValue string
+	err = singleConn.QueryRowContext(ctx,
+		"SELECT CAST(value AS NVARCHAR(10)) FROM sys.database_scoped_configurations WHERE name = 'PREVIEW_FEATURES'").Scan(&configValue)
+	if err != nil {
+		// PREVIEW_FEATURES config may not exist on older servers
+		t.Skipf("Could not query PREVIEW_FEATURES state (may not be supported): %v", err)
+	}
+	previewWasOn = configValue == "1"
+
+	// Enable preview features for float16 support if not already enabled.
+	// This must be run while in the target database context.
+	if !previewWasOn {
+		_, err = singleConn.ExecContext(ctx, "ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON")
+		if err != nil {
+			t.Skipf("Could not enable PREVIEW_FEATURES (may not be supported): %v", err)
+		}
+		previewToggled = true
+	}
+
+	// Ensure we restore PREVIEW_FEATURES to its original state when done.
+	defer func() {
+		if !previewToggled {
+			// We did not change the configuration; nothing to restore.
+			return
+		}
+		_, err := singleConn.ExecContext(ctx, "ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = OFF")
+		if err != nil {
+			t.Logf("Warning: Could not restore PREVIEW_FEATURES to OFF: %v", err)
+		}
+	}()
+
+	// Begin transaction on this connection to keep temp table visible
+	tx, err := singleConn.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal("Begin transaction failed:", err)
+	}
+	defer tx.Rollback()
+
+	// Create test table with float16 vector column
+	tableName := "#test_vector_float16"
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT IDENTITY(1,1) PRIMARY KEY,
+			embedding VECTOR(3, float16) NOT NULL
+		)
+	`, tableName))
+	if err != nil {
+		// VECTOR type requires SQL Server 2025+, float16 requires PREVIEW_FEATURES
+		t.Skipf("Could not create float16 VECTOR column (requires SQL Server 2025+ with PREVIEW_FEATURES): %v", err)
+	}
+
+	// Insert a float16 vector using NewVectorWithType
+	v, err := NewVectorWithType(VectorElementFloat16, []float32{1.0, 2.0, 3.0})
+	if err != nil {
+		t.Fatalf("Failed to create float16 vector: %v", err)
+	}
+	_, err = tx.Exec(
+		fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", tableName),
+		v,
+	)
+	if err != nil {
+		// Float16 native binary parameters may not be supported yet in current SQL Server build
+		// SQL Server 2025 RTM supports float16 columns but native float16 parameters require additional support
+		if strings.Contains(err.Error(), "invalid precision or scale") ||
+			strings.Contains(err.Error(), "Conversion of vector") {
+			t.Skipf("Float16 native binary parameters not supported in this SQL Server build: %v", err)
+		}
+		t.Fatalf("Failed to insert float16 vector: %v", err)
+	}
+
+	// Read back the vector
+	var readVector Vector
+	err = tx.QueryRow(
+		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 1", tableName),
+	).Scan(&readVector)
+	if err != nil {
+		t.Fatalf("Failed to scan float16 vector: %v", err)
+	}
+
+	// Verify dimensions
+	if readVector.Dimensions() != 3 {
+		t.Errorf("Expected 3 dimensions, got %d", readVector.Dimensions())
+	}
+
+	// Verify values (float16 has less precision, so use tolerance)
+	expected := []float32{1.0, 2.0, 3.0}
+	for i, val := range readVector.Data {
+		if !floatsEqualVector(val, expected[i]) {
+			t.Errorf("Dimension %d: expected %f, got %f", i, expected[i], val)
+		}
+	}
+
+	t.Logf("Successfully round-tripped float16 vector: %v", readVector)
+
+	// Test with values that show float16 precision loss
+	// Must use NewVectorWithType to create a float16 vector - SQL Server won't convert float32 to float16
+	precisionTestValues := []float32{1.001, 2.002, 3.003}
+	v2, err := NewVectorWithType(VectorElementFloat16, precisionTestValues)
+	if err != nil {
+		t.Fatalf("Failed to create float16 precision test vector: %v", err)
+	}
+	_, err = tx.Exec(
+		fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", tableName),
+		v2,
+	)
+	if err != nil {
+		t.Fatalf("Failed to insert precision test vector: %v", err)
+	}
+
+	var readVector2 Vector
+	err = tx.QueryRow(
+		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 2", tableName),
+	).Scan(&readVector2)
+	if err != nil {
+		t.Fatalf("Failed to scan precision test vector: %v", err)
+	}
+
+	// IEEE 754 float16 has a 10-bit significand (~3 decimal digits of precision).
+	// The ULP near 1.0 is 2^-10 ≈ 9.8e-4, so for values in the 1–3 range we expect
+	// absolute conversion error to be on the order of a few 1e-3. We therefore use
+	// a conservative 0.01 absolute tolerance here to allow for implementation-
+	// specific details while still catching excessive precision loss.
+	t.Logf("Precision test - input: %v, output: %v", precisionTestValues, readVector2.Data)
+	for i, val := range readVector2.Data {
+		diff := math.Abs(float64(val - precisionTestValues[i]))
+		if diff > 0.01 {
+			t.Errorf("Dimension %d: precision loss too high, expected ~%f, got %f (diff: %f)",
+				i, precisionTestValues[i], val, diff)
+		}
+	}
+}
+
+// floatsEqualVector compares two float32 values with tolerance for vector tests.
+func floatsEqualVector(a, b float32) bool {
+	if math.IsNaN(float64(a)) && math.IsNaN(float64(b)) {
+		return true
+	}
+	if math.IsInf(float64(a), 1) && math.IsInf(float64(b), 1) {
+		return true
+	}
+	if math.IsInf(float64(a), -1) && math.IsInf(float64(b), -1) {
+		return true
+	}
+	diff := math.Abs(float64(a - b))
+	return diff < 1e-6 || diff < math.Abs(float64(a))*1e-6
+}

@@ -38,6 +38,19 @@ const (
 	EncryptionStrict   = 4
 )
 
+// VectorTypeSupport controls how vector data types are handled.
+// This matches the JDBC/ODBC vectorTypeSupport connection property.
+type VectorTypeSupport int
+
+const (
+	// VectorTypeSupportOff disables native vector type support.
+	// Vector data will be returned as JSON strings for backward compatibility.
+	VectorTypeSupportOff VectorTypeSupport = 0
+	// VectorTypeSupportV1 enables native vector type support (SQL Server 2025+).
+	// This uses the optimized binary TDS protocol for vector data.
+	VectorTypeSupportV1 VectorTypeSupport = 1
+)
+
 const (
 	LogErrors      Log = 1
 	LogMessages    Log = 2
@@ -88,6 +101,7 @@ const (
 	NoTraceID              = "notraceid"
 	GuidConversion         = "guid conversion"
 	Timezone               = "timezone"
+	VectorTypeSupportParam = "vectortypesupport"
 	EpaEnabled             = "epa enabled"
 )
 
@@ -162,6 +176,10 @@ type Config struct {
 	NoTraceID bool
 	// Parameters related to type encoding
 	Encoding EncodeParameters
+	// VectorTypeSupport controls native vector type handling.
+	// Matches JDBC/ODBC vectorTypeSupport connection property.
+	// Default is VectorTypeSupportOff for backward compatibility.
+	VectorTypeSupport VectorTypeSupport
 	// EPA mode determines how the Channel Bindings are calculated.
 	EpaEnabled bool
 }
@@ -642,12 +660,26 @@ func Parse(dsn string) (Config, error) {
 		p.Encoding.GuidConversion = false
 	}
 
+	// Parse vectorTypeSupport: off, v1 (default: off for backward compatibility)
+	// Matches JDBC/ODBC vectorTypeSupport connection property
+	p.VectorTypeSupport = VectorTypeSupportOff
+	if vectorSupport, ok := params[VectorTypeSupportParam]; ok {
+		switch strings.ToLower(vectorSupport) {
+		case "off", "0":
+			p.VectorTypeSupport = VectorTypeSupportOff
+		case "v1", "1":
+			p.VectorTypeSupport = VectorTypeSupportV1
+		default:
+			return p, fmt.Errorf("invalid vectortypesupport '%s': must be 'off' or 'v1'", vectorSupport)
+		}
+	}
+
 	p.EpaEnabled = false
 	epaString, ok := params[EpaEnabled]
 	if !ok {
 		epaString = os.Getenv("MSSQL_USE_EPA")
 	}
-	if epaString !=  "" {
+	if epaString != "" {
 		epaEnabled, err := strconv.ParseBool(epaString)
 		if err != nil {
 			return p, fmt.Errorf("invalid epa enabled value '%s': %v", epaString, err)
@@ -722,6 +754,13 @@ func (p Config) URL() *url.URL {
 
 	if tz := p.Encoding.Timezone; tz != nil && tz != time.UTC {
 		q.Add(Timezone, tz.String())
+	}
+
+	if p.VectorTypeSupport != VectorTypeSupportOff {
+		switch p.VectorTypeSupport {
+		case VectorTypeSupportV1:
+			q.Add(VectorTypeSupportParam, "v1")
+		}
 	}
 
 	if len(q) > 0 {

@@ -976,6 +976,26 @@ func makeStrParam(val string) (res param) {
 	return
 }
 
+// makeVectorParam creates a parameter for native binary vector format.
+// This is used when the server supports vector feature extension (SQL Server 2025+).
+func (s *Stmt) makeVectorParam(v Vector) (res param, err error) {
+	if v.Data == nil {
+		res.ti.TypeId = typeVectorN
+		res.buffer = nil
+		res.ti.Size = 0
+		return
+	}
+	buf, err := v.encodeToBytes()
+	if err != nil {
+		return res, err
+	}
+	res.ti.TypeId = typeVectorN
+	res.buffer = buf
+	res.ti.Size = len(buf)
+	res.ti.Scale = byte(v.ElementType) // Store element type in Scale
+	return
+}
+
 func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 	if val == nil {
 		res.ti.TypeId = typeNull
@@ -1006,6 +1026,78 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		if valuer.Decimal.Valid {
 			return s.makeParam(Money[decimal.Decimal]{valuer.Decimal.Decimal})
 		}
+	// Vector types must be handled before driver.Valuer to use native binary format
+	// when supported, rather than converting to JSON via the Valuer interface.
+	// Note: Float16 vectors use JSON because native binary float16 parameters are
+	// not yet supported by SQL Server (even though float16 columns work).
+	case Vector:
+		// Handle NULL vectors (Data == nil) by sending an nvarchar(1) NULL,
+		// similar to NullVector{Valid: false}. This prevents sending an empty
+		// string which would be a non-NULL value and fail conversion.
+		if valuer.Data == nil {
+			res.ti.TypeId = typeNVarChar
+			res.buffer = nil
+			res.ti.Size = 2 // nvarchar(1) = 2 bytes
+			return
+		}
+		if s.c.sess.vectorSupported && valuer.ElementType == VectorElementFloat32 {
+			return s.makeVectorParam(valuer)
+		}
+		// Use JSON for float16 or when native binary is not supported.
+		// Use Value() to properly check for Inf values which cannot be JSON-encoded.
+		jsonVal, jsonErr := valuer.Value()
+		if jsonErr != nil {
+			return res, jsonErr
+		}
+		res = makeStrParam(jsonVal.(string))
+		return
+	case NullVector:
+		if valuer.Valid {
+			if s.c.sess.vectorSupported && valuer.Vector.ElementType == VectorElementFloat32 {
+				return s.makeVectorParam(valuer.Vector)
+			}
+			// Use JSON for float16 or when native binary is not supported.
+			// Use Value() to properly check for Inf values which cannot be JSON-encoded.
+			jsonVal, jsonErr := valuer.Value()
+			if jsonErr != nil {
+				return res, jsonErr
+			}
+			if jsonVal == nil {
+				// Inconsistent state: Valid is true but the underlying Vector.Data is nil.
+				// Treat this the same as a NULL vector and send an nvarchar(1) NULL,
+				// consistent with the NullVector{Valid: false} and Vector (Data == nil) cases.
+				res.ti.TypeId = typeNVarChar
+				res.buffer = nil
+				res.ti.Size = 2 // nvarchar(1) = 2 bytes
+			} else {
+				res = makeStrParam(jsonVal.(string))
+			}
+		} else {
+			// For NULL vectors, send an nvarchar(1) parameter with a NULL value.
+			// SQL Server accepts this for any VECTOR(...) column regardless of
+			// its dimensionality. For example:
+			//   INSERT INTO dbo.Docs(Embedding) VALUES (@p);
+			// where @p is a NullVector{Valid: false} will be sent as nvarchar(1) NULL
+			// and will succeed even when Embedding is declared as VECTOR(1536).
+			//
+			// This is a workaround for a current SQL Server limitation: native VECTOR
+			// parameters must have explicit dimensions that match the target column,
+			// even when the parameter value is NULL, so we cannot use the native
+			// VECTOR parameter type here for a dimension-agnostic NULL.
+			//
+			// If a future SQL Server version allows NULL VECTOR parameters without
+			// requiring matching dimensions (for example, by permitting a NULL-valued
+			// VECTOR parameter without dimension metadata), this behavior can be
+			// revisited to use the native VECTOR type instead of nvarchar(1) NULL.
+			//
+			// This behavior has been validated against SQL Server 2025, and is covered
+			// by the TestVectorNullInsertAndSelect integration test to guard against
+			// regressions in how NULL VECTOR parameters are handled.
+			res.ti.TypeId = typeNVarChar
+			res.buffer = nil
+			res.ti.Size = 2 // nvarchar(1) = 2 bytes
+		}
+		return
 	case UniqueIdentifier:
 	case NullUniqueIdentifier:
 	default:
@@ -1118,6 +1210,44 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		res.ti.TypeId = typeFltN
 		res.ti.Size = 8
 		res.buffer = []byte{}
+
+	// Vector and NullVector are handled in the first switch before driver.Valuer
+	// to ensure native binary format is used when supported.
+
+	case []float32:
+		// Allow inserting []float32 directly as a vector - convenient for frameworks
+		var v Vector
+		v, err = NewVector(val)
+		if err != nil {
+			return res, err
+		}
+		if s.c.sess.vectorSupported {
+			return s.makeVectorParam(v)
+		}
+		// Use Value() to properly check for Inf values which cannot be JSON-encoded.
+		jsonVal, jsonErr := v.Value()
+		if jsonErr != nil {
+			return res, jsonErr
+		}
+		res = makeStrParam(jsonVal.(string))
+		return
+	case []float64:
+		// Allow inserting []float64 directly as a vector - float64 is the default float type in Go
+		var v Vector
+		v, err = NewVectorFromFloat64(val)
+		if err != nil {
+			return res, err
+		}
+		if s.c.sess.vectorSupported {
+			return s.makeVectorParam(v)
+		}
+		// Use Value() to properly check for Inf values which cannot be JSON-encoded.
+		jsonVal, jsonErr := v.Value()
+		if jsonErr != nil {
+			return res, jsonErr
+		}
+		res = makeStrParam(jsonVal.(string))
+		return
 
 	case []byte:
 		res.ti.TypeId = typeBigVarBin
