@@ -17,7 +17,7 @@ func TestBulkInvalidString(t *testing.T) {
 	col := columnStruct{
 		ti: typeInfo{
 			TypeId: typeMoneyN,
-			Size: 8,
+			Size:   8,
 		},
 	}
 
@@ -36,7 +36,7 @@ func TestBulkInvalidType(t *testing.T) {
 	col := columnStruct{
 		ti: typeInfo{
 			TypeId: typeMoneyN,
-			Size: 8,
+			Size:   8,
 		},
 	}
 
@@ -55,7 +55,7 @@ func TestBulkMoneyN(t *testing.T) {
 	col := columnStruct{
 		ti: typeInfo{
 			TypeId: typeMoneyN,
-			Size: 8,
+			Size:   8,
 		},
 	}
 
@@ -79,7 +79,7 @@ func TestBulkMoneyPositive(t *testing.T) {
 	col := columnStruct{
 		ti: typeInfo{
 			TypeId: typeMoney,
-			Size: 8,
+			Size:   8,
 		},
 	}
 
@@ -103,7 +103,7 @@ func TestBulkMoneyNegative(t *testing.T) {
 	col := columnStruct{
 		ti: typeInfo{
 			TypeId: typeMoney,
-			Size: 8,
+			Size:   8,
 		},
 	}
 
@@ -127,7 +127,7 @@ func TestBulkMoney4Positive(t *testing.T) {
 	col := columnStruct{
 		ti: typeInfo{
 			TypeId: typeMoney4,
-			Size: 4,
+			Size:   4,
 		},
 	}
 
@@ -151,7 +151,7 @@ func TestBulkMoney4Negative(t *testing.T) {
 	col := columnStruct{
 		ti: typeInfo{
 			TypeId: typeMoney4,
-			Size: 4,
+			Size:   4,
 		},
 	}
 
@@ -222,8 +222,8 @@ func TestMoneyDecimal(t *testing.T) {
 	s := &Stmt{}
 
 	res, err := s.makeParam(Money[shopspring.Decimal]{
-			shopspring.New(-82913823232, -4),
-		},
+		shopspring.New(-82913823232, -4),
+	},
 	)
 
 	if err != nil {
@@ -396,7 +396,6 @@ func TestMoneyScanNullDecimal(t *testing.T) {
 		t.Errorf("wrong money Scan() result: %#v, must be: %#v", nm.Decimal.Decimal, nd.Decimal)
 	}
 }
-
 
 func readMoney(buf []byte) int64 {
 	return int64((uint64(binary.LittleEndian.Uint32(buf)) << 32) | uint64(binary.LittleEndian.Uint32(buf[4:])))
