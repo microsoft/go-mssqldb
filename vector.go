@@ -44,8 +44,10 @@ func SetVectorPrecisionWarnings(enabled bool) {
 // defaultPrecisionLossHandler is the default handler that logs precision loss warnings.
 // It uses the standard library logger (log.Printf) rather than the driver's ContextLogger
 // because precision loss detection occurs during parameter binding before a connection
-// context is available. Users who want to integrate with their own logging framework
-// or the driver's logger should use SetVectorPrecisionLossHandler to set a custom function.
+// context is available. The driver's SetLogger/SetContextLogger cannot be used here since
+// those require a connection or context that doesn't exist at binding time. Users who want
+// to integrate with their own logging framework should use SetVectorPrecisionLossHandler
+// to set a custom function, or set it to nil to disable default logging entirely.
 func defaultPrecisionLossHandler(index int, original float64, converted float32) {
 	log.Printf("mssql: vector precision loss at index %d: float64(%v) -> float32(%v)", index, original, converted)
 }
