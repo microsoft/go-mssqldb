@@ -1062,7 +1062,16 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 			if jsonErr != nil {
 				return res, jsonErr
 			}
-			res = makeStrParam(jsonVal.(string))
+			if jsonVal == nil {
+				// Inconsistent state: Valid is true but the underlying Vector.Data is nil.
+				// Treat this the same as a NULL vector and send an nvarchar(1) NULL,
+				// consistent with the NullVector{Valid: false} and Vector (Data == nil) cases.
+				res.ti.TypeId = typeNVarChar
+				res.buffer = nil
+				res.ti.Size = 2 // nvarchar(1) = 2 bytes
+			} else {
+				res = makeStrParam(jsonVal.(string))
+			}
 		} else {
 			// For NULL vectors, send an nvarchar(1) parameter with a NULL value.
 			// SQL Server accepts this for any VECTOR(...) column regardless of

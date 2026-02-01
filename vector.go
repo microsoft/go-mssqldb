@@ -144,6 +144,10 @@ func (t VectorElementType) MaxDimensions() int {
 //   - float32 (default): 32-bit single-precision, up to 1998 dimensions
 //   - float16: 16-bit half-precision, up to 3996 dimensions
 //
+// The Vector struct exposes its fields for direct access; however, callers should avoid
+// modifying Data after the Vector has been passed to a database operation, as concurrent
+// mutation may lead to unpredictable results.
+//
 // Example usage:
 //
 //	// Creating a vector with float32 values (default)
