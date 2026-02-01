@@ -1043,16 +1043,26 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		if s.c.sess.vectorSupported && valuer.ElementType == VectorElementFloat32 {
 			return s.makeVectorParam(valuer)
 		}
-		// Use JSON for float16 or when native binary is not supported
-		res = makeStrParam(valuer.ToJSON())
+		// Use JSON for float16 or when native binary is not supported.
+		// Use Value() to properly check for Inf values which cannot be JSON-encoded.
+		jsonVal, jsonErr := valuer.Value()
+		if jsonErr != nil {
+			return res, jsonErr
+		}
+		res = makeStrParam(jsonVal.(string))
 		return
 	case NullVector:
 		if valuer.Valid {
 			if s.c.sess.vectorSupported && valuer.Vector.ElementType == VectorElementFloat32 {
 				return s.makeVectorParam(valuer.Vector)
 			}
-			// Use JSON for float16 or when native binary is not supported
-			res = makeStrParam(valuer.Vector.ToJSON())
+			// Use JSON for float16 or when native binary is not supported.
+			// Use Value() to properly check for Inf values which cannot be JSON-encoded.
+			jsonVal, jsonErr := valuer.Value()
+			if jsonErr != nil {
+				return res, jsonErr
+			}
+			res = makeStrParam(jsonVal.(string))
 		} else {
 			// For NULL vectors, send an nvarchar(1) parameter with a NULL value.
 			// SQL Server accepts this for any VECTOR(...) column regardless of
@@ -1205,7 +1215,12 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		if s.c.sess.vectorSupported {
 			return s.makeVectorParam(v)
 		}
-		res = makeStrParam(v.ToJSON())
+		// Use Value() to properly check for Inf values which cannot be JSON-encoded.
+		jsonVal, jsonErr := v.Value()
+		if jsonErr != nil {
+			return res, jsonErr
+		}
+		res = makeStrParam(jsonVal.(string))
 		return
 	case []float64:
 		// Allow inserting []float64 directly as a vector - float64 is the default float type in Go
@@ -1217,7 +1232,12 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		if s.c.sess.vectorSupported {
 			return s.makeVectorParam(v)
 		}
-		res = makeStrParam(v.ToJSON())
+		// Use Value() to properly check for Inf values which cannot be JSON-encoded.
+		jsonVal, jsonErr := v.Value()
+		if jsonErr != nil {
+			return res, jsonErr
+		}
+		res = makeStrParam(jsonVal.(string))
 		return
 
 	case []byte:

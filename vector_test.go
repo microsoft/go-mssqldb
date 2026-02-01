@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -593,6 +594,57 @@ func TestNullVector(t *testing.T) {
 	}
 }
 
+func TestNullVectorScanError(t *testing.T) {
+	// Test that NullVector.Scan sets Valid=false on scan error
+	nv := NullVector{
+		Vector: Vector{ElementType: VectorElementFloat32, Data: []float32{1.0}},
+		Valid:  true, // Start as valid
+	}
+
+	// Invalid vector data (wrong magic byte)
+	invalidData := []byte{0xAA, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	err := nv.Scan(invalidData)
+	if err == nil {
+		t.Error("Expected error for invalid vector data")
+	}
+	if nv.Valid {
+		t.Error("NullVector.Valid should be false after scan error")
+	}
+}
+
+func TestVectorScanUnsupportedType(t *testing.T) {
+	var v Vector
+	err := v.Scan(42) // int is not supported
+	if err == nil {
+		t.Error("Expected error for unsupported type")
+	}
+	if !strings.Contains(err.Error(), "cannot convert") {
+		t.Errorf("Expected 'cannot convert' error, got: %v", err)
+	}
+}
+
+func TestVectorDecodeEmptyJSON(t *testing.T) {
+	var v Vector
+	err := v.decodeFromJSON("[]")
+	if err != nil {
+		t.Fatalf("decodeFromJSON([]) failed: %v", err)
+	}
+	if v.Data == nil {
+		t.Error("Empty array should produce non-nil slice")
+	}
+	if len(v.Data) != 0 {
+		t.Error("Empty array should produce zero-length slice")
+	}
+}
+
+func TestVectorDecodeInvalidJSON(t *testing.T) {
+	var v Vector
+	err := v.decodeFromJSON("not json")
+	if err == nil {
+		t.Error("Expected error for malformed JSON")
+	}
+}
+
 func TestVectorString(t *testing.T) {
 	testCases := []struct {
 		vector   Vector
@@ -908,6 +960,27 @@ func TestVectorTypeFunctions(t *testing.T) {
 		}
 	})
 
+	t.Run("makeDecl zero payload", func(t *testing.T) {
+		// Test with size == header (0 dimensions)
+		ti := typeInfo{TypeId: typeVectorN, Size: 8, Scale: 0} // size == vectorHeaderSize, 0 dimensions
+		decl := makeDecl(ti)
+		// payloadSize == 0, so returns "vector"
+		expected := "vector"
+		if decl != expected {
+			t.Errorf("Expected makeDecl to return %q for zero-payload, got: %q", expected, decl)
+		}
+	})
+
+	t.Run("makeDecl misaligned payload", func(t *testing.T) {
+		// Test with payload size that doesn't divide evenly by bytesPerElement
+		ti := typeInfo{TypeId: typeVectorN, Size: 11, Scale: 0} // 8 header + 3 data (not divisible by 4)
+		decl := makeDecl(ti)
+		expected := "vector"
+		if decl != expected {
+			t.Errorf("Expected makeDecl to return %q for misaligned payload, got: %q", expected, decl)
+		}
+	})
+
 	// Test makeGoLangTypeName for typeVectorN
 	t.Run("makeGoLangTypeName", func(t *testing.T) {
 		ti := typeInfo{TypeId: typeVectorN}
@@ -958,6 +1031,42 @@ func TestVectorTypeFunctions(t *testing.T) {
 		expectedLength := int64(3) // Number of dimensions
 		if length != expectedLength {
 			t.Errorf("Expected length %d, got: %d", expectedLength, length)
+		}
+	})
+
+	t.Run("makeGoLangTypeLength invalid scale", func(t *testing.T) {
+		// Unknown scale (not 0 or 1) should return false
+		ti := typeInfo{TypeId: typeVectorN, Size: 20, Scale: 99}
+		_, hasLength := makeGoLangTypeLength(ti)
+		if hasLength {
+			t.Error("Expected makeGoLangTypeLength to return false for unknown scale")
+		}
+	})
+
+	t.Run("makeGoLangTypeLength PLP marker", func(t *testing.T) {
+		// PLP/MAX marker (0xffff) should return false
+		ti := typeInfo{TypeId: typeVectorN, Size: 0xffff, Scale: 0}
+		_, hasLength := makeGoLangTypeLength(ti)
+		if hasLength {
+			t.Error("Expected makeGoLangTypeLength to return false for PLP marker")
+		}
+	})
+
+	t.Run("makeGoLangTypeLength too small", func(t *testing.T) {
+		// Size smaller than header should return false
+		ti := typeInfo{TypeId: typeVectorN, Size: 4, Scale: 0}
+		_, hasLength := makeGoLangTypeLength(ti)
+		if hasLength {
+			t.Error("Expected makeGoLangTypeLength to return false for size < header")
+		}
+	})
+
+	t.Run("makeGoLangTypeLength misaligned", func(t *testing.T) {
+		// Payload not divisible by bytesPerElement should return false
+		ti := typeInfo{TypeId: typeVectorN, Size: 11, Scale: 0} // 8 header + 3 bytes (not divisible by 4)
+		_, hasLength := makeGoLangTypeLength(ti)
+		if hasLength {
+			t.Error("Expected makeGoLangTypeLength to return false for misaligned payload")
 		}
 	})
 
