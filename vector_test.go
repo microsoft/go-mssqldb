@@ -348,12 +348,10 @@ func TestVectorNil(t *testing.T) {
 		t.Errorf("decoded nil should have nil Data, got %v", decoded.Data)
 	}
 
+	// Empty (non-nil) buffer should return an error (truncated/corrupt data)
 	err = decoded.decodeFromBytes([]byte{})
-	if err != nil {
-		t.Fatalf("decodeFromBytes([]) failed: %v", err)
-	}
-	if decoded.Data != nil {
-		t.Errorf("decoded empty should have nil Data, got %v", decoded.Data)
+	if err == nil {
+		t.Fatal("decodeFromBytes([]) should fail for empty non-nil buffer")
 	}
 }
 
@@ -456,6 +454,24 @@ func TestVectorValueNaNRoundTrip(t *testing.T) {
 	// Third element should match
 	if decoded.Data[2] != 3.0 {
 		t.Errorf("index 2: got %v, want 3.0", decoded.Data[2])
+	}
+}
+
+func TestVectorValueInfRejected(t *testing.T) {
+	// Test that Inf values cause Value() to return an error
+	// (Inf cannot be losslessly round-tripped through JSON)
+	v := Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, float32(math.Inf(1)), 3.0}}
+
+	_, err := v.Value()
+	if err == nil {
+		t.Fatal("Value() should return error for vector with Inf values")
+	}
+
+	// Negative infinity should also fail
+	v = Vector{ElementType: VectorElementFloat32, Data: []float32{float32(math.Inf(-1))}}
+	_, err = v.Value()
+	if err == nil {
+		t.Fatal("Value() should return error for vector with -Inf values")
 	}
 }
 

@@ -214,9 +214,16 @@ func (v *Vector) Scan(src interface{}) error {
 
 // Value implements the driver.Valuer interface for Vector.
 // Returns the vector as a JSON array string for SQL Server parameter binding.
+// Returns an error if the vector contains Infinity values (which cannot be represented in JSON).
 func (v Vector) Value() (driver.Value, error) {
 	if v.Data == nil {
 		return nil, nil
+	}
+	// Check for Inf values which cannot be round-tripped through JSON
+	for _, val := range v.Data {
+		if math.IsInf(float64(val), 0) {
+			return nil, errors.New("mssql: vector contains Infinity values which cannot be encoded as JSON parameter")
+		}
 	}
 	return v.ToJSON(), nil
 }
@@ -276,11 +283,11 @@ func (v Vector) String() string {
 
 // ToJSON returns the Vector as a JSON array string suitable for SQL Server parameter binding.
 // Format: "[1.0, 2.0, 3.0]"
-// Returns an empty string for nil/NULL vectors.
+// Returns an empty string for nil/NULL vectors or if the vector contains Infinity values.
 // This format is used when sending vectors as parameters via RPC calls,
 // following the backward compatibility approach used by SqlClient.
-// Note: NaN and Inf values are encoded as JSON null since JSON does not support
-// these special floating-point values as numeric literals.
+// Note: NaN values are encoded as JSON null; Infinity values return empty string
+// since they cannot be losslessly round-tripped through JSON.
 func (v Vector) ToJSON() string {
 	if v.Data == nil {
 		return ""
@@ -295,9 +302,14 @@ func (v Vector) ToJSON() string {
 			sb.WriteString(", ")
 		}
 		f := float64(val)
-		if math.IsNaN(f) || math.IsInf(f, 0) {
-			// JSON does not support NaN or Infinity as numeric literals.
-			// Encode them as null to preserve valid JSON.
+		if math.IsInf(f, 0) {
+			// Infinity cannot be represented in JSON and would round-trip as NaN.
+			// Return error to prevent silent data corruption.
+			return ""
+		}
+		if math.IsNaN(f) {
+			// JSON does not support NaN as a numeric literal.
+			// Encode as null; decodeFromJSON will convert back to NaN.
 			sb.WriteString("null")
 		} else {
 			sb.WriteString(strconv.FormatFloat(f, 'f', -1, 32))
@@ -376,10 +388,16 @@ func (v Vector) encodeToBytes() ([]byte, error) {
 
 // decodeFromBytes decodes the Vector from the TDS wire format.
 func (v *Vector) decodeFromBytes(buf []byte) error {
-	if len(buf) == 0 {
+	// Treat nil buffer as SQL NULL vector.
+	if buf == nil {
 		v.Data = nil
 		v.ElementType = VectorElementFloat32
 		return nil
+	}
+
+	// A non-nil but empty buffer is considered invalid/truncated data.
+	if len(buf) == 0 {
+		return errors.New("mssql: vector data too short")
 	}
 
 	if len(buf) < vectorHeaderSize {
