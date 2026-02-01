@@ -30,8 +30,9 @@ func SetVectorPrecisionLossHandler(handler func(index int, original float64, con
 }
 
 // SetVectorPrecisionWarnings enables or disables precision loss warnings when converting
-// float64 values to float32 for vector operations. When enabled, warnings are logged
-// to the standard logger for each value that loses precision.
+// float64 values to float32 for vector operations. When enabled, a warning is logged
+// to the standard logger when precision loss is detected (at most one warning per
+// vector operation).
 func SetVectorPrecisionWarnings(enabled bool) {
 	if enabled {
 		SetVectorPrecisionLossHandler(defaultPrecisionLossHandler)
@@ -171,7 +172,8 @@ type NullVector struct {
 	Valid  bool // Valid is true if Vector is not NULL
 }
 
-// IsNull returns true if the vector has no data.
+// IsNull reports whether the vector represents a SQL NULL value.
+// It returns true when Data is nil; an empty but non-nil slice is not considered NULL.
 func (v Vector) IsNull() bool {
 	return v.Data == nil
 }
@@ -304,7 +306,8 @@ func (v Vector) ToJSON() string {
 		f := float64(val)
 		if math.IsInf(f, 0) {
 			// Infinity cannot be represented in JSON and would round-trip as NaN.
-			// Return error to prevent silent data corruption.
+			// Return empty string to avoid silently encoding Infinity; callers should
+			// treat this as a serialization failure when v.Data is non-nil.
 			return ""
 		}
 		if math.IsNaN(f) {

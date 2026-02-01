@@ -57,16 +57,18 @@ func setupVectorTestDB(t *testing.T, conn *sql.DB) {
 		vectorTestDBName = "go_mssqldb_vector_test"
 		t.Logf("Connected to system database '%s', will use test database '%s'", currentDB, vectorTestDBName)
 
-		// Drop any existing test database from previous runs, then create fresh
-		// This ensures a clean state and prevents accumulation of test databases
+		// Drop any existing test database from previous runs, then create fresh.
+		// This is best-effort: if the test login lacks permissions, we skip database
+		// creation and float16 tests will be skipped when they need PREVIEW_FEATURES.
 		if _, err := conn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS [%s]", vectorTestDBName)); err != nil {
-			t.Fatalf("Failed to drop existing test database %q: %v", vectorTestDBName, err)
+			t.Logf("Warning: Could not drop test database (may lack permissions): %v", err)
+			return
 		}
 
 		// Create the test database
 		_, err = conn.Exec(fmt.Sprintf("CREATE DATABASE [%s]", vectorTestDBName))
 		if err != nil {
-			t.Logf("Warning: Could not create test database: %v", err)
+			t.Logf("Warning: Could not create test database (may lack permissions): %v", err)
 			return
 		}
 		t.Logf("Created test database '%s'", vectorTestDBName)
@@ -731,7 +733,8 @@ func TestVectorSliceFloat32Insert(t *testing.T) {
 	}
 
 	// Read back using Vector type (which handles both binary and JSON formats)
-	// Note: Until binary vector feature extension is implemented, server sends JSON
+	// Note: Server may return binary vectors when the feature extension is negotiated;
+	// JSON is used as a fallback when vector feature support isn't negotiated/available.
 	var v Vector
 	err = tx.QueryRow(
 		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 1", tableName),
