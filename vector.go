@@ -144,14 +144,17 @@ func (t VectorElementType) MaxDimensions() int {
 // Example usage:
 //
 //	// Creating a vector with float32 values (default)
-//	v := mssql.NewVector([]float32{1.0, 2.0, 3.0})
+//	v, err := mssql.NewVector([]float32{1.0, 2.0, 3.0})
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
 //
 //	// Using in a query
-//	_, err := db.Exec("INSERT INTO embeddings (embedding) VALUES (@p1)", v)
+//	_, err = db.Exec("INSERT INTO embeddings (embedding) VALUES (@p1)", v)
 //
 //	// Reading from a query
 //	var result mssql.Vector
-//	err := db.QueryRow("SELECT embedding FROM embeddings WHERE id = 1").Scan(&result)
+//	err = db.QueryRow("SELECT embedding FROM embeddings WHERE id = 1").Scan(&result)
 type Vector struct {
 	// ElementType specifies the precision of vector elements (float32 or float16).
 	ElementType VectorElementType
@@ -640,7 +643,7 @@ func NewVectorWithType(elementType VectorElementType, values []float32) (Vector,
 
 // NewVectorFromFloat64 creates a new Vector with float32 element type from a slice of float64 values.
 // The values are converted to float32, which may result in precision loss.
-// If VectorPrecisionLossHandler is set or SetVectorPrecisionWarnings(true) was called,
+// If SetVectorPrecisionLossHandler has been called or SetVectorPrecisionWarnings(true) was called,
 // a warning will be generated for the first value that loses precision.
 // Returns an error if the number of dimensions exceeds the maximum allowed.
 func NewVectorFromFloat64(values []float64) (Vector, error) {

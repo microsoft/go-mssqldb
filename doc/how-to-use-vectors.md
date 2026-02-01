@@ -47,7 +47,7 @@ nullNv := mssql.NullVector{
 Vectors can be passed directly as parameters to INSERT statements. You can use `Vector` types or plain Go slices:
 
 ```go
-db, err := sql.Open("sqlserver", "sqlserver://user:password@server/database")
+db, err := sql.Open("sqlserver", "sqlserver://user:password@server?database=mydb")
 if err != nil {
     log.Fatal(err)
 }
@@ -329,12 +329,12 @@ When inserting `[]float64` values, they are converted to float32, which may lose
 mssql.SetVectorPrecisionWarnings(true)
 
 // Option 2: Use a custom handler for integration with your logging framework
-mssql.VectorPrecisionLossHandler = func(index int, original float64, converted float32) {
+mssql.SetVectorPrecisionLossHandler(func(index int, original float64, converted float32) {
     slog.Warn("vector precision loss", 
         "index", index,
         "original", original, 
         "converted", converted)
-}
+})
 ```
 
 For performance, only the first precision loss per vector is reported.
@@ -357,10 +357,10 @@ The `vectortypesupport` connection string parameter controls how vector data is 
 
 ```go
 // Default: JSON format (backward compatible)
-db, _ := sql.Open("sqlserver", "sqlserver://user:pass@server/database")
+db, _ := sql.Open("sqlserver", "sqlserver://user:pass@server?database=mydb")
 
 // Enable native binary vector format
-db, _ := sql.Open("sqlserver", "sqlserver://user:pass@server/database?vectortypesupport=v1")
+db, _ := sql.Open("sqlserver", "sqlserver://user:pass@server?database=mydb&vectortypesupport=v1")
 
 // ODBC format
 db, _ := sql.Open("sqlserver", "odbc:server=host;vectortypesupport=v1")
