@@ -198,7 +198,7 @@ type columnStruct struct {
 	cryptoMeta *cryptoMetadata
 }
 
-func (c columnStruct) isEncrypted() bool {
+func (c *columnStruct) isEncrypted() bool {
 	return isEncryptedFlag(c.Flags)
 }
 
@@ -206,7 +206,7 @@ func isEncryptedFlag(flags uint16) bool {
 	return colFlagEncrypted == (flags & colFlagEncrypted)
 }
 
-func (c columnStruct) originalTypeInfo() typeInfo {
+func (c *columnStruct) originalTypeInfo() typeInfo {
 	if c.isEncrypted() {
 		return c.cryptoMeta.typeInfo
 	}
