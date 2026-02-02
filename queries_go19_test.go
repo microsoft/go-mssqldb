@@ -74,7 +74,7 @@ BEGIN
    SELECT @intparam = 10
 END;
 `
-		sqltextdrop := `DROP PROCEDURE spwithrows;`
+		sqltextdrop := `IF OBJECT_ID('spwithrows', 'P') IS NOT NULL DROP PROCEDURE spwithrows;`
 		sqltextrun := `spwithrows`
 
 		db.ExecContext(ctx, sqltextdrop)
@@ -146,7 +146,7 @@ BEGIN
    SELECT @bid = @aid, @cstr = 'OK', @datetime = '2010-01-01T00:00:00';
 END;
 `
-		sqltextdrop := `DROP PROCEDURE abassign;`
+		sqltextdrop := `IF OBJECT_ID('abassign', 'P') IS NOT NULL DROP PROCEDURE abassign;`
 		sqltextrun := `abassign`
 
 		db.ExecContext(ctx, sqltextdrop)
@@ -386,7 +386,7 @@ BEGIN
 		SET @sinout = 'long_long_value'
 END;
 `
-	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextdrop := `IF OBJECT_ID('vinout', 'P') IS NOT NULL DROP PROCEDURE vinout;`
 	sqltextrun := `vinout`
 
 	checkConnStr(t)
@@ -484,7 +484,7 @@ BEGIN
 	SET @binout = CONVERT(VARBINARY(4000), 'long_long_value')
 END;
 `
-	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextdrop := `IF OBJECT_ID('vinout', 'P') IS NOT NULL DROP PROCEDURE vinout;`
 	sqltextrun := `vinout`
 
 	checkConnStr(t)
@@ -537,7 +537,7 @@ BEGIN
 		SET @dinout = 29342.1234
 END;
 `
-	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextdrop := `IF OBJECT_ID('vinout', 'P') IS NOT NULL DROP PROCEDURE vinout;`
 	sqltextrun := `vinout`
 
 	checkConnStr(t)
@@ -645,7 +645,7 @@ BEGIN
 		SET @minout = 29342.1234
 END;
 `
-	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextdrop := `IF OBJECT_ID('vinout', 'P') IS NOT NULL DROP PROCEDURE vinout;`
 	sqltextrun := `vinout`
 
 	checkConnStr(t)
@@ -758,7 +758,7 @@ BEGIN
 	SELECT @dinout
 END;
 `
-	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextdrop := `IF OBJECT_ID('vinout', 'P') IS NOT NULL DROP PROCEDURE vinout;`
 	sqltextrun := `vinout`
 
 	checkConnStr(t)
@@ -962,7 +962,7 @@ BEGIN
 	SELECT @minout
 END;
 `
-	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextdrop := `IF OBJECT_ID('vinout', 'P') IS NOT NULL DROP PROCEDURE vinout;`
 	sqltextrun := `vinout`
 
 	checkConnStr(t)
@@ -1249,7 +1249,7 @@ BEGIN
 	;
 END;
 `
-	sqltextdrop := `DROP PROCEDURE abinout;`
+	sqltextdrop := `IF OBJECT_ID('abinout', 'P') IS NOT NULL DROP PROCEDURE abinout;`
 	sqltextrun := `abinout`
 
 	checkConnStr(t)
@@ -1451,7 +1451,7 @@ func TestOutputParamWithRows(t *testing.T) {
 		SELECT 'Row 1'
 	END
 	`
-	sqltextdrop := `DROP PROCEDURE spwithoutputandrows;`
+	sqltextdrop := `IF OBJECT_ID('spwithoutputandrows', 'P') IS NOT NULL DROP PROCEDURE spwithoutputandrows;`
 	sqltextrun := `spwithoutputandrows`
 
 	checkConnStr(t)
@@ -1556,7 +1556,7 @@ func TestParamNoName(t *testing.T) {
 		AS BEGIN
 			SELECT @intCol, @nvarcharCol, @varcharCol, @decimalCol, @nullDecimalCol
 		END`
-		sqltextdrop := `DROP PROCEDURE spnoparamname`
+		sqltextdrop := `IF OBJECT_ID('spnoparamname', 'P') IS NOT NULL DROP PROCEDURE spnoparamname`
 		sqltextrun := `spnoparamname`
 
 		db.ExecContext(ctx, sqltextdrop)
