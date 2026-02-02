@@ -28,10 +28,38 @@ func TestNullCivilTypesIntegration(t *testing.T) {
 	t.Run("OUT parameters", func(t *testing.T) {
 		// Test NullDate OUT parameter
 		t.Run("NullDate", func(t *testing.T) {
-			var nullDate NullDate
+			// Create stored procedure for testing
+			createProc := `CREATE PROCEDURE TestNullDateOut
+				@dateParam DATE = NULL OUTPUT
+			AS
+			BEGIN
+				SELECT @dateParam = '2023-12-25'
+			END`
+			createProcNull := `CREATE PROCEDURE TestNullDateOutNull
+				@dateParam DATE = NULL OUTPUT
+			AS
+			BEGIN
+				SELECT @dateParam = NULL
+			END`
+			
+			conn.ExecContext(ctx, "IF OBJECT_ID('TestNullDateOut', 'P') IS NOT NULL DROP PROCEDURE TestNullDateOut")
+			conn.ExecContext(ctx, "IF OBJECT_ID('TestNullDateOutNull', 'P') IS NOT NULL DROP PROCEDURE TestNullDateOutNull")
+			
+			_, err := conn.ExecContext(ctx, createProc)
+			if err != nil {
+				t.Fatalf("Failed to create procedure: %v", err)
+			}
+			defer conn.ExecContext(ctx, "IF OBJECT_ID('TestNullDateOut', 'P') IS NOT NULL DROP PROCEDURE TestNullDateOut")
+			
+			_, err = conn.ExecContext(ctx, createProcNull)
+			if err != nil {
+				t.Fatalf("Failed to create procedure: %v", err)
+			}
+			defer conn.ExecContext(ctx, "IF OBJECT_ID('TestNullDateOutNull', 'P') IS NOT NULL DROP PROCEDURE TestNullDateOutNull")
 
 			// Test NULL value
-			_, err := conn.ExecContext(ctx, "SELECT @p1 = NULL", sql.Out{Dest: &nullDate})
+			var nullDate NullDate
+			_, err = conn.ExecContext(ctx, "TestNullDateOutNull", sql.Named("dateParam", sql.Out{Dest: &nullDate}))
 			if err != nil {
 				t.Fatalf("Failed to execute query with NULL: %v", err)
 			}
@@ -40,7 +68,8 @@ func TestNullCivilTypesIntegration(t *testing.T) {
 			}
 
 			// Test valid value
-			_, err = conn.ExecContext(ctx, "SELECT @p1 = '2023-12-25'", sql.Out{Dest: &nullDate})
+			nullDate = NullDate{} // Reset
+			_, err = conn.ExecContext(ctx, "TestNullDateOut", sql.Named("dateParam", sql.Out{Dest: &nullDate}))
 			if err != nil {
 				t.Fatalf("Failed to execute query with date: %v", err)
 			}
@@ -55,10 +84,38 @@ func TestNullCivilTypesIntegration(t *testing.T) {
 
 		// Test NullDateTime OUT parameter
 		t.Run("NullDateTime", func(t *testing.T) {
-			var nullDateTime NullDateTime
+			// Create stored procedures for testing
+			createProc := `CREATE PROCEDURE TestNullDateTimeOut
+				@dtParam DATETIME2 = NULL OUTPUT
+			AS
+			BEGIN
+				SELECT @dtParam = '2023-12-25 14:30:45'
+			END`
+			createProcNull := `CREATE PROCEDURE TestNullDateTimeOutNull
+				@dtParam DATETIME2 = NULL OUTPUT
+			AS
+			BEGIN
+				SELECT @dtParam = NULL
+			END`
+			
+			conn.ExecContext(ctx, "IF OBJECT_ID('TestNullDateTimeOut', 'P') IS NOT NULL DROP PROCEDURE TestNullDateTimeOut")
+			conn.ExecContext(ctx, "IF OBJECT_ID('TestNullDateTimeOutNull', 'P') IS NOT NULL DROP PROCEDURE TestNullDateTimeOutNull")
+			
+			_, err := conn.ExecContext(ctx, createProc)
+			if err != nil {
+				t.Fatalf("Failed to create procedure: %v", err)
+			}
+			defer conn.ExecContext(ctx, "IF OBJECT_ID('TestNullDateTimeOut', 'P') IS NOT NULL DROP PROCEDURE TestNullDateTimeOut")
+			
+			_, err = conn.ExecContext(ctx, createProcNull)
+			if err != nil {
+				t.Fatalf("Failed to create procedure: %v", err)
+			}
+			defer conn.ExecContext(ctx, "IF OBJECT_ID('TestNullDateTimeOutNull', 'P') IS NOT NULL DROP PROCEDURE TestNullDateTimeOutNull")
 
 			// Test NULL value
-			_, err := conn.ExecContext(ctx, "SELECT @p1 = NULL", sql.Out{Dest: &nullDateTime})
+			var nullDateTime NullDateTime
+			_, err = conn.ExecContext(ctx, "TestNullDateTimeOutNull", sql.Named("dtParam", sql.Out{Dest: &nullDateTime}))
 			if err != nil {
 				t.Fatalf("Failed to execute query with NULL: %v", err)
 			}
@@ -67,7 +124,8 @@ func TestNullCivilTypesIntegration(t *testing.T) {
 			}
 
 			// Test valid value
-			_, err = conn.ExecContext(ctx, "SELECT @p1 = '2023-12-25 14:30:45'", sql.Out{Dest: &nullDateTime})
+			nullDateTime = NullDateTime{} // Reset
+			_, err = conn.ExecContext(ctx, "TestNullDateTimeOut", sql.Named("dtParam", sql.Out{Dest: &nullDateTime}))
 			if err != nil {
 				t.Fatalf("Failed to execute query with datetime: %v", err)
 			}
@@ -87,10 +145,38 @@ func TestNullCivilTypesIntegration(t *testing.T) {
 
 		// Test NullTime OUT parameter
 		t.Run("NullTime", func(t *testing.T) {
-			var nullTime NullTime
+			// Create stored procedures for testing
+			createProc := `CREATE PROCEDURE TestNullTimeOut
+				@timeParam TIME = NULL OUTPUT
+			AS
+			BEGIN
+				SELECT @timeParam = '14:30:45'
+			END`
+			createProcNull := `CREATE PROCEDURE TestNullTimeOutNull
+				@timeParam TIME = NULL OUTPUT
+			AS
+			BEGIN
+				SELECT @timeParam = NULL
+			END`
+			
+			conn.ExecContext(ctx, "IF OBJECT_ID('TestNullTimeOut', 'P') IS NOT NULL DROP PROCEDURE TestNullTimeOut")
+			conn.ExecContext(ctx, "IF OBJECT_ID('TestNullTimeOutNull', 'P') IS NOT NULL DROP PROCEDURE TestNullTimeOutNull")
+			
+			_, err := conn.ExecContext(ctx, createProc)
+			if err != nil {
+				t.Fatalf("Failed to create procedure: %v", err)
+			}
+			defer conn.ExecContext(ctx, "IF OBJECT_ID('TestNullTimeOut', 'P') IS NOT NULL DROP PROCEDURE TestNullTimeOut")
+			
+			_, err = conn.ExecContext(ctx, createProcNull)
+			if err != nil {
+				t.Fatalf("Failed to create procedure: %v", err)
+			}
+			defer conn.ExecContext(ctx, "IF OBJECT_ID('TestNullTimeOutNull', 'P') IS NOT NULL DROP PROCEDURE TestNullTimeOutNull")
 
 			// Test NULL value
-			_, err := conn.ExecContext(ctx, "SELECT @p1 = NULL", sql.Out{Dest: &nullTime})
+			var nullTime NullTime
+			_, err = conn.ExecContext(ctx, "TestNullTimeOutNull", sql.Named("timeParam", sql.Out{Dest: &nullTime}))
 			if err != nil {
 				t.Fatalf("Failed to execute query with NULL: %v", err)
 			}
@@ -99,7 +185,8 @@ func TestNullCivilTypesIntegration(t *testing.T) {
 			}
 
 			// Test valid value
-			_, err = conn.ExecContext(ctx, "SELECT @p1 = '14:30:45'", sql.Out{Dest: &nullTime})
+			nullTime = NullTime{} // Reset
+			_, err = conn.ExecContext(ctx, "TestNullTimeOut", sql.Named("timeParam", sql.Out{Dest: &nullTime}))
 			if err != nil {
 				t.Fatalf("Failed to execute query with time: %v", err)
 			}
