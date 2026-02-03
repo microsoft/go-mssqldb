@@ -91,3 +91,39 @@ func TestAccessTokenConnectorFailsToConnectIfNoAccessToken(t *testing.T) {
 		t.Fatalf("expected error to contain %q, but got %q", errorText, err)
 	}
 }
+
+func TestNewAccessTokenConnector_TokenProviderCalled(t *testing.T) {
+	// Test that the token provider is actually called and returns expected value
+	dsn := "Server=server.database.windows.net;Database=db"
+	expectedToken := "test-token-123"
+	called := false
+	
+	tp := func() (string, error) {
+		called = true
+		return expectedToken, nil
+	}
+	
+	connector, err := NewAccessTokenConnector(dsn, tp)
+	if err != nil {
+		t.Fatalf("NewAccessTokenConnector() error = %v", err)
+	}
+	
+	c, ok := connector.(*Connector)
+	if !ok {
+		t.Fatal("Expected connector to be of type *Connector")
+	}
+	
+	// Call the security token provider
+	token, err := c.securityTokenProvider(context.Background())
+	if err != nil {
+		t.Errorf("securityTokenProvider() error = %v", err)
+	}
+	
+	if !called {
+		t.Error("Token provider was not called")
+	}
+	
+	if token != expectedToken {
+		t.Errorf("securityTokenProvider() = %q, want %q", token, expectedToken)
+	}
+}
