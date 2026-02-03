@@ -7,11 +7,7 @@
       "changelog-path": "CHANGELOG.md",
       "bump-minor-pre-major": true,
       "extra-files": [
-        {
-          "type": "go",
-          "path": "version.go",
-          "glob": false
-        }
+        "version.go"
       ]
     }
   }
