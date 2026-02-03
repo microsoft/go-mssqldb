@@ -127,3 +127,156 @@ func TestTlsHandshakeConn_FinishPacket_Error(t *testing.T) {
 		t.Errorf("FinishPacket() error = %v, want proper error wrapping", err)
 	}
 }
+
+func TestTimeoutConn_Read(t *testing.T) {
+	tests := []struct {
+		name    string
+		timeout time.Duration
+		data    []byte
+		wantN   int
+		wantErr bool
+	}{
+		{
+			name:    "read with timeout",
+			timeout: 5 * time.Second,
+			data:    []byte("test data"),
+			wantN:   9,
+			wantErr: false,
+		},
+		{
+			name:    "read without timeout",
+			timeout: 0,
+			data:    []byte("test"),
+			wantN:   4,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockConn{Buffer: bytes.NewBuffer(tt.data)}
+			tc := newTimeoutConn(mock, tt.timeout)
+
+			buf := make([]byte, 100)
+			n, err := tc.Read(buf)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Read() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if n != tt.wantN {
+				t.Errorf("Read() n = %v, want %v", n, tt.wantN)
+			}
+		})
+	}
+}
+
+func TestTimeoutConn_Write(t *testing.T) {
+	tests := []struct {
+		name    string
+		timeout time.Duration
+		data    []byte
+		wantN   int
+		wantErr bool
+	}{
+		{
+			name:    "write with timeout",
+			timeout: 5 * time.Second,
+			data:    []byte("test data"),
+			wantN:   9,
+			wantErr: false,
+		},
+		{
+			name:    "write without timeout",
+			timeout: 0,
+			data:    []byte("test"),
+			wantN:   4,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockConn{Buffer: &bytes.Buffer{}}
+			tc := newTimeoutConn(mock, tt.timeout)
+
+			n, err := tc.Write(tt.data)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Write() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if n != tt.wantN {
+				t.Errorf("Write() n = %v, want %v", n, tt.wantN)
+			}
+		})
+	}
+}
+
+func TestTimeoutConn_Close(t *testing.T) {
+	mock := &mockConn{Buffer: &bytes.Buffer{}}
+	tc := newTimeoutConn(mock, 5*time.Second)
+
+	err := tc.Close()
+	if err != nil {
+		t.Errorf("Close() error = %v, want nil", err)
+	}
+	if !mock.closed {
+		t.Error("Close() did not close underlying connection")
+	}
+}
+
+func TestTimeoutConn_Addr(t *testing.T) {
+	mock := &mockConn{Buffer: &bytes.Buffer{}}
+	tc := newTimeoutConn(mock, 5*time.Second)
+
+	if tc.LocalAddr() != nil {
+		t.Error("LocalAddr() should return nil from mockConn")
+	}
+	if tc.RemoteAddr() != nil {
+		t.Error("RemoteAddr() should return nil from mockConn")
+	}
+}
+
+func TestTlsHandshakeConn_Close(t *testing.T) {
+	mock := &mockConn{Buffer: &bytes.Buffer{}}
+	buf := newTdsBuffer(defaultPacketSize, mock)
+	conn := &tlsHandshakeConn{buf: buf}
+
+	err := conn.Close()
+	if err != nil {
+		t.Errorf("Close() error = %v, want nil", err)
+	}
+	if !mock.closed {
+		t.Error("Close() did not close underlying connection")
+	}
+}
+
+func TestTlsHandshakeConn_Addr(t *testing.T) {
+	mock := &mockConn{Buffer: &bytes.Buffer{}}
+	buf := newTdsBuffer(defaultPacketSize, mock)
+	conn := &tlsHandshakeConn{buf: buf}
+
+	if conn.LocalAddr() != nil {
+		t.Error("LocalAddr() should return nil")
+	}
+	if conn.RemoteAddr() != nil {
+		t.Error("RemoteAddr() should return nil")
+	}
+}
+
+func TestTlsHandshakeConn_SetDeadline(t *testing.T) {
+	mock := &mockConn{Buffer: &bytes.Buffer{}}
+	buf := newTdsBuffer(defaultPacketSize, mock)
+	conn := &tlsHandshakeConn{buf: buf}
+
+	deadline := time.Now().Add(5 * time.Second)
+	
+	if err := conn.SetDeadline(deadline); err != nil {
+		t.Errorf("SetDeadline() error = %v, want nil", err)
+	}
+	if err := conn.SetReadDeadline(deadline); err != nil {
+		t.Errorf("SetReadDeadline() error = %v, want nil", err)
+	}
+	if err := conn.SetWriteDeadline(deadline); err != nil {
+		t.Errorf("SetWriteDeadline() error = %v, want nil", err)
+	}
+}
