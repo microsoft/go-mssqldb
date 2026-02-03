@@ -86,3 +86,61 @@ func TestBadStreamPanicf(t *testing.T) {
 
 	t.Fatalf("badStreamPanicf did not panic as expected when passed %s", expectedMsg)
 }
+
+func TestError_Methods(t *testing.T) {
+	err := Error{
+		Number:     12345,
+		State:      1,
+		Class:      16,
+		Message:    "Test error message",
+		ServerName: "TestServer",
+		ProcName:   "TestProc",
+		LineNo:     42,
+	}
+
+	// Test Error() method
+	errorStr := err.Error()
+	if !strings.Contains(errorStr, "mssql:") || !strings.Contains(errorStr, err.Message) {
+		t.Errorf("Error() = %q, should contain 'mssql:' and message", errorStr)
+	}
+
+	// Test String() method
+	if err.String() != err.Message {
+		t.Errorf("String() = %q, want %q", err.String(), err.Message)
+	}
+
+	// Test SQLErrorNumber()
+	if err.SQLErrorNumber() != err.Number {
+		t.Errorf("SQLErrorNumber() = %d, want %d", err.SQLErrorNumber(), err.Number)
+	}
+
+	// Test SQLErrorState()
+	if err.SQLErrorState() != err.State {
+		t.Errorf("SQLErrorState() = %d, want %d", err.SQLErrorState(), err.State)
+	}
+
+	// Test SQLErrorClass()
+	if err.SQLErrorClass() != err.Class {
+		t.Errorf("SQLErrorClass() = %d, want %d", err.SQLErrorClass(), err.Class)
+	}
+
+	// Test SQLErrorMessage()
+	if err.SQLErrorMessage() != err.Message {
+		t.Errorf("SQLErrorMessage() = %q, want %q", err.SQLErrorMessage(), err.Message)
+	}
+
+	// Test SQLErrorServerName()
+	if err.SQLErrorServerName() != err.ServerName {
+		t.Errorf("SQLErrorServerName() = %q, want %q", err.SQLErrorServerName(), err.ServerName)
+	}
+
+	// Test SQLErrorProcName()
+	if err.SQLErrorProcName() != err.ProcName {
+		t.Errorf("SQLErrorProcName() = %q, want %q", err.SQLErrorProcName(), err.ProcName)
+	}
+
+	// Test SQLErrorLineNo()
+	if err.SQLErrorLineNo() != err.LineNo {
+		t.Errorf("SQLErrorLineNo() = %d, want %d", err.SQLErrorLineNo(), err.LineNo)
+	}
+}
