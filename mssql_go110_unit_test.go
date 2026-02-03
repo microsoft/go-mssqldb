@@ -4,6 +4,7 @@
 package mssql
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -20,7 +21,7 @@ func TestResult_LastInsertId(t *testing.T) {
 	}
 	
 	expectedMsg := "LastInsertId is not supported"
-	if err != nil && !contains(err.Error(), expectedMsg) {
+	if err != nil && !strings.Contains(err.Error(), expectedMsg) {
 		t.Errorf("LastInsertId() error = %v, should contain %q", err, expectedMsg)
 	}
 }
@@ -35,18 +36,4 @@ func TestConnector_Driver(t *testing.T) {
 	if result != drv {
 		t.Error("Driver() should return the same driver instance")
 	}
-}
-
-// Helper function
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
