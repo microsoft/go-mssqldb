@@ -6,6 +6,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // mockConn implements a basic net.Conn for testing
@@ -160,12 +162,12 @@ func TestTimeoutConn_Read(t *testing.T) {
 			buf := make([]byte, 100)
 			n, err := tc.Read(buf)
 
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Read() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				assert.Error(t, err, "Read()")
+			} else {
+				assert.NoError(t, err, "Read()")
 			}
-			if n != tt.wantN {
-				t.Errorf("Read() n = %v, want %v", n, tt.wantN)
-			}
+			assert.Equal(t, tt.wantN, n, "Read() bytes read")
 		})
 	}
 }
@@ -201,12 +203,12 @@ func TestTimeoutConn_Write(t *testing.T) {
 
 			n, err := tc.Write(tt.data)
 
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Write() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				assert.Error(t, err, "Write()")
+			} else {
+				assert.NoError(t, err, "Write()")
 			}
-			if n != tt.wantN {
-				t.Errorf("Write() n = %v, want %v", n, tt.wantN)
-			}
+			assert.Equal(t, tt.wantN, n, "Write() bytes written")
 		})
 	}
 }
@@ -216,24 +218,16 @@ func TestTimeoutConn_Close(t *testing.T) {
 	tc := newTimeoutConn(mock, 5*time.Second)
 
 	err := tc.Close()
-	if err != nil {
-		t.Errorf("Close() error = %v, want nil", err)
-	}
-	if !mock.closed {
-		t.Error("Close() did not close underlying connection")
-	}
+	assert.NoError(t, err, "Close()")
+	assert.True(t, mock.closed, "Close() should close underlying connection")
 }
 
 func TestTimeoutConn_Addr(t *testing.T) {
 	mock := &mockConn{Buffer: &bytes.Buffer{}}
 	tc := newTimeoutConn(mock, 5*time.Second)
 
-	if tc.LocalAddr() != nil {
-		t.Error("LocalAddr() should return nil from mockConn")
-	}
-	if tc.RemoteAddr() != nil {
-		t.Error("RemoteAddr() should return nil from mockConn")
-	}
+	assert.Nil(t, tc.LocalAddr(), "LocalAddr() should return nil from mockConn")
+	assert.Nil(t, tc.RemoteAddr(), "RemoteAddr() should return nil from mockConn")
 }
 
 func TestTlsHandshakeConn_Close(t *testing.T) {
@@ -242,12 +236,8 @@ func TestTlsHandshakeConn_Close(t *testing.T) {
 	conn := &tlsHandshakeConn{buf: buf}
 
 	err := conn.Close()
-	if err != nil {
-		t.Errorf("Close() error = %v, want nil", err)
-	}
-	if !mock.closed {
-		t.Error("Close() did not close underlying connection")
-	}
+	assert.NoError(t, err, "Close()")
+	assert.True(t, mock.closed, "Close() should close underlying connection")
 }
 
 func TestTlsHandshakeConn_Addr(t *testing.T) {
@@ -255,12 +245,8 @@ func TestTlsHandshakeConn_Addr(t *testing.T) {
 	buf := newTdsBuffer(defaultPacketSize, mock)
 	conn := &tlsHandshakeConn{buf: buf}
 
-	if conn.LocalAddr() != nil {
-		t.Error("LocalAddr() should return nil")
-	}
-	if conn.RemoteAddr() != nil {
-		t.Error("RemoteAddr() should return nil")
-	}
+	assert.Nil(t, conn.LocalAddr(), "LocalAddr() should return nil")
+	assert.Nil(t, conn.RemoteAddr(), "RemoteAddr() should return nil")
 }
 
 func TestTlsHandshakeConn_SetDeadline(t *testing.T) {
@@ -270,13 +256,7 @@ func TestTlsHandshakeConn_SetDeadline(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	
-	if err := conn.SetDeadline(deadline); err != nil {
-		t.Errorf("SetDeadline() error = %v, want nil", err)
-	}
-	if err := conn.SetReadDeadline(deadline); err != nil {
-		t.Errorf("SetReadDeadline() error = %v, want nil", err)
-	}
-	if err := conn.SetWriteDeadline(deadline); err != nil {
-		t.Errorf("SetWriteDeadline() error = %v, want nil", err)
-	}
+	assert.NoError(t, conn.SetDeadline(deadline), "SetDeadline()")
+	assert.NoError(t, conn.SetReadDeadline(deadline), "SetReadDeadline()")
+	assert.NoError(t, conn.SetWriteDeadline(deadline), "SetWriteDeadline()")
 }

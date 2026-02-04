@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestConvertAssign_String(t *testing.T) {
@@ -56,8 +58,12 @@ func TestConvertAssign_String(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := convertAssign(tt.dest, tt.src)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("convertAssign() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				assert.Error(t, err, "convertAssign()")
+			} else {
+				assert.NoError(t, err, "convertAssign()")
+			}
+			if tt.wantErr {
 				return
 			}
 			if !tt.wantErr {
@@ -70,9 +76,7 @@ func TestConvertAssign_String(t *testing.T) {
 				case *sql.RawBytes:
 					got = *d
 				}
-				if !reflect.DeepEqual(got, tt.want) {
-					t.Errorf("convertAssign() got = %v, want %v", got, tt.want)
-				}
+				assert.Equal(t, tt.want, got, "convertAssign()")
 			}
 		})
 	}
@@ -133,8 +137,12 @@ func TestConvertAssign_Bytes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := convertAssign(tt.dest, tt.src)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("convertAssign() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				assert.Error(t, err, "convertAssign()")
+			} else {
+				assert.NoError(t, err, "convertAssign()")
+			}
+			if tt.wantErr {
 				return
 			}
 			if !tt.wantErr {
@@ -149,9 +157,7 @@ func TestConvertAssign_Bytes(t *testing.T) {
 				case *sql.RawBytes:
 					got = *d
 				}
-				if !reflect.DeepEqual(got, tt.want) {
-					t.Errorf("convertAssign() got = %v, want %v", got, tt.want)
-				}
+				assert.Equal(t, tt.want, got, "convertAssign()")
 			}
 		})
 	}
@@ -215,8 +221,12 @@ func TestConvertAssign_Time(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := convertAssign(tt.dest, tt.src)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("convertAssign() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				assert.Error(t, err, "convertAssign()")
+			} else {
+				assert.NoError(t, err, "convertAssign()")
+			}
+			if tt.wantErr {
 				return
 			}
 			if !tt.wantErr {
@@ -414,8 +424,12 @@ func TestConvertAssign_Numeric(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := convertAssign(tt.dest, tt.src)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("convertAssign() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				assert.Error(t, err, "convertAssign()")
+			} else {
+				assert.NoError(t, err, "convertAssign()")
+			}
+			if tt.wantErr {
 				return
 			}
 			if !tt.wantErr {
@@ -428,9 +442,7 @@ func TestConvertAssign_Numeric(t *testing.T) {
 				case *sql.RawBytes:
 					got = *d
 				}
-				if !reflect.DeepEqual(got, tt.want) {
-					t.Errorf("convertAssign() got = %v, want %v", got, tt.want)
-				}
+				assert.Equal(t, tt.want, got, "convertAssign()")
 			}
 		})
 	}
@@ -469,8 +481,12 @@ func TestConvertAssign_Bool(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var dest bool
 			err := convertAssign(&dest, tt.src)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("convertAssign() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				assert.Error(t, err, "convertAssign()")
+			} else {
+				assert.NoError(t, err, "convertAssign()")
+			}
+			if tt.wantErr {
 				return
 			}
 			if !tt.wantErr && dest != tt.want {
@@ -507,13 +523,11 @@ func TestConvertAssign_Interface(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var dest interface{}
 			err := convertAssign(&dest, tt.src)
+			assert.NoError(t, err, "convertAssign()")
 			if err != nil {
-				t.Errorf("convertAssign() error = %v", err)
 				return
 			}
-			if !reflect.DeepEqual(dest, tt.want) {
-				t.Errorf("convertAssign() got = %v, want %v", dest, tt.want)
-			}
+			assert.Equal(t, tt.want, dest, "convertAssign()")
 		})
 	}
 }
@@ -539,9 +553,7 @@ func TestConvertAssign_Errors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := convertAssign(tt.dest, tt.src)
-			if err == nil {
-				t.Error("convertAssign() expected error but got nil")
-			}
+			assert.Error(t, err, "convertAssign() expected error but got nil")
 		})
 	}
 }
@@ -605,8 +617,12 @@ func TestConvertAssign_StringToInt(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := convertAssign(tt.dest, tt.src)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("convertAssign() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				assert.Error(t, err, "convertAssign()")
+			} else {
+				assert.NoError(t, err, "convertAssign()")
+			}
+			if tt.wantErr {
 				return
 			}
 			if !tt.wantErr {
@@ -696,8 +712,12 @@ func TestConvertAssign_StringToUint(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := convertAssign(tt.dest, tt.src)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("convertAssign() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				assert.Error(t, err, "convertAssign()")
+			} else {
+				assert.NoError(t, err, "convertAssign()")
+			}
+			if tt.wantErr {
 				return
 			}
 			if !tt.wantErr {
@@ -757,8 +777,12 @@ func TestConvertAssign_StringToFloat(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := convertAssign(tt.dest, tt.src)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("convertAssign() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				assert.Error(t, err, "convertAssign()")
+			} else {
+				assert.NoError(t, err, "convertAssign()")
+			}
+			if tt.wantErr {
 				return
 			}
 			if !tt.wantErr {
@@ -799,13 +823,11 @@ func TestConvertAssign_StringDest(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var dest string
 			err := convertAssign(&dest, tt.src)
+			assert.NoError(t, err, "convertAssign()")
 			if err != nil {
-				t.Errorf("convertAssign() error = %v", err)
 				return
 			}
-			if dest != tt.want {
-				t.Errorf("convertAssign() got = %v, want %v", dest, tt.want)
-			}
+			assert.Equal(t, tt.want, dest, "convertAssign()")
 		})
 	}
 }
@@ -834,8 +856,8 @@ func TestConvertAssign_PointerDest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := convertAssign(tt.dest, tt.src)
+			assert.NoError(t, err, "convertAssign()")
 			if err != nil {
-				t.Errorf("convertAssign() error = %v", err)
 				return
 			}
 			destVal := reflect.ValueOf(tt.dest).Elem()

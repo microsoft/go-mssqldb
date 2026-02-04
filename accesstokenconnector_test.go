@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestNewAccessTokenConnector(t *testing.T) {
@@ -104,26 +106,14 @@ func TestNewAccessTokenConnector_TokenProviderCalled(t *testing.T) {
 	}
 	
 	connector, err := NewAccessTokenConnector(dsn, tp)
-	if err != nil {
-		t.Fatalf("NewAccessTokenConnector() error = %v", err)
-	}
+	assert.NoError(t, err, "NewAccessTokenConnector()")
 	
 	c, ok := connector.(*Connector)
-	if !ok {
-		t.Fatal("Expected connector to be of type *Connector")
-	}
+	assert.True(t, ok, "connector should be of type *Connector")
 	
 	// Call the security token provider
 	token, err := c.securityTokenProvider(context.Background())
-	if err != nil {
-		t.Errorf("securityTokenProvider() error = %v", err)
-	}
-	
-	if !called {
-		t.Error("Token provider was not called")
-	}
-	
-	if token != expectedToken {
-		t.Errorf("securityTokenProvider() = %q, want %q", token, expectedToken)
-	}
+	assert.NoError(t, err, "securityTokenProvider()")
+	assert.True(t, called, "Token provider should be called")
+	assert.Equal(t, expectedToken, token, "token value")
 }

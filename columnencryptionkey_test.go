@@ -1,6 +1,10 @@
 package mssql
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestNewCekTable(t *testing.T) {
 	tests := []struct {
@@ -39,28 +43,18 @@ func TestNewCekTable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := newCekTable(tt.size)
 			
-			if result.entries == nil {
-				t.Error("newCekTable() returned nil entries slice")
-			}
-			
-			if len(result.entries) != tt.expected {
-				t.Errorf("newCekTable(%d) created table with %d entries, want %d",
-					tt.size, len(result.entries), tt.expected)
-			}
-			
-			// Verify capacity matches length
-			if cap(result.entries) != tt.expected {
-				t.Errorf("newCekTable(%d) created table with capacity %d, want %d",
-					tt.size, cap(result.entries), tt.expected)
-			}
+			assert.NotNil(t, result.entries, "newCekTable() returned nil entries slice")
+			assert.Equal(t, tt.expected, len(result.entries), "newCekTable(%d) entries length", tt.size)
+			assert.Equal(t, tt.expected, cap(result.entries), "newCekTable(%d) entries capacity", tt.size)
 			
 			// Verify all entries are zero-initialized
 			for i, entry := range result.entries {
-				if entry.databaseID != 0 || entry.keyId != 0 || entry.keyVersion != 0 ||
-					entry.mdVersion != nil || entry.valueCount != 0 || entry.cekValues != nil {
-					t.Errorf("newCekTable(%d) entry %d is not zero-initialized: %+v",
-						tt.size, i, entry)
-				}
+				assert.Zero(t, entry.databaseID, "entry %d databaseID should be zero", i)
+				assert.Zero(t, entry.keyId, "entry %d keyId should be zero", i)
+				assert.Zero(t, entry.keyVersion, "entry %d keyVersion should be zero", i)
+				assert.Nil(t, entry.mdVersion, "entry %d mdVersion should be nil", i)
+				assert.Zero(t, entry.valueCount, "entry %d valueCount should be zero", i)
+				assert.Nil(t, entry.cekValues, "entry %d cekValues should be nil", i)
 			}
 		})
 	}

@@ -4,25 +4,21 @@
 package mssql
 
 import (
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestResult_LastInsertId(t *testing.T) {
 	r := &Result{}
 	id, err := r.LastInsertId()
 	
-	if err == nil {
-		t.Error("LastInsertId() should return an error")
-	}
-	
-	if id != -1 {
-		t.Errorf("LastInsertId() = %d, want -1", id)
-	}
+	assert.Error(t, err, "LastInsertId() should return an error")
+	assert.Equal(t, int64(-1), id, "LastInsertId() should return -1")
 	
 	expectedMsg := "LastInsertId is not supported"
-	if err != nil && !strings.Contains(err.Error(), expectedMsg) {
-		t.Errorf("LastInsertId() error = %v, should contain %q", err, expectedMsg)
+	if err != nil {
+		assert.Contains(t, err.Error(), expectedMsg, "error message should contain expected text")
 	}
 }
 
@@ -33,7 +29,5 @@ func TestConnector_Driver(t *testing.T) {
 	}
 	
 	result := c.Driver()
-	if result != drv {
-		t.Error("Driver() should return the same driver instance")
-	}
+	assert.Same(t, drv, result, "Driver() should return the same driver instance")
 }

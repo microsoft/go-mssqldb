@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestServerError(t *testing.T) {
@@ -100,47 +102,30 @@ func TestError_Methods(t *testing.T) {
 
 	// Test Error() method
 	errorStr := err.Error()
-	if !strings.Contains(errorStr, "mssql:") || !strings.Contains(errorStr, err.Message) {
-		t.Errorf("Error() = %q, should contain 'mssql:' and message", errorStr)
-	}
+	assert.Contains(t, errorStr, "mssql:", "Error() should contain 'mssql:'")
+	assert.Contains(t, errorStr, err.Message, "Error() should contain message")
 
 	// Test String() method
-	if err.String() != err.Message {
-		t.Errorf("String() = %q, want %q", err.String(), err.Message)
-	}
+	assert.Equal(t, err.Message, err.String(), "String()")
 
 	// Test SQLErrorNumber()
-	if err.SQLErrorNumber() != err.Number {
-		t.Errorf("SQLErrorNumber() = %d, want %d", err.SQLErrorNumber(), err.Number)
-	}
+	assert.Equal(t, err.Number, err.SQLErrorNumber(), "SQLErrorNumber()")
 
 	// Test SQLErrorState()
-	if err.SQLErrorState() != err.State {
-		t.Errorf("SQLErrorState() = %d, want %d", err.SQLErrorState(), err.State)
-	}
+	assert.Equal(t, err.State, err.SQLErrorState(), "SQLErrorState()")
 
 	// Test SQLErrorClass()
-	if err.SQLErrorClass() != err.Class {
-		t.Errorf("SQLErrorClass() = %d, want %d", err.SQLErrorClass(), err.Class)
-	}
+	assert.Equal(t, err.Class, err.SQLErrorClass(), "SQLErrorClass()")
 
 	// Test SQLErrorMessage()
-	if err.SQLErrorMessage() != err.Message {
-		t.Errorf("SQLErrorMessage() = %q, want %q", err.SQLErrorMessage(), err.Message)
-	}
+	assert.Equal(t, err.Message, err.SQLErrorMessage(), "SQLErrorMessage()")
 
 	// Test SQLErrorServerName()
-	if err.SQLErrorServerName() != err.ServerName {
-		t.Errorf("SQLErrorServerName() = %q, want %q", err.SQLErrorServerName(), err.ServerName)
-	}
+	assert.Equal(t, err.ServerName, err.SQLErrorServerName(), "SQLErrorServerName()")
 
 	// Test SQLErrorProcName()
-	if err.SQLErrorProcName() != err.ProcName {
-		t.Errorf("SQLErrorProcName() = %q, want %q", err.SQLErrorProcName(), err.ProcName)
-	}
+	assert.Equal(t, err.ProcName, err.SQLErrorProcName(), "SQLErrorProcName()")
 
 	// Test SQLErrorLineNo()
-	if err.SQLErrorLineNo() != err.LineNo {
-		t.Errorf("SQLErrorLineNo() = %d, want %d", err.SQLErrorLineNo(), err.LineNo)
-	}
+	assert.Equal(t, err.LineNo, err.SQLErrorLineNo(), "SQLErrorLineNo()")
 }

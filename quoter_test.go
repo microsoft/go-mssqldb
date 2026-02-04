@@ -1,6 +1,10 @@
 package mssql
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestTSQLQuoter_ID(t *testing.T) {
 	q := TSQLQuoter{}
@@ -50,9 +54,7 @@ func TestTSQLQuoter_ID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := q.ID(tt.input)
-			if result != tt.expected {
-				t.Errorf("ID(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result, "ID(%q)", tt.input)
 		})
 	}
 }
@@ -115,9 +117,7 @@ func TestTSQLQuoter_Value(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := q.Value(tt.input)
-			if result != tt.expected {
-				t.Errorf("Value(%v) = %q, want %q", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result, "Value(%v)", tt.input)
 		})
 	}
 }
@@ -153,12 +153,9 @@ func TestTSQLQuoter_Value_Panic(t *testing.T) {
 	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r == nil {
-					t.Errorf("Value(%v) should panic for unsupported type", tt.input)
-				}
-			}()
-			q.Value(tt.input)
+			assert.Panics(t, func() {
+				q.Value(tt.input)
+			}, "Value(%v) should panic for unsupported type", tt.input)
 		})
 	}
 }
