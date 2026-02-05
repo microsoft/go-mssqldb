@@ -3,6 +3,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/microsoft/go-mssqldb.svg)](https://pkg.go.dev/github.com/microsoft/go-mssqldb)
 [![Build status](https://ci.appveyor.com/api/projects/status/jrln8cs62wj9i0a2?svg=true)](https://ci.appveyor.com/project/microsoft/go-mssqldb)
 [![codecov](https://codecov.io/gh/microsoft/go-mssqldb/branch/master/graph/badge.svg)](https://codecov.io/gh/microsoft/go-mssqldb)
+[![Open in Dev Containers](https://img.shields.io/static/v1?label=Dev%20Containers&message=Open&color=blue&logo=visualstudiocode)](https://vscode.dev/redirect?url=vscode://ms-vscode-remote.remote-containers/cloneInVolume?url=https://github.com/microsoft/go-mssqldb)
 
 
 ## Install
@@ -646,6 +647,32 @@ To fix SQL Server 2008 issue, install Microsoft SQL Server 2008 Service Pack 3 a
 More information: <http://support.microsoft.com/kb/2653857>
 
 * Bulk copy does not yet support encrypting column values using Always Encrypted. Tracked in [#127](https://github.com/microsoft/go-mssqldb/issues/127)
+
+# Development
+
+## Quick Start with Dev Containers
+
+The easiest way to develop and test the driver is using the included [Dev Container](.devcontainer/README.md), which works with:
+
+- **VS Code**: Install the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers), open this repo, and click "Reopen in Container"
+- **GitHub Codespaces**: Click the "Code" button on GitHub and select "Create codespace"
+
+The dev container includes:
+- Go 1.24 with all development tools
+- SQL Server 2025 ready for integration tests
+- [go-sqlcmd](https://github.com/microsoft/go-sqlcmd) (uses this driver!)
+- Pre-configured environment variables for tests
+
+Once inside the container, run the full test suite:
+```bash
+go test ./...
+```
+
+## Manual Setup
+
+If you prefer to set up your environment manually, see [CONTRIBUTING.md](./CONTRIBUTING.md) for requirements. You'll need:
+- Go 1.24 or higher
+- Access to a SQL Server instance (2017 or later recommended)
 
 # Contributing
 This project is a fork of [https://github.com/denisenkom/go-mssqldb](https://github.com/denisenkom/go-mssqldb) and welcomes new and previous contributors. For more informaton on contributing to this project, please see [Contributing](./CONTRIBUTING.md).

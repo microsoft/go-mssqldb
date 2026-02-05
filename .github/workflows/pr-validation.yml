@@ -13,20 +13,55 @@ jobs:
         go: ['1.24']
         sqlImage: ['2019-latest','2022-latest']
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Setup go
-      uses: actions/setup-go@v2
+      uses: actions/setup-go@v5
       with:
         go-version: '${{ matrix.go }}'
-    - name: Run tests against Linux SQL
+    - name: Start SQL Server container
+      run: |
+        # Generate a password that meets SQL Server complexity requirements for this ephemeral CI container
+        # Note: This is not a cryptographically secure generator; suitable only for short-lived CI containers
+        export SQLPASSWORD="GoDriver@$(date +%s | sha256sum | base64 | head -c 16)!"
+        echo "SQLPASSWORD=$SQLPASSWORD" >> $GITHUB_ENV
+        
+        docker run -m 2GB -e ACCEPT_EULA=Y -d --name sqlserver \
+          -p 1433:1433 \
+          -e "SA_PASSWORD=$SQLPASSWORD" \
+          mcr.microsoft.com/mssql/server:${{ matrix.sqlImage }}
+    
+    - name: Wait for SQL Server to be ready
+      run: |
+        echo "Waiting for SQL Server to be ready..."
+        # With 2-second intervals, 40 attempts gives ~80s max wait
+        # Aligned with devcontainer's 45s start_period + reasonable buffer
+        max_attempts=40
+        attempt=1
+        while [ $attempt -le $max_attempts ]; do
+          # Try to connect using sqlcmd from the container
+          if docker exec sqlserver /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P "$SQLPASSWORD" -C -Q "SELECT 1" 2>/dev/null; then
+            echo "SQL Server is ready after $attempt attempts!"
+            exit 0
+          fi
+          echo "Attempt $attempt/$max_attempts: SQL Server not ready yet..."
+          sleep 2
+          attempt=$((attempt + 1))
+        done
+        echo "SQL Server failed to start in time"
+        docker logs sqlserver
+        exit 1
+    
+    - name: Run tests
+      env:
+        HOST: localhost
+        SQLUSER: sa
+        SQLPASSWORD: ${{ env.SQLPASSWORD }}
+        DATABASE: master
       run: |
         go version
-        export SQLCMDPASSWORD=$(date +%s|sha256sum|base64|head -c 32)
-        export SQLCMDUSER=sa
-        export SQLUSER=sa
-        export SQLPASSWORD=$SQLCMDPASSWORD
-        export DATABASE=master
-        export HOST=.
-        docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver -p:1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD mcr.microsoft.com/mssql/server:${{ matrix.sqlImage }}
-        sleep 10
         go test -v ./...
+    
+    - name: Show SQL Server logs on failure
+      if: failure()
+      run: docker logs sqlserver

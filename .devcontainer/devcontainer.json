@@ -1,0 +1,92 @@
+{
+    "name": "Go MSSQL Driver Development",
+    "dockerComposeFile": "docker-compose.yml",
+    "service": "devcontainer",
+    "workspaceFolder": "/workspaces/go-mssqldb",
+    "shutdownAction": "stopCompose",
+
+    // Configure tool-specific properties
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "golang.go",
+                "ms-mssql.mssql",
+                "ms-azuretools.vscode-docker",
+                "GitHub.copilot",
+                "GitHub.copilot-chat",
+                "eamodio.gitlens",
+                "EditorConfig.EditorConfig",
+                "streetsidesoftware.code-spell-checker"
+            ],
+            "settings": {
+                "go.toolsManagement.autoUpdate": true,
+                "go.useLanguageServer": true,
+                "go.lintTool": "golangci-lint",
+                "go.lintFlags": ["--fast"],
+                "go.testEnvVars": {
+                    "HOST": "localhost",
+                    "SQLUSER": "sa",
+                    "SQLPASSWORD": "${env:SQLPASSWORD}",
+                    "DATABASE": "master"
+                },
+                // Note: The MSSQL extension doesn't support env var substitution in passwords.
+                // This default password matches the devcontainer default. To change it,
+                // override SQLPASSWORD env var and update this value to match.
+                "mssql.connections": [
+                    {
+                        "server": "localhost,1433",
+                        "database": "master",
+                        "authenticationType": "SqlLogin",
+                        "user": "sa",
+                        "password": "MssqlDriver@2025!",
+                        "savePassword": true,
+                        "profileName": "mssql-container"
+                    }
+                ],
+                "editor.formatOnSave": true,
+                "editor.defaultFormatter": "golang.go",
+                "[go]": {
+                    "editor.formatOnSave": true,
+                    "editor.codeActionsOnSave": {
+                        "source.organizeImports": "explicit"
+                    }
+                },
+                "terminal.integrated.defaultProfile.linux": "bash"
+            }
+        }
+    },
+
+    // Forward the SQL Server port
+    "forwardPorts": [1433],
+    "portsAttributes": {
+        "1433": {
+            "label": "SQL Server",
+            "onAutoForward": "silent"
+        }
+    },
+
+    // Use 'postCreateCommand' to run commands after the container is created
+    "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+    // Environment variables for tests - password must match docker-compose.yml
+    // This is a development-only container credential, not a production secret.
+    // For GitHub Codespaces, you can override SQLPASSWORD via Codespaces Secrets.
+    "remoteEnv": {
+        "HOST": "localhost",
+        "SQLUSER": "sa",
+        "SQLPASSWORD": "${localEnv:SQLPASSWORD:MssqlDriver@2025!}",
+        "DATABASE": "master",
+        "SQLSERVER_DSN": "sqlserver://sa:${localEnv:SQLPASSWORD:MssqlDriver@2025!}@localhost:1433?database=master"
+    },
+
+    // Features to add to the dev container
+    "features": {
+        "ghcr.io/devcontainers/features/docker-in-docker:2": {
+            "version": "latest",
+            "moby": true
+        },
+        "ghcr.io/devcontainers/features/github-cli:1": {
+            "version": "latest"
+        }
+    }
+}

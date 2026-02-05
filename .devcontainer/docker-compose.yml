@@ -1,0 +1,40 @@
+services:
+  devcontainer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ..:/workspaces/go-mssqldb:cached
+    # Overrides default command so things don't shut down after the process ends.
+    command: sleep infinity
+    # Runs app on the same network as the database container, allows "forwardPorts" in devcontainer.json function.
+    network_mode: service:db
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      # Password can be overridden via SQLPASSWORD environment variable
+      SA_PASSWORD: "${SQLPASSWORD:-MssqlDriver@2025!}"
+      MSSQL_SA_PASSWORD: "${SQLPASSWORD:-MssqlDriver@2025!}"
+      MSSQL_PID: "Developer"
+    volumes:
+      - mssql-data:/var/opt/mssql
+    healthcheck:
+      # Healthcheck runs inside SQL Server container using its bundled sqlcmd (mssql-tools18)
+      # Uses $$SA_PASSWORD to reference env var (Docker Compose escapes $ as $$)
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$SA_PASSWORD\" -C -Q \"SELECT 1\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 45s
+    # Note: The devcontainer uses go-sqlcmd (github.com/microsoft/go-sqlcmd) for user
+    # interactions, which is built on this driver (dogfooding!). The healthcheck above
+    # uses the SQL Server container's bundled sqlcmd since go-sqlcmd isn't installed there.
+
+volumes:
+  mssql-data:
