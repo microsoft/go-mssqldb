@@ -37,3 +37,9 @@ require (
 	golang.org/x/net v0.47.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// Ensure canonical lowercase module path for vendoring compatibility.
+// This prevents issues on case-sensitive filesystems (Linux) where vendoring
+// might create directories with inconsistent casing.
+// See: https://github.com/golang/go/issues/38342
+replace github.com/Microsoft/go-mssqldb => ./
