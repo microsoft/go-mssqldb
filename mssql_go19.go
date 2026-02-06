@@ -77,6 +77,14 @@ func convertInputParameter(val interface{}) (interface{}, error) {
 	// 	return nil
 	case float32:
 		return val, nil
+	case Vector:
+		return val, nil
+	case NullVector:
+		return val, nil
+	case []float32:
+		return val, nil
+	case []float64:
+		return val, nil
 	case driver.Valuer:
 		return val, nil
 	default:

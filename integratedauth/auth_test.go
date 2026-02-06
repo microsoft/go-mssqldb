@@ -14,10 +14,10 @@ type stubAuth struct {
 	user string
 }
 
-func (s *stubAuth) InitialBytes() ([]byte, error)    { return nil, nil }
-func (s *stubAuth) NextBytes([]byte) ([]byte, error) { return nil, nil }
-func (s *stubAuth) Free()                            {}
-func (s *stubAuth) SetChannelBinding(*ChannelBindings)          {}
+func (s *stubAuth) InitialBytes() ([]byte, error)      { return nil, nil }
+func (s *stubAuth) NextBytes([]byte) ([]byte, error)   { return nil, nil }
+func (s *stubAuth) Free()                              {}
+func (s *stubAuth) SetChannelBinding(*ChannelBindings) {}
 
 func getAuth(config msdsn.Config) (IntegratedAuthenticator, error) {
 	return &stubAuth{config.User}, nil
