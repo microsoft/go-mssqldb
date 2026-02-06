@@ -66,6 +66,7 @@ const (
 	typeXml        = 0xf1
 	typeUdt        = 0xf0
 	typeTvp        = 0xf3
+	typeJson       = 0xf4
 
 	// long length types
 	typeText    = 0x23
@@ -90,18 +91,19 @@ const (
 // TYPE_INFO rule
 // http://msdn.microsoft.com/en-us/library/dd358284.aspx
 type typeInfo struct {
-	TypeId    uint8
-	UserType  uint32
-	Flags     uint16
-	Size      int
-	Scale     uint8
-	Prec      uint8
-	Buffer    []byte
-	Collation cp.Collation
-	UdtInfo   udtInfo
-	XmlInfo   xmlInfo
-	Reader    func(ti *typeInfo, r *tdsBuffer, cryptoMeta *cryptoMetadata, encoding msdsn.EncodeParameters) (res interface{})
-	Writer    func(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error)
+	TypeId     uint8
+	DeclTypeId uint8 // Optional: if non-zero, use this TypeId for makeDecl() instead of TypeId
+	UserType   uint32
+	Flags      uint16
+	Size       int
+	Scale      uint8
+	Prec       uint8
+	Buffer     []byte
+	Collation  cp.Collation
+	UdtInfo    udtInfo
+	XmlInfo    xmlInfo
+	Reader     func(ti *typeInfo, r *tdsBuffer, cryptoMeta *cryptoMetadata, encoding msdsn.EncodeParameters) (res interface{})
+	Writer     func(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error)
 }
 
 // Common Language Runtime (CLR) Instances
@@ -245,6 +247,11 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodeParam
 				return
 			}
 		}
+	case typeJson:
+		// JSON type uses PLP format without a size indicator in the metadata.
+		// This matches readVarLen's handling where typeJson doesn't read a size.
+		// Unlike NVARCHAR which sends 0xFFFF for MAX, JSON is always PLP with no prefix.
+		ti.Writer = writePLPType
 	case typeText, typeImage, typeNText, typeVariant:
 		// LONGLEN_TYPE
 		if err = binary.Write(w, binary.LittleEndian, uint32(ti.Size)); err != nil {
@@ -751,6 +758,9 @@ func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.E
 		return decodeNChar(bytesToDecode)
 	case typeUdt:
 		return decodeUdt(*ti, bytesToDecode)
+	case typeJson:
+		// JSON is UTF-16LE encoded on the wire (same as NVarChar)
+		return decodeNChar(bytesToDecode)
 	}
 	panic("shouldn't get here")
 }
@@ -760,6 +770,7 @@ func writePLPType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodePar
 		err = binary.Write(w, binary.LittleEndian, uint64(_PLP_NULL))
 		return
 	}
+	// Use unknown length format for PLP types
 	if err = binary.Write(w, binary.LittleEndian, uint64(_UNKNOWN_PLP_LEN)); err != nil {
 		return
 	}
@@ -828,6 +839,13 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 			// xml schema collection
 			ti.XmlInfo.XmlSchemaCollection = r.UsVarChar()
 		}
+		ti.Reader = readPLPType
+	case typeJson:
+		// JSON type uses PLP format like XML, not like NVARCHAR.
+		// Unlike NVARCHAR which sends a 2-byte size indicator (0xFFFF for MAX),
+		// JSON is always a MAX/PLP type with no size indicator in the column metadata.
+		// This is consistent with how SQL Server 2025 implements the JSON type in TDS.
+		// Data is UTF-16LE encoded JSON text (same wire encoding as NVarChar).
 		ti.Reader = readPLPType
 	case typeUdt:
 		ti.Size = int(r.uint16())
@@ -1174,6 +1192,8 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 		return reflect.TypeOf([]byte{})
 	case typeXml:
 		return reflect.TypeOf("")
+	case typeJson:
+		return reflect.TypeOf("")
 	case typeText:
 		return reflect.TypeOf("")
 	case typeNText:
@@ -1192,7 +1212,12 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 }
 
 func makeDecl(ti typeInfo) string {
-	switch ti.TypeId {
+	// Use DeclTypeId if set, otherwise use TypeId
+	typeId := ti.TypeId
+	if ti.DeclTypeId != 0 {
+		typeId = ti.DeclTypeId
+	}
+	switch typeId {
 	case typeNull:
 		// maybe we should use something else here
 		// this is tested in TestNull
@@ -1308,8 +1333,10 @@ func makeDecl(ti typeInfo) string {
 			return fmt.Sprintf("%s.%s READONLY", ti.UdtInfo.SchemaName, ti.UdtInfo.TypeName)
 		}
 		return fmt.Sprintf("%s READONLY", ti.UdtInfo.TypeName)
+	case typeJson:
+		return "json"
 	default:
-		panic(fmt.Sprintf("not implemented makeDecl for type %#x", ti.TypeId))
+		panic(fmt.Sprintf("not implemented makeDecl for type %#x", typeId))
 	}
 }
 
@@ -1417,6 +1444,8 @@ func makeGoLangTypeName(ti typeInfo) string {
 		return "BINARY"
 	case typeUdt:
 		return strings.ToUpper(ti.UdtInfo.TypeName)
+	case typeJson:
+		return "JSON"
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypeName for type %d", ti.TypeId))
 	}
@@ -1552,6 +1581,9 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 		default:
 			panic(fmt.Sprintf("not implemented makeGoLangTypeLength for user defined type %s", ti.UdtInfo.TypeName))
 		}
+	case typeJson:
+		// JSON can be up to 2GB, similar to nvarchar(max)
+		return 2147483645 / 2, true
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypeLength for type %d", ti.TypeId))
 	}
@@ -1667,6 +1699,8 @@ func makeGoLangTypePrecisionScale(ti typeInfo) (int64, int64, bool) {
 	case typeBigBinary:
 		return 0, 0, false
 	case typeUdt:
+		return 0, 0, false
+	case typeJson:
 		return 0, 0, false
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypePrecisionScale for type %d", ti.TypeId))

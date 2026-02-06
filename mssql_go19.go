@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -49,6 +50,70 @@ type DateTime1 time.Time
 // DateTimeOffset encodes parameters to DateTimeOffset, preserving the UTC offset.
 type DateTimeOffset time.Time
 
+// JSON represents a SQL Server JSON value using Go's json.RawMessage.
+// json.RawMessage is a raw encoded JSON value that can be used to delay
+// JSON decoding or precompute a JSON encoding.
+type JSON json.RawMessage
+
+// MarshalJSON returns j as the JSON encoding of j.
+// This ensures JSON is marshaled as raw JSON, not as a base64-encoded byte slice.
+func (j JSON) MarshalJSON() ([]byte, error) {
+	if j == nil {
+		return []byte("null"), nil
+	}
+	return json.RawMessage(j).MarshalJSON()
+}
+
+// UnmarshalJSON sets *j to a copy of data.
+// This ensures JSON can be unmarshaled from raw JSON.
+func (j *JSON) UnmarshalJSON(data []byte) error {
+	if j == nil {
+		return fmt.Errorf("mssql.JSON: UnmarshalJSON on nil pointer")
+	}
+	*j = append((*j)[0:0], data...)
+	return nil
+}
+
+// NullJSON represents a JSON value that may be null.
+// NullJSON implements the Scanner interface so it can be used as a scan destination.
+type NullJSON struct {
+	JSON  json.RawMessage
+	Valid bool // Valid is true if JSON is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (nj *NullJSON) Scan(value interface{}) error {
+	if value == nil {
+		nj.JSON, nj.Valid = nil, false
+		return nil
+	}
+	switch v := value.(type) {
+	case string:
+		nj.JSON = json.RawMessage(v)
+	case []byte:
+		// Make a copy to avoid retaining references to driver buffers
+		nj.JSON = make(json.RawMessage, len(v))
+		copy(nj.JSON, v)
+	case json.RawMessage:
+		// Make a copy to avoid retaining references to driver buffers, same as for []byte
+		nj.JSON = make(json.RawMessage, len(v))
+		copy(nj.JSON, v)
+	default:
+		nj.Valid = false
+		return fmt.Errorf("unsupported Scan, storing driver.Value type %T into type *NullJSON", value)
+	}
+	nj.Valid = true
+	return nil
+}
+
+// Value implements the driver Valuer interface.
+func (nj NullJSON) Value() (driver.Value, error) {
+	if !nj.Valid {
+		return nil, nil
+	}
+	return string(nj.JSON), nil
+}
+
 func convertInputParameter(val interface{}) (interface{}, error) {
 	switch v := val.(type) {
 	case int, int16, int32, int64, int8:
@@ -67,6 +132,22 @@ func convertInputParameter(val interface{}) (interface{}, error) {
 		return val, nil
 	case DateTimeOffset:
 		return val, nil
+	case JSON:
+		return val, nil
+	case NullJSON:
+		return val, nil
+	case *JSON:
+		if v == nil {
+			// Return NullJSON{} to preserve JSON type for nil pointers
+			return NullJSON{}, nil
+		}
+		return *v, nil
+	case *NullJSON:
+		if v == nil {
+			// Return NullJSON{} to preserve JSON type for nil pointers
+			return NullJSON{}, nil
+		}
+		return *v, nil
 	case civil.Date:
 		return val, nil
 	case civil.DateTime:
@@ -159,6 +240,21 @@ func makeMoneyParam(val decimal.Decimal) (res param) {
 	return
 }
 
+// makeJsonParam creates a parameter for JSON/NullJSON types.
+// JSON uses nvarchar wire format with optional json type declaration.
+func (s *Stmt) makeJsonParam(data []byte, valid bool) param {
+	res := param{}
+	res.ti.TypeId = typeNVarChar
+	res.ti.Size = 0 // Forces nvarchar(max) PLP format
+	if s.c != nil && s.c.sess != nil && s.c.sess.jsonSupported {
+		res.ti.DeclTypeId = typeJson
+	}
+	if valid {
+		res.buffer = str2ucs2(string(data))
+	}
+	return res
+}
+
 func (s *Stmt) makeParamExtra(val driver.Value) (res param, err error) {
 	loc := getTimezone(s.c)
 
@@ -203,6 +299,10 @@ func (s *Stmt) makeParamExtra(val driver.Value) (res param, err error) {
 		res.ti.Scale = 7
 		res.buffer = encodeTime(val.Hour, val.Minute, val.Second, val.Nanosecond, int(res.ti.Scale))
 		res.ti.Size = len(res.buffer)
+	case JSON:
+		res = s.makeJsonParam([]byte(val), val != nil)
+	case NullJSON:
+		res = s.makeJsonParam(val.JSON, val.Valid)
 	case sql.Out:
 		switch dest := val.Dest.(type) {
 		case Money[decimal.Decimal]:

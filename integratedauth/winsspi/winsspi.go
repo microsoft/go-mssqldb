@@ -1,3 +1,4 @@
+//go:build windows
 // +build windows
 
 package winsspi
@@ -141,10 +142,10 @@ func getAuth(config msdsn.Config) (integratedauth.IntegratedAuthenticator, error
 	}
 	domainUser := strings.SplitN(config.User, "\\", 2)
 	return &Auth{
-		Domain:   domainUser[0],
-		UserName: domainUser[1],
-		Password: config.Password,
-		Service:  config.ServerSPN,
+		Domain:         domainUser[0],
+		UserName:       domainUser[1],
+		Password:       config.Password,
+		Service:        config.ServerSPN,
 		channelBinding: nil,
 	}, nil
 }
@@ -243,7 +244,7 @@ func (auth *Auth) NextBytes(bytes []byte) ([]byte, error) {
 	// Second buffer: channel bindings (if present)
 	if auth.channelBinding != nil {
 		channelBindingBytes := auth.channelBinding.ToBytes()
-		in_desc_buffers[bufferCount].BufferType = SECBUFFER_CHANNEL_BINDINGS 
+		in_desc_buffers[bufferCount].BufferType = SECBUFFER_CHANNEL_BINDINGS
 		in_desc_buffers[bufferCount].pvBuffer = &channelBindingBytes[0]
 		in_desc_buffers[bufferCount].cbBuffer = uint32(len(channelBindingBytes))
 		bufferCount++
