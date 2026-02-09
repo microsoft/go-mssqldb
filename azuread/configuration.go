@@ -100,7 +100,7 @@ func normalizeAuthenticationMethod(authMethod string) string {
 	// ADO.NET uses spaces in names like "Active Directory Password"
 	// We normalize them to our internal names without spaces
 	adoNetAuthMethods := map[string]string{
-		"sql password":                        "",                                // SQL auth, not Azure AD - return empty
+		"sql password":                        "",                                // "Sql Password", not Azure AD - return empty
 		"active directory password":           ActiveDirectoryPassword,           // "Active Directory Password"
 		"active directory integrated":         ActiveDirectoryIntegrated,         // "Active Directory Integrated"
 		"active directory interactive":        ActiveDirectoryInteractive,        // "Active Directory Interactive"
@@ -135,6 +135,9 @@ func (p *azureFedAuthConfig) validateParameters(params map[string]string) error 
 		// "Sql Password" was specified - this is not Azure AD authentication
 		return nil
 	}
+	
+	// Update the params map with the normalized value for consistency
+	params["fedauth"] = fedAuthWorkflow
 
 	p.fedAuthLibrary = mssql.FedAuthLibraryADAL
 
