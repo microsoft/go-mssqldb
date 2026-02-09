@@ -517,3 +517,41 @@ func TestEpaEnabledFromEnvironment(t *testing.T) {
 	assert.Nil(t, err, "Expected no error parsing connection string")
 	assert.False(t, config.EpaEnabled, "Expected EpaEnabled to be false when MSSQL_USE_EPA is empty")
 }
+
+// TestAuthenticationSynonym tests that "authentication" is correctly mapped to "fedauth"
+func TestAuthenticationSynonym(t *testing.T) {
+	tests := []struct {
+		name           string
+		connStr        string
+		expectedFedAuth string
+	}{
+		{
+			name:           "authentication parameter with ActiveDirectoryDefault",
+			connStr:        "server=testhost;authentication=ActiveDirectoryDefault",
+			expectedFedAuth: "ActiveDirectoryDefault",
+		},
+		{
+			name:           "authentication parameter with ActiveDirectoryPassword",
+			connStr:        "server=testhost;authentication=ActiveDirectoryPassword",
+			expectedFedAuth: "ActiveDirectoryPassword",
+		},
+		{
+			name:           "fedauth parameter still works",
+			connStr:        "server=testhost;fedauth=ActiveDirectoryMSI",
+			expectedFedAuth: "ActiveDirectoryMSI",
+		},
+		{
+			name:           "authentication with spaces (ADO.NET style)",
+			connStr:        "server=testhost;authentication=Active Directory Default",
+			expectedFedAuth: "Active Directory Default",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config, err := Parse(tt.connStr)
+			assert.Nil(t, err, "Expected no error parsing connection string")
+			assert.Equal(t, tt.expectedFedAuth, config.Parameters["fedauth"], "Expected fedauth parameter to match")
+		})
+	}
+}
