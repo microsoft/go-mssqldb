@@ -135,7 +135,7 @@ func (p *azureFedAuthConfig) validateParameters(params map[string]string) error 
 		// "Sql Password" was specified - this is not Azure AD authentication
 		return nil
 	}
-	
+
 	// Update the params map with the normalized value for consistency
 	params["fedauth"] = fedAuthWorkflow
 
