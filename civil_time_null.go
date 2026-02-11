@@ -186,35 +186,6 @@ func (n *NullDateTime2) Scan(value any) error {
 	return nil
 }
 
-// Scan implements the [Scanner] interface.
-func (n *NullSmallDateTime) Scan(value any) error {
-	t := &sql.NullTime{}
-
-	err := t.Scan(value)
-	if err != nil {
-		return err
-	}
-
-	if !t.Valid {
-		n.Valid = false
-
-		return nil
-	}
-
-	n.Valid = true
-
-	n.DateTime.Date.Year = t.Time.Year()
-	n.DateTime.Date.Month = t.Time.Month()
-	n.DateTime.Date.Day = t.Time.Day()
-
-	n.DateTime.Time.Hour = t.Time.Hour()
-	n.DateTime.Time.Minute = t.Time.Minute()
-	n.DateTime.Time.Second = t.Time.Second()
-	n.DateTime.Time.Nanosecond = t.Time.Nanosecond()
-
-	return nil
-}
-
 type NullTime struct {
 	Time  Time
 	Valid bool
