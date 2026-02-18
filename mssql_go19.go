@@ -163,7 +163,7 @@ func makeDate(val civil.Date, res *param) {
 	res.ti.TypeId = typeDateN
 	res.buffer = encodeDate(
 		val.Year,
-		val.DaysSince(civil.Date{Year: val.Year, Month: 1, Day: 1}),
+		val.DaysSince(civil.Date{Year: val.Year, Month: 1, Day: 1}) + 1,
 	)
 	res.ti.Size = len(res.buffer)
 }
@@ -173,7 +173,7 @@ func makeDateTime(val civil.DateTime, res *param) {
 	res.ti.Scale = 7
 	res.buffer = encodeDateTime2(
 		val.Date.Year,
-		val.Date.DaysSince(civil.Date{Year: val.Date.Year, Month: 1, Day: 1}),
+		val.Date.DaysSince(civil.Date{Year: val.Date.Year, Month: 1, Day: 1}) + 1,
 		val.Time.Hour,
 		val.Time.Minute,
 		val.Time.Second,
@@ -188,7 +188,7 @@ func makeDateTime2(val civil.DateTime, res *param) {
 	res.ti.Scale = 7
 	res.buffer = encodeDateTime2(
 		val.Date.Year,
-		val.Date.DaysSince(civil.Date{Year: val.Date.Year, Month: 1, Day: 1}),
+		val.Date.DaysSince(civil.Date{Year: val.Date.Year, Month: 1, Day: 1}) + 1,
 		val.Time.Hour,
 		val.Time.Minute,
 		val.Time.Second,

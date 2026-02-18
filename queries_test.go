@@ -255,22 +255,22 @@ func testSelect(t *testing.T, guidConversion bool) {
 			t.Errorf("got back a NullDecimal with value: %t, %s", out.Valid, out.Decimal.String())
 		}
 	})
-	t.Run("scan into civil.Date", func(t *testing.T) {
+	t.Run("scan into Date", func(t *testing.T) {
 		row := conn.QueryRow("SELECT cast('2006-01-02' AS DATE)")
-		var out civil.Date
+		var out Date
 		err := row.Scan(&out)
 		if err != nil {
-			t.Error("Scan to civil.Date failed", err.Error())
+			t.Error("Scan to Date failed", err.Error())
 			return
 		}
 
-		d := civil.Date{Year: 2006, Month: 1, Day: 2}
+		d := Date(civil.Date{Year: 2006, Month: 1, Day: 2})
 		if out != d {
-			t.Errorf("got back a civil.Date with value: %s", out.String())
+			t.Errorf("got back a Date with value: %s", civil.Date(out).String())
 		}
 	})
 	t.Run("scan into NullDate", func(t *testing.T) {
-		row := conn.QueryRow("SELECT cast('2006-01-02' AS DATE))")
+		row := conn.QueryRow("SELECT cast('2006-01-02' AS DATE)")
 		var out NullDate
 		err := row.Scan(&out)
 		if err != nil {
@@ -296,6 +296,89 @@ func testSelect(t *testing.T, guidConversion bool) {
 			t.Errorf("got back a NullDate with value: %t, %s", out.Valid, civil.Date(out.Date).String())
 		}
 	})
+	t.Run("scan into DateTime", func(t *testing.T) {
+		row := conn.QueryRow("SELECT cast('2006-01-02 23:12:44' AS DATETIME)")
+		var out DateTime
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to DateTime failed", err.Error())
+			return
+		}
+
+		d := DateTime(civil.DateTime{Date: civil.Date{Year: 2006, Month: 1, Day: 2}, Time: civil.Time{Hour: 23, Minute: 12, Second: 44}})
+		if out != d {
+			t.Errorf("got back a DateTime with value: %s", civil.DateTime(out).String())
+		}
+	})
+	t.Run("scan into NullDateTime", func(t *testing.T) {
+		row := conn.QueryRow("SELECT cast('2006-01-02 23:12:44' AS DATETIME)")
+		var out NullDateTime
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to NullDateTime failed", err.Error())
+			return
+		}
+
+		nd := NullDateTime{DateTime: DateTime(civil.DateTime{Date: civil.Date{Year: 2006, Month: 1, Day: 2}, Time: civil.Time{Hour: 23, Minute: 12, Second: 44}}), Valid: true}
+		if out.DateTime != nd.DateTime || !out.Valid {
+			t.Errorf("got back a NullDateTime with value: %t, %s", out.Valid, civil.DateTime(out.DateTime).String())
+		}
+	})
+	t.Run("scan into NullDateTime from NULL", func(t *testing.T) {
+		row := conn.QueryRow("SELECT NULL")
+		var out NullDateTime
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to NullDateTime failed", err.Error())
+			return
+		}
+
+		if out.Valid {
+			t.Errorf("got back a NullDateTime with value: %t, %s", out.Valid, civil.DateTime(out.DateTime).String())
+		}
+	})
+	t.Run("scan into DateTime2", func(t *testing.T) {
+		row := conn.QueryRow("SELECT cast('2006-01-02 23:12:44' AS DATETIME2)")
+		var out DateTime2
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to DateTime2 failed", err.Error())
+			return
+		}
+
+		d := DateTime2(civil.DateTime{Date: civil.Date{Year: 2006, Month: 1, Day: 2}, Time: civil.Time{Hour: 23, Minute: 12, Second: 44}})
+		if out != d {
+			t.Errorf("got back a DateTime2 with value: %s", civil.DateTime(out).String())
+		}
+	})
+	t.Run("scan into NullDateTime2", func(t *testing.T) {
+		row := conn.QueryRow("SELECT cast('2006-01-02 23:12:44' AS DATETIME)")
+		var out NullDateTime2
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to NullDateTime2 failed", err.Error())
+			return
+		}
+
+		nd := NullDateTime2{DateTime: DateTime2(civil.DateTime{Date: civil.Date{Year: 2006, Month: 1, Day: 2}, Time: civil.Time{Hour: 23, Minute: 12, Second: 44}}), Valid: true}
+		if out.DateTime != nd.DateTime || !out.Valid {
+			t.Errorf("got back a NullDateTime2 with value: %t, %s", out.Valid, civil.DateTime(out.DateTime).String())
+		}
+	})
+	t.Run("scan into NullDateTime2 from NULL", func(t *testing.T) {
+		row := conn.QueryRow("SELECT NULL")
+		var out NullDateTime2
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to NullDateTime2 failed", err.Error())
+			return
+		}
+
+		if out.Valid {
+			t.Errorf("got back a NullDateTime2 with value: %t, %s", out.Valid, civil.DateTime(out.DateTime).String())
+		}
+	})
+
 }
 
 func TestSelectWithGuidConversion(t *testing.T) {
