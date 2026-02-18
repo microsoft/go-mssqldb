@@ -432,8 +432,8 @@ func testSelect(t *testing.T, guidConversion bool) {
 			return
 		}
 
-		exp := time.Date(2006, 1, 2, 15, 4, 5, 0, time.FixedZone("", 2*60*60))
-		if !time.Time(out).Equal(exp) {
+		dto := time.Date(2006, 1, 2, 15, 4, 5, 0, time.FixedZone("", 2*60*60))
+		if !time.Time(out).Equal(dto) {
 			t.Errorf("got back a DateTimeOffset with value: %s", time.Time(out).String())
 		}
 	})
@@ -447,8 +447,8 @@ func testSelect(t *testing.T, guidConversion bool) {
 			return
 		}
 
-		exp := time.Date(2006, 1, 2, 15, 4, 5, 0, time.FixedZone("", 2*60*60))
-		if !out.Valid || !time.Time(out.DateTimeOffset).Equal(exp) {
+		dto := time.Date(2006, 1, 2, 15, 4, 5, 0, time.FixedZone("", 2*60*60))
+		if !out.Valid || !time.Time(out.DateTimeOffset).Equal(dto) {
 			t.Errorf("got back a NullDateTimeOffset with value: %t, %s", out.Valid, time.Time(out.DateTimeOffset).String())
 		}
 	})
