@@ -388,8 +388,8 @@ func testSelect(t *testing.T, guidConversion bool) {
 			return
 		}
 
-		d := Time(civil.Time{Hour: 12, Minute: 34, Second: 56})
-		if out != d {
+		tm := Time(civil.Time{Hour: 12, Minute: 34, Second: 56})
+		if out != tm {
 			t.Errorf("got back a Time with value: %s", civil.Time(out).String())
 		}
 	})
@@ -403,8 +403,8 @@ func testSelect(t *testing.T, guidConversion bool) {
 			return
 		}
 
-		nd := NullTime{Time: Time(civil.Time{Hour: 12, Minute: 34, Second: 56}), Valid: true}
-		if out.Time != nd.Time || !out.Valid {
+		ntm := NullTime{Time: Time(civil.Time{Hour: 12, Minute: 34, Second: 56}), Valid: true}
+		if out.Time != ntm.Time || !out.Valid {
 			t.Errorf("got back a NullTime with value: %t, %s", out.Valid, civil.Time(out.Time).String())
 		}
 	})
