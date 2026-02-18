@@ -379,6 +379,50 @@ func testSelect(t *testing.T, guidConversion bool) {
 		}
 	})
 
+	 t.Run("scan into Time", func(t *testing.T) {
+		row := conn.QueryRow("SELECT cast('12:34:56' AS TIME)")
+		var out Time
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to Time failed", err.Error())
+			return
+		}
+
+		d := Time(civil.Time{Hour: 12, Minute: 34, Second: 56})
+		if out != d {
+			t.Errorf("got back a Time with value: %s", civil.Time(out).String())
+		}
+	})
+
+	 t.Run("scan into NullTime", func(t *testing.T) {
+		row := conn.QueryRow("SELECT cast('12:34:56' AS TIME)")
+		var out NullTime
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to NullTime failed", err.Error())
+			return
+		}
+
+		nd := NullTime{Time: Time(civil.Time{Hour: 12, Minute: 34, Second: 56}), Valid: true}
+		if out.Time != nd.Time || !out.Valid {
+			t.Errorf("got back a NullTime with value: %t, %s", out.Valid, civil.Time(out.Time).String())
+		}
+	})
+
+	 t.Run("scan into NullTime from NULL", func(t *testing.T) {
+		row := conn.QueryRow("SELECT NULL")
+		var out NullTime
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to NullTime failed", err.Error())
+			return
+		}
+
+		if out.Valid {
+			t.Errorf("got back a NullTime with value: %t, %s", out.Valid, civil.Time(out.Time).String())
+		}
+	})
+
 }
 
 func TestSelectWithGuidConversion(t *testing.T) {
