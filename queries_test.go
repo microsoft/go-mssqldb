@@ -423,6 +423,50 @@ func testSelect(t *testing.T, guidConversion bool) {
 		}
 	})
 
+	 t.Run("scan into DateTimeOffset", func(t *testing.T) {
+		row := conn.QueryRow("SELECT cast('2006-01-02T15:04:05+02:00' AS DATETIMEOFFSET)")
+		var out DateTimeOffset
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to DateTimeOffset failed", err.Error())
+			return
+		}
+
+		exp := time.Date(2006, 1, 2, 15, 4, 5, 0, time.FixedZone("", 2*60*60))
+		if !time.Time(out).Equal(exp) {
+			t.Errorf("got back a DateTimeOffset with value: %s", time.Time(out).String())
+		}
+	})
+
+	 t.Run("scan into NullDateTimeOffset", func(t *testing.T) {
+		row := conn.QueryRow("SELECT cast('2006-01-02T15:04:05+02:00' AS DATETIMEOFFSET)")
+		var out NullDateTimeOffset
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to NullDateTimeOffset failed", err.Error())
+			return
+		}
+
+		exp := time.Date(2006, 1, 2, 15, 4, 5, 0, time.FixedZone("", 2*60*60))
+		if !out.Valid || !time.Time(out.DateTimeOffset).Equal(exp) {
+			t.Errorf("got back a NullDateTimeOffset with value: %t, %s", out.Valid, time.Time(out.DateTimeOffset).String())
+		}
+	})
+
+	 t.Run("scan into NullDateTimeOffset from NULL", func(t *testing.T) {
+		row := conn.QueryRow("SELECT NULL")
+		var out NullDateTimeOffset
+		err := row.Scan(&out)
+		if err != nil {
+			t.Error("Scan to NullDateTimeOffset failed", err.Error())
+			return
+		}
+
+		if out.Valid {
+			t.Errorf("got back a NullDateTimeOffset with value: %t, %s", out.Valid, time.Time(out.DateTimeOffset).String())
+		}
+	})
+
 }
 
 func TestSelectWithGuidConversion(t *testing.T) {
