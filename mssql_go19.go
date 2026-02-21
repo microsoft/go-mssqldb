@@ -75,7 +75,21 @@ func convertInputParameter(val interface{}) (interface{}, error) {
 		return val, nil
 	case Date:
 		return val, nil
+	case DateTime:
+		return val, nil
+	case DateTime2:
+		return val, nil
+	case Time:
+		return val, nil
 	case NullDate:
+		return val, nil
+	case NullDateTime:
+		return val, nil
+	case NullDateTime2:
+		return val, nil
+	case NullTime:
+		return val, nil
+	case NullDateTimeOffset:
 		return val, nil
 	// case *apd.Decimal:
 	// 	return nil
