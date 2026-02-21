@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-sql/civil"
 	"github.com/golang-sql/sqlexp"
 	"github.com/shopspring/decimal"
 )
@@ -736,6 +737,112 @@ END;
 
 		if minout.Decimal.Valid {
 			t.Errorf("expected NULL, got %t, %s", minout.Decimal.Valid, minout.Decimal.Decimal.String())
+		}
+	})
+}
+
+func TestOutputINOUTDateParam(t *testing.T) {
+	sqltextcreate := `
+CREATE PROCEDURE vinout
+   @dinout DATE OUTPUT
+AS
+BEGIN
+	IF @dinout = '2006-01-02'
+		SET @dinout = NULL
+	ELSE IF @dinout IS NULL
+		SET @dinout = '2020-01-01'
+	ELSE
+		SET @dinout = '2030-05-15'
+END;
+`
+	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextrun := `vinout`
+
+	checkConnStr(t)
+	tl := testLogger{t: t}
+	defer tl.StopLogging()
+	SetLogger(&tl)
+
+	db, err := sql.Open("sqlserver", makeConnStr(t).String())
+	if err != nil {
+		t.Fatalf("failed to open driver sqlserver")
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	db.ExecContext(ctx, sqltextdrop)
+	_, err = db.ExecContext(ctx, sqltextcreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.ExecContext(ctx, sqltextdrop)
+
+	t.Run("original test", func(t *testing.T) {
+		dinout := Date(civil.Date{Year: 2000, Month: 6, Day: 15})
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected := Date(civil.Date{Year: 2030, Month: 5, Day: 15})
+		if dinout != expected {
+			t.Errorf("expected 2030-05-15, got %s", civil.Date(dinout).String())
+		}
+	})
+
+	t.Run("nullable value", func(t *testing.T) {
+		dinout := NullDate{Date: Date(civil.Date{Year: 2000, Month: 6, Day: 15}), Valid: true}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected := Date(civil.Date{Year: 2030, Month: 5, Day: 15})
+		if !dinout.Valid || dinout.Date != expected {
+			if dinout.Valid {
+				t.Errorf("expected 2030-05-15, got %t, %s", dinout.Valid, civil.Date(dinout.Date).String())
+			} else {
+				t.Errorf("expected 2030-05-15, got NULL")
+			}
+		}
+	})
+
+	t.Run("null value", func(t *testing.T) {
+		dinout := NullDate{}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected := Date(civil.Date{Year: 2020, Month: 1, Day: 1})
+		if !dinout.Valid || dinout.Date != expected {
+			if dinout.Valid {
+				t.Errorf("expected 2020-01-01, got %t, %s", dinout.Valid, civil.Date(dinout.Date).String())
+			} else {
+				t.Errorf("expected 2020-01-01, got NULL")
+			}
+		}
+	})
+
+	t.Run("null result", func(t *testing.T) {
+		dinout := NullDate{Date: Date(civil.Date{Year: 2006, Month: 1, Day: 2}), Valid: true}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if dinout.Valid {
+			t.Errorf("expected NULL, got %t, %s", dinout.Valid, civil.Date(dinout.Date).String())
 		}
 	})
 }

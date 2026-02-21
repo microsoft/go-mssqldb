@@ -379,7 +379,7 @@ func testSelect(t *testing.T, guidConversion bool) {
 		}
 	})
 
-	 t.Run("scan into Time", func(t *testing.T) {
+	t.Run("scan into Time", func(t *testing.T) {
 		row := conn.QueryRow("SELECT cast('12:34:56' AS TIME)")
 		var out Time
 		err := row.Scan(&out)
@@ -394,7 +394,7 @@ func testSelect(t *testing.T, guidConversion bool) {
 		}
 	})
 
-	 t.Run("scan into NullTime", func(t *testing.T) {
+	t.Run("scan into NullTime", func(t *testing.T) {
 		row := conn.QueryRow("SELECT cast('12:34:56' AS TIME)")
 		var out NullTime
 		err := row.Scan(&out)
@@ -409,7 +409,7 @@ func testSelect(t *testing.T, guidConversion bool) {
 		}
 	})
 
-	 t.Run("scan into NullTime from NULL", func(t *testing.T) {
+	t.Run("scan into NullTime from NULL", func(t *testing.T) {
 		row := conn.QueryRow("SELECT NULL")
 		var out NullTime
 		err := row.Scan(&out)
@@ -423,7 +423,7 @@ func testSelect(t *testing.T, guidConversion bool) {
 		}
 	})
 
-	 t.Run("scan into DateTimeOffset", func(t *testing.T) {
+	t.Run("scan into DateTimeOffset", func(t *testing.T) {
 		row := conn.QueryRow("SELECT cast('2006-01-02T15:04:05+02:00' AS DATETIMEOFFSET)")
 		var out DateTimeOffset
 		err := row.Scan(&out)
@@ -438,7 +438,7 @@ func testSelect(t *testing.T, guidConversion bool) {
 		}
 	})
 
-	 t.Run("scan into NullDateTimeOffset", func(t *testing.T) {
+	t.Run("scan into NullDateTimeOffset", func(t *testing.T) {
 		row := conn.QueryRow("SELECT cast('2006-01-02T15:04:05+02:00' AS DATETIMEOFFSET)")
 		var out NullDateTimeOffset
 		err := row.Scan(&out)
@@ -453,7 +453,7 @@ func testSelect(t *testing.T, guidConversion bool) {
 		}
 	})
 
-	 t.Run("scan into NullDateTimeOffset from NULL", func(t *testing.T) {
+	t.Run("scan into NullDateTimeOffset from NULL", func(t *testing.T) {
 		row := conn.QueryRow("SELECT NULL")
 		var out NullDateTimeOffset
 		err := row.Scan(&out)
