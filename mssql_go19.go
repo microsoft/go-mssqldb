@@ -73,6 +73,10 @@ func convertInputParameter(val interface{}) (interface{}, error) {
 		return val, nil
 	case civil.Time:
 		return val, nil
+	case Date:
+		return val, nil
+	case NullDate:
+		return val, nil
 	// case *apd.Decimal:
 	// 	return nil
 	case float32:
@@ -238,14 +242,12 @@ func (s *Stmt) makeParamExtra(val driver.Value) (res param, err error) {
 		res.ti.Size = len(res.buffer)
 	case DateTime1:
 		makeDateTime(civil.DateTimeOf(time.Time(val)), &res)
-
 	case civil.Date:
 		makeDate(val, &res)
 	case civil.DateTime:
 		makeDateTime2(val, &res)
 	case civil.Time:
 		makeTime(val, &res)
-
 	case Date:
 		makeDate(civil.Date(val), &res)
 	case DateTime:
