@@ -847,6 +847,430 @@ END;
 	})
 }
 
+func TestOutputINOUTDateTimeParam(t *testing.T) {
+	sqltextcreate := `
+CREATE PROCEDURE vinout
+   @dinout DATETIME OUTPUT
+AS
+BEGIN
+	IF @dinout = '2006-01-02 15:04:05'
+		SET @dinout = NULL
+	ELSE IF @dinout IS NULL
+		SET @dinout = '2020-01-02 10:11:12'
+	ELSE
+		SET @dinout = '2030-05-16 06:07:08'
+END;
+`
+	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextrun := `vinout`
+
+	checkConnStr(t)
+	tl := testLogger{t: t}
+	defer tl.StopLogging()
+	SetLogger(&tl)
+
+	db, err := sql.Open("sqlserver", makeConnStr(t).String())
+	if err != nil {
+		t.Fatalf("failed to open driver sqlserver")
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	db.ExecContext(ctx, sqltextdrop)
+	_, err = db.ExecContext(ctx, sqltextcreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.ExecContext(ctx, sqltextdrop)
+
+	t.Run("original test", func(t *testing.T) {
+		dinout := DateTime(civil.DateTime{Date: civil.Date{Year: 2000, Month: 6, Day: 15}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}})
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected := DateTime(civil.DateTime{Date: civil.Date{Year: 2030, Month: 5, Day: 16}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}})
+		if dinout != expected {
+			t.Errorf("expected 2030-05-16 06:07:08, got %s", civil.DateTime(dinout).String())
+		}
+	})
+
+	t.Run("nullable value", func(t *testing.T) {
+		dinout := NullDateTime{DateTime: DateTime(civil.DateTime{Date: civil.Date{Year: 2000, Month: 6, Day: 15}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}}), Valid: true}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected := DateTime(civil.DateTime{Date: civil.Date{Year: 2030, Month: 5, Day: 16}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}})
+		if !dinout.Valid || dinout.DateTime != expected {
+			if dinout.Valid {
+				t.Errorf("expected 2030-05-16, got %t, %s", dinout.Valid, civil.DateTime(dinout.DateTime).String())
+			} else {
+				t.Errorf("expected 2030-05-16, got NULL")
+			}
+		}
+	})
+
+	t.Run("null value", func(t *testing.T) {
+		dinout := NullDateTime{}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected := DateTime(civil.DateTime{Date: civil.Date{Year: 2020, Month: 1, Day: 2}, Time: civil.Time{Hour: 10, Minute: 11, Second: 12}})
+		if !dinout.Valid || dinout.DateTime != expected {
+			if dinout.Valid {
+				t.Errorf("expected 2020-01-02, got %t, %s", dinout.Valid, civil.DateTime(dinout.DateTime).String())
+			} else {
+				t.Errorf("expected 2020-01-02, got NULL")
+			}
+		}
+	})
+
+	t.Run("null result", func(t *testing.T) {
+		dinout := NullDateTime{DateTime: DateTime(civil.DateTime{Date: civil.Date{Year: 2006, Month: 1, Day: 2}, Time: civil.Time{Hour: 15, Minute: 4, Second: 5}}), Valid: true}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if dinout.Valid {
+			t.Errorf("expected NULL, got %t, %s", dinout.Valid, civil.DateTime(dinout.DateTime).String())
+		}
+	})
+}
+
+func TestOutputINOUTDateTime2Param(t *testing.T) {
+	sqltextcreate := `
+CREATE PROCEDURE vinout
+   @dinout DATETIME2 OUTPUT
+AS
+BEGIN
+	IF @dinout = '2006-01-02 15:04:05'
+		SET @dinout = NULL
+	ELSE IF @dinout IS NULL
+		SET @dinout = '2020-01-02 10:11:12'
+	ELSE
+		SET @dinout = '2030-05-16 06:07:08'
+END;
+`
+	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextrun := `vinout`
+
+	checkConnStr(t)
+	tl := testLogger{t: t}
+	defer tl.StopLogging()
+	SetLogger(&tl)
+
+	db, err := sql.Open("sqlserver", makeConnStr(t).String())
+	if err != nil {
+		t.Fatalf("failed to open driver sqlserver")
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	db.ExecContext(ctx, sqltextdrop)
+	_, err = db.ExecContext(ctx, sqltextcreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.ExecContext(ctx, sqltextdrop)
+
+	t.Run("original test", func(t *testing.T) {
+		dinout := DateTime2(civil.DateTime{Date: civil.Date{Year: 2000, Month: 6, Day: 15}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}})
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected := DateTime2(civil.DateTime{Date: civil.Date{Year: 2030, Month: 5, Day: 16}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}})
+		if dinout != expected {
+			t.Errorf("expected 2030-05-16 06:07:08, got %s", civil.DateTime(dinout).String())
+		}
+	})
+
+	t.Run("nullable value", func(t *testing.T) {
+		dinout := NullDateTime2{DateTime: DateTime2(civil.DateTime{Date: civil.Date{Year: 2000, Month: 6, Day: 15}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}}), Valid: true}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected := DateTime2(civil.DateTime{Date: civil.Date{Year: 2030, Month: 5, Day: 16}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}})
+		if !dinout.Valid || dinout.DateTime != expected {
+			if dinout.Valid {
+				t.Errorf("expected 2030-05-16, got %t, %s", dinout.Valid, civil.DateTime(dinout.DateTime).String())
+			} else {
+				t.Errorf("expected 2030-05-16, got NULL")
+			}
+		}
+	})
+
+	t.Run("null value", func(t *testing.T) {
+		dinout := NullDateTime2{}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected := DateTime2(civil.DateTime{Date: civil.Date{Year: 2020, Month: 1, Day: 2}, Time: civil.Time{Hour: 10, Minute: 11, Second: 12}})
+		if !dinout.Valid || dinout.DateTime != expected {
+			if dinout.Valid {
+				t.Errorf("expected 2020-01-02, got %t, %s", dinout.Valid, civil.DateTime(dinout.DateTime).String())
+			} else {
+				t.Errorf("expected 2020-01-02, got NULL")
+			}
+		}
+	})
+
+	t.Run("null result", func(t *testing.T) {
+		dinout := NullDateTime2{DateTime: DateTime2(civil.DateTime{Date: civil.Date{Year: 2006, Month: 1, Day: 2}, Time: civil.Time{Hour: 15, Minute: 4, Second: 5}}), Valid: true}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if dinout.Valid {
+			t.Errorf("expected NULL, got %t, %s", dinout.Valid, civil.DateTime(dinout.DateTime).String())
+		}
+	})
+}
+
+func TestOutputINOUTTimeParam(t *testing.T) {
+	sqltextcreate := `
+CREATE PROCEDURE vinout
+   @tinout TIME OUTPUT
+AS
+BEGIN
+	IF @tinout = '15:04:05'
+		SET @tinout = NULL
+	ELSE IF @tinout IS NULL
+		SET @tinout = '02:03:04'
+	ELSE
+		SET @tinout = '06:07:08'
+END;
+`
+	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextrun := `vinout`
+
+	checkConnStr(t)
+	tl := testLogger{t: t}
+	defer tl.StopLogging()
+	SetLogger(&tl)
+
+	db, err := sql.Open("sqlserver", makeConnStr(t).String())
+	if err != nil {
+		t.Fatalf("failed to open driver sqlserver")
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	db.ExecContext(ctx, sqltextdrop)
+	_, err = db.ExecContext(ctx, sqltextcreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.ExecContext(ctx, sqltextdrop)
+
+	t.Run("original test", func(t *testing.T) {
+		tinout := Time(civil.Time{Hour: 6, Minute: 7, Second: 8})
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("tinout", sql.Out{Dest: &tinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected := Time(civil.Time{Hour: 6, Minute: 7, Second: 8})
+		if tinout != expected {
+			t.Errorf("expected 06:07:08, got %s", civil.Time(tinout).String())
+		}
+	})
+
+	t.Run("nullable value", func(t *testing.T) {
+		tinout := NullTime{Time: Time(civil.Time{Hour: 6, Minute: 7, Second: 8}), Valid: true}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("tinout", sql.Out{Dest: &tinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected := Time(civil.Time{Hour: 6, Minute: 7, Second: 8})
+		if !tinout.Valid || tinout.Time != expected {
+			if tinout.Valid {
+				t.Errorf("expected 06:07:08, got %t, %s", tinout.Valid, civil.Time(tinout.Time).String())
+			} else {
+				t.Errorf("expected 06:07:08, got NULL")
+			}
+		}
+	})
+
+	t.Run("null value", func(t *testing.T) {
+		tinout := NullTime{}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("tinout", sql.Out{Dest: &tinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected := Time(civil.Time{Hour: 2, Minute: 3, Second: 4})
+		if !tinout.Valid || tinout.Time != expected {
+			if tinout.Valid {
+				t.Errorf("expected 02:03:04, got %t, %s", tinout.Valid, civil.Time(tinout.Time).String())
+			} else {
+				t.Errorf("expected 02:03:04, got NULL")
+			}
+		}
+	})
+
+	t.Run("null result", func(t *testing.T) {
+		tinout := NullTime{Time: Time(civil.Time{Hour: 15, Minute: 4, Second: 5}), Valid: true}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("tinout", sql.Out{Dest: &tinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if tinout.Valid {
+			t.Errorf("expected NULL, got %t, %s", tinout.Valid, civil.Time(tinout.Time).String())
+		}
+	})
+}
+
+func TestOutputINOUTDateTimeOffsetParam(t *testing.T) {
+	sqltextcreate := `
+CREATE PROCEDURE vinout
+   @dinout DATETIMEOFFSET(3) OUTPUT
+AS
+BEGIN
+	IF @dinout = '2006-01-02T15:04:05+02:00'
+		SET @dinout = NULL
+	ELSE IF @dinout IS NULL
+		SET @dinout = '2020-01-02T10:11:12+03:00'
+	ELSE
+		SET @dinout = '2030-05-16T06:07:08+02:00'
+END;
+`
+	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextrun := `vinout`
+
+	checkConnStr(t)
+	tl := testLogger{t: t}
+	defer tl.StopLogging()
+	SetLogger(&tl)
+
+	db, err := sql.Open("sqlserver", makeConnStr(t).String())
+	if err != nil {
+		t.Fatalf("failed to open driver sqlserver")
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	db.ExecContext(ctx, sqltextdrop)
+	_, err = db.ExecContext(ctx, sqltextcreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.ExecContext(ctx, sqltextdrop)
+
+	t.Run("original test", func(t *testing.T) {
+		dinout := DateTimeOffset(time.Date(2000, 6, 15, 6, 7, 8, 0, time.FixedZone("", 2*60*60)))
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected := DateTimeOffset(time.Date(2030, 5, 16, 6, 7, 8, 0, time.FixedZone("", 2*60*60)))
+		if !time.Time(dinout).Equal(time.Time(expected)) {
+			t.Errorf("expected 2030-05-16T06:07:08+02:00, got %s", time.Time(dinout).String())
+		}
+	})
+
+	t.Run("nullable value", func(t *testing.T) {
+		dinout := NullDateTimeOffset{DateTimeOffset: DateTimeOffset(time.Date(2000, 6, 15, 6, 7, 8, 0, time.FixedZone("", 2*60*60))), Valid: true}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected := DateTimeOffset(time.Date(2030, 5, 16, 6, 7, 8, 0, time.FixedZone("", 2*60*60)))
+		if !dinout.Valid || !time.Time(dinout.DateTimeOffset).Equal(time.Time(expected)) {
+			if dinout.Valid {
+				t.Errorf("expected 2030-05-16, got %t, %s", dinout.Valid, time.Time(dinout.DateTimeOffset).String())
+			} else {
+				t.Errorf("expected 2030-05-16, got NULL")
+			}
+		}
+	})
+
+	t.Run("null value", func(t *testing.T) {
+		dinout := NullDateTimeOffset{}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		expected := DateTimeOffset(time.Date(2020, 1, 2, 10, 11, 12, 0, time.FixedZone("", 3*60*60)))
+		if !dinout.Valid || !time.Time(dinout.DateTimeOffset).Equal(time.Time(expected)) {
+			if dinout.Valid {
+				t.Errorf("expected 2020-01-02, got %t, %s", dinout.Valid, time.Time(dinout.DateTimeOffset).String())
+			} else {
+				t.Errorf("expected 2020-01-02, got NULL")
+			}
+		}
+	})
+
+	t.Run("null result", func(t *testing.T) {
+		dinout := NullDateTimeOffset{DateTimeOffset: DateTimeOffset(time.Date(2006, 1, 2, 15, 4, 5, 0, time.FixedZone("", 2*60*60))), Valid: true}
+		_, err = db.ExecContext(ctx, sqltextrun,
+			sql.Named("dinout", sql.Out{Dest: &dinout}),
+		)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if dinout.Valid {
+			t.Errorf("expected NULL, got %t, %s", dinout.Valid, time.Time(dinout.DateTimeOffset).String())
+		}
+	})
+}
+
 func TestINOUTDecimalParamEncoding(t *testing.T) {
 	sqltextcreate := `
 CREATE PROCEDURE vinout
