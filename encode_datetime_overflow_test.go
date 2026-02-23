@@ -41,7 +41,7 @@ func TestEncodeDateTimeOverflow(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Encode the time
 			encoded := encodeDateTime(
-				tc.input.Day(),
+				tc.input.Year(),
 				tc.input.YearDay(),
 				tc.input.Hour(),
 				tc.input.Minute(),
@@ -67,7 +67,7 @@ func TestEncodeDateTimeMaxDateOverflow(t *testing.T) {
 
 	// Encode the time
 	encoded := encodeDateTime(
-		maxTime.Day(),
+		maxTime.Year(),
 		maxTime.YearDay(),
 		maxTime.Hour(),
 		maxTime.Minute(),
@@ -93,7 +93,7 @@ func TestEncodeDateTimeNoOverflow(t *testing.T) {
 
 	// Encode the time
 	encoded := encodeDateTime(
-		normalTime.Day(),
+		normalTime.Year(),
 		normalTime.YearDay(),
 		normalTime.Hour(),
 		normalTime.Minute(),

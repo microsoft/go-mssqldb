@@ -26,7 +26,7 @@ func TestDatetimeNearMidnightBoundaries(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Test encoding/decoding
 			encoded := encodeDateTime(
-				tc.time.Day(),
+				tc.time.Year(),
 				tc.time.YearDay(),
 				tc.time.Hour(),
 				tc.time.Minute(),

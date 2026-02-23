@@ -594,13 +594,13 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			return
 		}
 	case typeDateTime, typeDateTimeN, typeDateTim4:
-		var day, yearDay, hour, minute, second, nanosecond int
+		var year, yearDay, hour, minute, second, nanosecond int
 		var t time.Time
 		switch val := val.(type) {
 		case time.Time:
 			t = val
 
-			day = t.Day()
+			year = t.Year()
 			yearDay = t.YearDay()
 			hour = t.Hour()
 			minute = t.Minute()
@@ -611,7 +611,7 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 				return res, fmt.Errorf("bulk: unable to convert string to date: %v", err)
 			}
 
-			day = t.Day()
+			year = t.Year()
 			yearDay = t.YearDay()
 			hour = t.Hour()
 			minute = t.Minute()
@@ -625,7 +625,7 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 
 			dt := val
 
-			day = dt.Date.Day
+			year = dt.Date.Year
 			yearDay = civil.Date(dt.Date).DaysSince(civil.Date{Year: dt.Date.Year, Month: 1, Day: 1}) + 1
 			hour = dt.Time.Hour
 			minute = dt.Time.Minute
@@ -640,7 +640,7 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			if val.Valid {
 				dt := val.DateTime
 
-				day = dt.Date.Day
+				year = dt.Date.Year
 				yearDay = civil.Date(dt.Date).DaysSince(civil.Date{Year: dt.Date.Year, Month: 1, Day: 1}) + 1
 				hour = dt.Time.Hour
 				minute = dt.Time.Minute
@@ -660,7 +660,7 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			res.ti.Size = len(res.buffer)
 		} else if col.ti.Size == 8 {
 			res.buffer = encodeDateTime(
-				day,
+				year,
 				yearDay,
 				hour,
 				minute,
