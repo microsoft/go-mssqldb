@@ -587,11 +587,11 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			res.buffer = encodeDate(val.Year(), val.YearDay())
 			res.ti.Size = len(res.buffer)
 		case Date:
-			res.buffer = encodeDate(val.Year, civil.Date(val).DaysSince(civil.Date{Year: val.Year, Month: 1, Day: 1}) + 1)
+			res.buffer = encodeDate(val.Year, civil.Date(val).DaysSince(civil.Date{Year: val.Year, Month: 1, Day: 1})+1)
 			res.ti.Size = len(res.buffer)
 		case NullDate:
 			if val.Valid {
-				res.buffer = encodeDate(val.Date.Year, civil.Date(val.Date).DaysSince(civil.Date{Year: val.Date.Year, Month: 1, Day: 1}) + 1)
+				res.buffer = encodeDate(val.Date.Year, civil.Date(val.Date).DaysSince(civil.Date{Year: val.Date.Year, Month: 1, Day: 1})+1)
 				res.ti.Size = len(res.buffer)
 			} else {
 				res.ti.Size = 0
