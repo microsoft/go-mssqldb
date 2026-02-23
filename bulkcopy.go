@@ -481,21 +481,21 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			res.buffer[0] = 1
 		}
 	case typeDateTime2N:
-		switch v := val.(type) {
+		switch val := val.(type) {
 		case time.Time:
 			res.buffer = encodeDateTime2(
-				v.Year(),
-				v.YearDay(),
-				v.Hour(),
-				v.Minute(),
-				v.Second(),
-				v.Nanosecond(),
+				val.Year(),
+				val.YearDay(),
+				val.Hour(),
+				val.Minute(),
+				val.Second(),
+				val.Nanosecond(),
 				int(col.ti.Scale),
 			)
 			res.ti.Size = len(res.buffer)
 		case string:
 			var t time.Time
-			if t, err = time.Parse(sqlDateTimeFormat, v); err != nil {
+			if t, err = time.Parse(sqlDateTimeFormat, val); err != nil {
 				return res, fmt.Errorf("bulk: unable to convert string to date: %v", err)
 			}
 			res.buffer = encodeDateTime2(
@@ -508,22 +508,8 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 				int(col.ti.Scale),
 			)
 			res.ti.Size = len(res.buffer)
-		case DateTime:
-			d := v.(DateTime)
-			dt := civil.DateTime(d)
-			res.buffer = encodeDateTime2(
-				dt.Date.Year,
-				dt.Date.DaysSince(civil.Date{Year: dt.Date.Year, Month: 1, Day: 1})+1,
-				dt.Time.Hour,
-				dt.Time.Minute,
-				dt.Time.Second,
-				dt.Time.Nanosecond,
-				int(col.ti.Scale),
-			)
-			res.ti.Size = len(res.buffer)
 		case DateTime2:
-			d := v.(DateTime2)
-			dt := civil.DateTime(d)
+			dt := civil.DateTime(val)
 			res.buffer = encodeDateTime2(
 				dt.Date.Year,
 				dt.Date.DaysSince(civil.Date{Year: dt.Date.Year, Month: 1, Day: 1})+1,
@@ -535,8 +521,8 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			)
 			res.ti.Size = len(res.buffer)
 		case NullDateTime2:
-			if v.Valid {
-				d := v.DateTime
+			if val.Valid {
+				d := val.DateTime
 				dt := civil.DateTime(d)
 				res.buffer = encodeDateTime2(
 					dt.Date.Year,
@@ -552,33 +538,33 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 				res.ti.Size = 0
 			}
 		default:
-			err = fmt.Errorf("mssql: invalid type for datetime2 column: %T %v", v, v)
+			err = fmt.Errorf("mssql: invalid type for datetime2 column: %T %v", val, val)
 			return
 		}
 	case typeDateTimeOffsetN:
-		switch v := val.(type) {
+		switch val := val.(type) {
 		case time.Time:
-			res.buffer = encodeDateTimeOffset(v, int(col.ti.Scale))
+			res.buffer = encodeDateTimeOffset(val, int(col.ti.Scale))
 			res.ti.Size = len(res.buffer)
 		case string:
 			var t time.Time
-			if t, err = time.Parse(sqlDateTimeFormat, v); err != nil {
+			if t, err = time.Parse(sqlDateTimeFormat, val); err != nil {
 				return res, fmt.Errorf("bulk: unable to convert string to date: %v", err)
 			}
 			res.buffer = encodeDateTimeOffset(t, int(col.ti.Scale))
 			res.ti.Size = len(res.buffer)
 		case DateTimeOffset:
-			res.buffer = encodeDateTimeOffset(time.Time(v.(DateTimeOffset)), int(col.ti.Scale))
+			res.buffer = encodeDateTimeOffset(time.Time(val), int(col.ti.Scale))
 			res.ti.Size = len(res.buffer)
 		case NullDateTimeOffset:
-			if v.Valid {
-				res.buffer = encodeDateTimeOffset(time.Time(v.DateTimeOffset), int(col.ti.Scale))
+			if val.Valid {
+				res.buffer = encodeDateTimeOffset(time.Time(val.DateTimeOffset), int(col.ti.Scale))
 				res.ti.Size = len(res.buffer)
 			} else {
 				res.ti.Size = 0
 			}
 		default:
-			err = fmt.Errorf("mssql: invalid type for datetimeoffset column: %T %v", v, v)
+			err = fmt.Errorf("mssql: invalid type for datetimeoffset column: %T %v", val, val)
 			return
 		}
 	case typeDateN:
@@ -609,27 +595,27 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 		}
 	case typeDateTime, typeDateTimeN, typeDateTim4:
 		var t time.Time
-		switch v := val.(type) {
+		switch val := val.(type) {
 		case time.Time:
-			t = v
+			t = val
 		case string:
-			if t, err = time.Parse(sqlDateTimeFormat, v); err != nil {
+			if t, err = time.Parse(sqlDateTimeFormat, val); err != nil {
 				return res, fmt.Errorf("bulk: unable to convert string to date: %v", err)
 			}
 		case DateTime:
-			dt := v.(DateTime)
+			dt := val
 			// Build time.Time from civil.DateTime
 			t = time.Date(dt.Date.Year, time.Month(dt.Date.Month), dt.Date.Day, dt.Time.Hour, dt.Time.Minute, dt.Time.Second, dt.Time.Nanosecond, loc)
 		case NullDateTime:
-			if v.Valid {
-				dt := v.DateTime
+			if val.Valid {
+				dt := val.DateTime
 				t = time.Date(dt.Date.Year, time.Month(dt.Date.Month), dt.Date.Day, dt.Time.Hour, dt.Time.Minute, dt.Time.Second, dt.Time.Nanosecond, loc)
 			} else {
 				res.ti.Size = 0
 				return
 			}
 		default:
-			err = fmt.Errorf("mssql: invalid type for datetime column: %T %v", v, v)
+			err = fmt.Errorf("mssql: invalid type for datetime column: %T %v", val, val)
 			return
 		}
 
@@ -651,30 +637,30 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 		}
 	case typeTimeN:
 		var t time.Time
-		switch v := val.(type) {
+		switch val := val.(type) {
 		case time.Time:
-			res.buffer = encodeTime(v.Hour(), v.Minute(), v.Second(), v.Nanosecond(), int(col.ti.Scale))
+			res.buffer = encodeTime(val.Hour(), val.Minute(), val.Second(), val.Nanosecond(), int(col.ti.Scale))
 			res.ti.Size = len(res.buffer)
 		case string:
-			if t, err = time.Parse(sqlTimeFormat, v); err != nil {
+			if t, err = time.Parse(sqlTimeFormat, val); err != nil {
 				return res, fmt.Errorf("bulk: unable to convert string to time: %v", err)
 			}
 			res.buffer = encodeTime(t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), int(col.ti.Scale))
 			res.ti.Size = len(res.buffer)
 		case Time:
-			tt := v.(Time)
+			tt := val
 			res.buffer = encodeTime(tt.Hour, tt.Minute, tt.Second, tt.Nanosecond, int(col.ti.Scale))
 			res.ti.Size = len(res.buffer)
 		case NullTime:
-			if v.Valid {
-				tm := v.Time
+			if val.Valid {
+				tm := val.Time
 				res.buffer = encodeTime(tm.Hour, tm.Minute, tm.Second, tm.Nanosecond, int(col.ti.Scale))
 				res.ti.Size = len(res.buffer)
 			} else {
 				res.ti.Size = 0
 			}
 		default:
-			err = fmt.Errorf("mssql: invalid type for time column: %T %v", v, v)
+			err = fmt.Errorf("mssql: invalid type for time column: %T %v", val, val)
 			return
 		}
 	case typeMoney, typeMoney4, typeMoneyN:
