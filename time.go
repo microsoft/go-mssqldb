@@ -2,6 +2,8 @@ package mssql
 
 import (
 	"database/sql"
+//	"database/sql/driver"
+//	"time"
 
 	"github.com/golang-sql/civil"
 )
@@ -23,6 +25,11 @@ func (d *Date) Scan(value any) error {
 
 	return nil
 }
+
+// Value implements the [Valuer] interface
+//func (d Date) Value() (driver.Value, error) {
+//	return civil.Date(d).In(time.UTC), nil
+//}
 
 type DateTime civil.DateTime
 
@@ -117,6 +124,15 @@ func (n *NullDate) Scan(value any) error {
 
 	return nil
 }
+
+// Value implements the [Valuer] interface
+//func (n NullDate) Value() (driver.Value, error) {
+//	if n.Valid {
+//		return civil.Date(n.Date).In(time.UTC), nil
+//	} else {
+//		return nil, nil
+//	}
+//}
 
 type NullDateTime struct {
 	DateTime DateTime

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-sql/civil"
 	"github.com/microsoft/go-mssqldb/internal/decimal"
 	"github.com/microsoft/go-mssqldb/msdsn"
 	shopspring "github.com/shopspring/decimal"
@@ -532,6 +533,16 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 		case time.Time:
 			res.buffer = encodeDate(val.Year(), val.YearDay())
 			res.ti.Size = len(res.buffer)
+		case Date:
+			res.buffer = encodeDate(val.Year, civil.Date(val).DaysSince(civil.Date{Year: val.Year, Month: 1, Day: 1}) + 1)
+			res.ti.Size = len(res.buffer)
+		case NullDate:
+			if val.Valid {
+				res.buffer = encodeDate(val.Date.Year, civil.Date(val.Date).DaysSince(civil.Date{Year: val.Date.Year, Month: 1, Day: 1}) + 1)
+				res.ti.Size = len(res.buffer)
+			} else {
+				res.ti.Size = 0
+			}
 		case string:
 			var t time.Time
 			if t, err = time.ParseInLocation(sqlDateFormat, val, loc); err != nil {
