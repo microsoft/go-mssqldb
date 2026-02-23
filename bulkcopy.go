@@ -594,22 +594,58 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			return
 		}
 	case typeDateTime, typeDateTimeN, typeDateTim4:
+		var day, yearDay, hour, minute, second, nanosecond int
 		var t time.Time
 		switch val := val.(type) {
 		case time.Time:
 			t = val
+
+			day = t.Day()
+			yearDay = t.YearDay()
+			hour = t.Hour()
+			minute = t.Minute()
+			second = t.Second()
+			nanosecond = t.Nanosecond()
 		case string:
 			if t, err = time.Parse(sqlDateTimeFormat, val); err != nil {
 				return res, fmt.Errorf("bulk: unable to convert string to date: %v", err)
 			}
+
+			day = t.Day()
+			yearDay = t.YearDay()
+			hour = t.Hour()
+			minute = t.Minute()
+			second = t.Second()
+			nanosecond = t.Nanosecond()
 		case DateTime:
+			if col.ti.Size == 4 {
+				err = fmt.Errorf("mssql: invalid type for datetime column: %T %v", val, val)
+				return
+			}
+
 			dt := val
-			// Build time.Time from civil.DateTime
-			t = time.Date(dt.Date.Year, time.Month(dt.Date.Month), dt.Date.Day, dt.Time.Hour, dt.Time.Minute, dt.Time.Second, dt.Time.Nanosecond, loc)
+
+			day = dt.Date.Day
+			yearDay = civil.Date(dt.Date).DaysSince(civil.Date{Year: dt.Date.Year, Month: 1, Day: 1}) + 1
+			hour = dt.Time.Hour
+			minute = dt.Time.Minute
+			second = dt.Time.Second
+			nanosecond = dt.Time.Nanosecond
 		case NullDateTime:
+			if col.ti.Size == 4 {
+				err = fmt.Errorf("mssql: invalid type for datetime column: %T %v", val, val)
+				return
+			}
+
 			if val.Valid {
 				dt := val.DateTime
-				t = time.Date(dt.Date.Year, time.Month(dt.Date.Month), dt.Date.Day, dt.Time.Hour, dt.Time.Minute, dt.Time.Second, dt.Time.Nanosecond, loc)
+
+				day = dt.Date.Day
+				yearDay = civil.Date(dt.Date).DaysSince(civil.Date{Year: dt.Date.Year, Month: 1, Day: 1}) + 1
+				hour = dt.Time.Hour
+				minute = dt.Time.Minute
+				second = dt.Time.Second
+				nanosecond = dt.Time.Nanosecond
 			} else {
 				res.ti.Size = 0
 				return
@@ -624,13 +660,12 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			res.ti.Size = len(res.buffer)
 		} else if col.ti.Size == 8 {
 			res.buffer = encodeDateTime(
-				t.Day(),
-				t.YearDay(),
-				t.Hour(),
-				t.Minute(),
-				t.Second(),
-				t.Nanosecond(),
-			)
+				day,
+				yearDay,
+				hour,
+				minute,
+				second,
+				nanosecond)
 			res.ti.Size = len(res.buffer)
 		} else {
 			err = fmt.Errorf("mssql: invalid size of column %d", col.ti.Size)
