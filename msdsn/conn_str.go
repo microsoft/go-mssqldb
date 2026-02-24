@@ -79,6 +79,7 @@ const (
 	ApplicationIntent      = "applicationintent"
 	FailoverPartner        = "failoverpartner"
 	FailOverPort           = "failoverport"
+	FailoverPartnerSpn     = "failoverpartnerspn"
 	DisableRetry           = "disableretry"
 	Server                 = "server"
 	Protocol               = "protocol"
@@ -115,8 +116,9 @@ type Config struct {
 	Encryption Encryption
 	TLSConfig  *tls.Config
 
-	FailOverPartner string
-	FailOverPort    uint64
+	FailOverPartner    string
+	FailOverPort       uint64
+	FailOverPartnerSPN string
 
 	// If true the TLSConfig servername should use the routed server.
 	HostInCertificateProvided bool
@@ -526,6 +528,11 @@ func Parse(dsn string) (Config, error) {
 			f := "invalid failover port '%v': %v"
 			return p, fmt.Errorf(f, failOverPort, err.Error())
 		}
+	}
+
+	failOverPartnerSPN, ok := params[FailoverPartnerSpn]
+	if ok {
+		p.FailOverPartnerSPN = failOverPartnerSPN
 	}
 
 	disableRetry, ok := params[DisableRetry]
