@@ -732,6 +732,19 @@ func (p Config) URL() *url.URL {
 		q.Add(Timezone, tz.String())
 	}
 
+	if p.FailOverPartner != "" {
+		q.Add(FailoverPartner, p.FailOverPartner)
+	}
+	if p.FailOverPort != 0 {
+		q.Add(FailOverPort, strconv.FormatUint(p.FailOverPort, 10))
+	}
+	if p.ServerSPN != "" {
+		q.Add(ServerSpn, p.ServerSPN)
+	}
+	if p.FailOverPartnerSPN != "" {
+		q.Add(FailoverPartnerSpn, p.FailOverPartnerSPN)
+	}
+
 	if len(q) > 0 {
 		res.RawQuery = q.Encode()
 	}

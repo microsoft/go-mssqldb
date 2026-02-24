@@ -373,6 +373,27 @@ func TestURLWithIPv6Address(t *testing.T) {
 	}
 }
 
+func TestConnParseRoundTripFailoverPartnerSPN(t *testing.T) {
+	connStr := "sqlserver://sa:sa@localhost?database=master&failoverpartner=mirror&failoverport=2000&serverspn=MSSQLSvc%2Fprimary%3A1433&failoverpartnerspn=MSSQLSvc%2Fmirror%3A2000&disableretry=true&dial+timeout=30"
+	params, err := Parse(connStr)
+	if err != nil {
+		t.Fatal("Test URL is not valid", err)
+	}
+	if params.FailOverPartner != "mirror" || params.FailOverPort != 2000 || params.FailOverPartnerSPN != "MSSQLSvc/mirror:2000" || params.ServerSPN != "MSSQLSvc/primary:1433" {
+		t.Fatal("Initial parse did not set failover fields correctly")
+	}
+	rtParams, err := Parse(params.URL().String())
+	if err != nil {
+		t.Fatal("Params after roundtrip are not valid", err)
+	}
+	t.Log("params.URL " + params.URL().String())
+	params.ActivityID = nil
+	rtParams.ActivityID = nil
+	if !reflect.DeepEqual(params, rtParams) {
+		t.Fatal("Parameters do not match after roundtrip", params, rtParams)
+	}
+}
+
 func TestServerNameInTLSConfig(t *testing.T) {
 	var tests = []struct {
 		dsn          string
