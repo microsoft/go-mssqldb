@@ -23,6 +23,9 @@ coverage_all.txt
 testresults.xml
 .azureconnstr
 
+# Test executables
+*.test.exe
+
 # Example binaries  
 examples/*/simple
 examples/*/azuread-service-principal
