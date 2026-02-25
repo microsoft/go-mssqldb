@@ -4,7 +4,7 @@ import "fmt"
 
 // This value is automatically updated by Release Please during the release process.
 // It is written to the prelogin and login7 packets during a new connection.
-const driverVersion = "v1.9.6"
+const driverVersion = "v1.9.7"
 
 func getDriverVersion(ver string) uint32 {
 	var majorVersion uint32
