@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-sql/civil"
+
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 )
@@ -168,6 +170,10 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		{"test_datetime2_3", time.Date(2010, 11, 12, 13, 14, 15, 123000000, time.UTC), nil},
 		{"test_datetime2_7", time.Date(2010, 11, 12, 13, 14, 15, 123000000, time.UTC), nil},
 		{"test_datetimeoffset_7", time.Date(2010, 11, 12, 13, 14, 15, 123000000, time.UTC), nil},
+		{"test_mssqldatetime", Date(civil.Date{Year: 2010, Month: 11, Day: 12}), nil},
+		{"test_mssqldatetimen", Date(civil.Date{Year: 2010, Month: 11, Day: 12}), nil},
+		{"test_mssqldatetimen_1", Date(civil.Date{Year: 4010, Month: 11, Day: 12}), nil},
+		{"test_mssqldatetimen_midnight", Date(civil.Date{Year: 2025, Month: 1, Day: 1}), Date(civil.Date{Year: 2025, Month: 1, Day: 2})},
 		{"test_date", time.Date(2010, 11, 12, 0, 0, 0, 0, time.UTC), nil},
 		{"test_date_2", "2015-06-07", time.Date(2015, 6, 7, 0, 0, 0, 0, time.UTC)},
 		{"test_time", time.Date(2010, 11, 12, 13, 14, 15, 123000000, time.UTC), time.Date(1, 1, 1, 13, 14, 15, 123000000, time.UTC)},
@@ -351,6 +357,13 @@ func compareValue(a interface{}, expected interface{}) bool {
 			return expected.Equal(got) && ez == az
 		}
 		return false
+	case Date:
+		// compare Date (civil.Date) to time.Time returned by SQL
+		if got, ok := a.(time.Time); ok {
+			exp := civil.Date(expected)
+			return exp.In(time.UTC).Equal(got)
+		}
+		return false
 	case decimal.Decimal:
 		actual, err := decimal.NewFromString(a.(string))
 		if err != nil {
@@ -427,6 +440,10 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 	[test_datetime] [datetime] NOT NULL,
 	[test_datetimen] [datetime] NULL,
 	[test_datetimen_1] [datetime] NULL,
+	[test_mssqldatetime] [datetime] NULL,
+	[test_mssqldatetimen] [datetime] NULL,
+	[test_mssqldatetimen_1] [datetime] NULL,
+	[test_mssqldatetimen_midnight] [datetime] NULL,
 	[test_datetime2_1] [datetime2](1) NULL,
 	[test_datetime2_3] [datetime2](3) NULL,
 	[test_datetime2_7] [datetime2](7) NULL,
