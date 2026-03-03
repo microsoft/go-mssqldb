@@ -35,7 +35,7 @@ func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 		"test_nullmssqldatetime",
 		"test_nullmssqldatetime2",
 		"test_nullmssqltime",
-		"test_nulldatetimeoffset",
+		"test_nullmssqldatetimeoffset",
 		"test_nulluniqueidentifier",
 		"test_nulldecimal",
 		"test_nullmoney",
@@ -170,10 +170,10 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		{"test_datetime2_3", time.Date(2010, 11, 12, 13, 14, 15, 123000000, time.UTC), nil},
 		{"test_datetime2_7", time.Date(2010, 11, 12, 13, 14, 15, 123000000, time.UTC), nil},
 		{"test_datetimeoffset_7", time.Date(2010, 11, 12, 13, 14, 15, 123000000, time.UTC), nil},
-		{"test_mssqldatetime", Date(civil.Date{Year: 2010, Month: 11, Day: 12}), nil},
-		{"test_mssqldatetimen", Date(civil.Date{Year: 2010, Month: 11, Day: 12}), nil},
-		{"test_mssqldatetimen_1", Date(civil.Date{Year: 4010, Month: 11, Day: 12}), nil},
-		{"test_mssqldatetimen_midnight", Date(civil.Date{Year: 2025, Month: 1, Day: 1}), Date(civil.Date{Year: 2025, Month: 1, Day: 2})},
+		{"test_mssqldatetime", DateTime(civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}}), nil},
+		{"test_mssqldatetimen", DateTime(civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}}), nil},
+		{"test_mssqldatetimen_1", DateTime(civil.DateTime{Date: civil.Date{Year: 4010, Month: 11, Day: 12}}), nil},
+		{"test_mssqldatetimen_midnight", DateTime(civil.DateTime{Date: civil.Date{Year: 2025, Month: 1, Day: 1}, Time: civil.Time{Hour: 23, Minute: 59, Second: 59, Nanosecond: 998_350_000}}), DateTime(civil.DateTime{Date: civil.Date{Year: 2025, Month: 1, Day: 2}})},
 		{"test_date", time.Date(2010, 11, 12, 0, 0, 0, 0, time.UTC), nil},
 		{"test_date_2", "2015-06-07", time.Date(2015, 6, 7, 0, 0, 0, 0, time.UTC)},
 		{"test_time", time.Date(2010, 11, 12, 13, 14, 15, 123000000, time.UTC), time.Date(1, 1, 1, 13, 14, 15, 123000000, time.UTC)},
@@ -357,11 +357,10 @@ func compareValue(a interface{}, expected interface{}) bool {
 			return expected.Equal(got) && ez == az
 		}
 		return false
-	case Date:
-		// compare Date (civil.Date) to time.Time returned by SQL
+	case DateTime:
+		// compare DateTime (civil.DateTime) to time.Time returned by SQL
 		if got, ok := a.(time.Time); ok {
-			exp := civil.Date(expected)
-			return exp.In(time.UTC).Equal(got)
+			return civil.DateTimeOf(got) == civil.DateTime(expected) 
 		}
 		return false
 	case decimal.Decimal:
@@ -398,7 +397,7 @@ func setupNullableTypeTable(ctx context.Context, t *testing.T, conn *sql.Conn, t
 	[test_nullmssqldatetime] [datetime] NULL,
 	[test_nullmssqldatetime2] [datetime2] NULL,
 	[test_nullmssqltime] [time] NULL,
-	[test_nulldatetimeoffset] [datetimeoffset] NULL,
+	[test_nullmssqldatetimeoffset] [datetimeoffset] NULL,
 	[test_nulluniqueidentifier] [uniqueidentifier] NULL,
 	[test_nulldecimal] [decimal](18, 4) NULL,
 	[test_nullmoney] [money] NULL,
