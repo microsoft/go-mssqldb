@@ -383,6 +383,12 @@ func compareValue(a interface{}, expected interface{}) bool {
 			return civil.DateTimeOf(got) == civil.DateTime(expected)
 		}
 		return false
+	case Time:
+		// compare Time (civil.Time) to time.Time returned by SQL
+		if got, ok := a.(time.Time); ok {
+			return civil.TimeOf(got) == civil.Time(expected)
+		}
+		return false
 	case decimal.Decimal:
 		actual, err := decimal.NewFromString(a.(string))
 		if err != nil {
