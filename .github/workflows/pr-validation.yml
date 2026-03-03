@@ -13,9 +13,9 @@ jobs:
         go: ['1.25.7']
         sqlImage: ['2019-latest','2022-latest']
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v6
     - name: Setup go
-      uses: actions/setup-go@v2
+      uses: actions/setup-go@v6
       with:
         go-version: '${{ matrix.go }}'
     - name: Run tests against Linux SQL
@@ -31,7 +31,7 @@ jobs:
         sleep 10
         go test -coverprofile=coverage.out -covermode=atomic -v ./...
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v5
       with:
         files: coverage.out
         flags: unittests
