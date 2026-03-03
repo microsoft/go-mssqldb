@@ -13,7 +13,7 @@ jobs:
         go: ['1.25.7']
         sqlImage: ['2019-latest','2022-latest']
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v6
     - name: Setup go
       uses: actions/setup-go@v2
       with:
