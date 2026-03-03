@@ -174,6 +174,9 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		{"test_mssqldatetimen", DateTime(civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}}), nil},
 		{"test_mssqldatetimen_1", DateTime(civil.DateTime{Date: civil.Date{Year: 4010, Month: 11, Day: 12}}), nil},
 		{"test_mssqldatetimen_midnight", DateTime(civil.DateTime{Date: civil.Date{Year: 2025, Month: 1, Day: 1}, Time: civil.Time{Hour: 23, Minute: 59, Second: 59, Nanosecond: 998_350_000}}), DateTime(civil.DateTime{Date: civil.Date{Year: 2025, Month: 1, Day: 2}})},
+		{"test_mssqldatetime2_1", "2010-11-12 13:14:15Z", DateTime2(civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}, Time: civil.Time{Hour: 13, Minute: 14, Second: 15}})},
+		{"test_mssqldatetime2_3", DateTime2(civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}, Time: civil.Time{Hour: 13, Minute: 14, Second: 15, Nanosecond: 123000000}}), nil},
+		{"test_mssqldatetime2_7", DateTime2(civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}, Time: civil.Time{Hour: 13, Minute: 14, Second: 15, Nanosecond: 123000000}}), nil},
 		{"test_date", time.Date(2010, 11, 12, 0, 0, 0, 0, time.UTC), nil},
 		{"test_date_2", "2015-06-07", time.Date(2015, 6, 7, 0, 0, 0, 0, time.UTC)},
 		{"test_time", time.Date(2010, 11, 12, 13, 14, 15, 123000000, time.UTC), time.Date(1, 1, 1, 13, 14, 15, 123000000, time.UTC)},
@@ -360,7 +363,13 @@ func compareValue(a interface{}, expected interface{}) bool {
 	case DateTime:
 		// compare DateTime (civil.DateTime) to time.Time returned by SQL
 		if got, ok := a.(time.Time); ok {
-			return civil.DateTimeOf(got) == civil.DateTime(expected) 
+			return civil.DateTimeOf(got) == civil.DateTime(expected)
+		}
+		return false
+	case DateTime2:
+		// compare DateTime2 (civil.DateTime) to time.Time returned by SQL
+		if got, ok := a.(time.Time); ok {
+			return civil.DateTimeOf(got) == civil.DateTime(expected)
 		}
 		return false
 	case decimal.Decimal:
@@ -443,6 +452,9 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 	[test_mssqldatetimen] [datetime] NULL,
 	[test_mssqldatetimen_1] [datetime] NULL,
 	[test_mssqldatetimen_midnight] [datetime] NULL,
+	[test_mssqldatetime2_1] [datetime2](1) NULL,
+	[test_mssqldatetime2_3] [datetime2](3) NULL,
+	[test_mssqldatetime2_7] [datetime2](7) NULL,
 	[test_datetime2_1] [datetime2](1) NULL,
 	[test_datetime2_3] [datetime2](3) NULL,
 	[test_datetime2_7] [datetime2](7) NULL,
