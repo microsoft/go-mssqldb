@@ -44,3 +44,32 @@ This project uses [Release Please](https://github.com/googleapis/release-please)
 - ✅ `chore: update dependencies`
 - ❌ `Update README` (should be `docs: update README`)
 - ❌ `Bug fix` (should be `fix: <description>`)
+
+## Code Coverage Requirements
+
+This project enforces a **strict 80% minimum code coverage** requirement to maintain code quality and ensure inclusion in the [awesome-go](https://github.com/avelino/awesome-go) directory.
+
+### Requirements
+
+- **Project coverage**: Must stay at or above 80%
+- **Patch coverage**: New code in PRs must be at least 80% covered
+
+### Checking Coverage Locally
+
+```bash
+# Run tests with coverage
+go test -coverprofile=coverage.out ./...
+
+# View total coverage
+go tool cover -func=coverage.out | tail -1
+
+# Generate HTML coverage report
+go tool cover -html=coverage.out -o coverage.html
+```
+
+### Tips for Maintaining Coverage
+
+1. Write unit tests for new functions and methods
+2. Test error paths, not just happy paths
+3. Use table-driven tests for comprehensive coverage
+4. Check coverage before submitting PRs

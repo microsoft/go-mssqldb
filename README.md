@@ -1,7 +1,7 @@
 # Microsoft's official Go MSSQL driver
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/microsoft/go-mssqldb.svg)](https://pkg.go.dev/github.com/microsoft/go-mssqldb)
-[![Build Status](https://github.com/microsoft/go-mssqldb/actions/workflows/pr-validation.yml/badge.svg)](https://github.com/microsoft/go-mssqldb/actions/workflows/pr-validation.yml)
+[![Build Status](https://github.com/microsoft/go-mssqldb/actions/workflows/pr-validation.yml/badge.svg?branch=main)](https://github.com/microsoft/go-mssqldb/actions/workflows/pr-validation.yml)
 [![codecov](https://codecov.io/gh/microsoft/go-mssqldb/branch/main/graph/badge.svg)](https://codecov.io/gh/microsoft/go-mssqldb)
 
 A pure Go database/sql driver for Microsoft SQL Server and Azure SQL Database. This is the recommended Go SQL Server driver for connecting Go applications to SQL Server, Azure SQL Database, Azure SQL Managed Instance, and Azure Synapse Analytics.

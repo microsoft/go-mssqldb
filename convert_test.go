@@ -9,6 +9,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// extractDest extracts the value from a destination pointer for test comparison.
+func extractDest(dest interface{}) interface{} {
+	v := reflect.ValueOf(dest)
+	if v.Kind() == reflect.Ptr && !v.IsNil() {
+		return v.Elem().Interface()
+	}
+	return nil
+}
+
 func TestConvertAssign_String(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -60,24 +69,10 @@ func TestConvertAssign_String(t *testing.T) {
 			err := convertAssign(tt.dest, tt.src)
 			if tt.wantErr {
 				assert.Error(t, err, "convertAssign()")
-			} else {
-				assert.NoError(t, err, "convertAssign()")
-			}
-			if tt.wantErr {
 				return
 			}
-			if !tt.wantErr {
-				var got interface{}
-				switch d := tt.dest.(type) {
-				case *string:
-					got = *d
-				case *[]byte:
-					got = *d
-				case *sql.RawBytes:
-					got = *d
-				}
-				assert.Equal(t, tt.want, got, "convertAssign()")
-			}
+			assert.NoError(t, err, "convertAssign()")
+			assert.Equal(t, tt.want, extractDest(tt.dest), "convertAssign()")
 		})
 	}
 }
@@ -139,26 +134,10 @@ func TestConvertAssign_Bytes(t *testing.T) {
 			err := convertAssign(tt.dest, tt.src)
 			if tt.wantErr {
 				assert.Error(t, err, "convertAssign()")
-			} else {
-				assert.NoError(t, err, "convertAssign()")
-			}
-			if tt.wantErr {
 				return
 			}
-			if !tt.wantErr {
-				var got interface{}
-				switch d := tt.dest.(type) {
-				case *string:
-					got = *d
-				case *interface{}:
-					got = *d
-				case *[]byte:
-					got = *d
-				case *sql.RawBytes:
-					got = *d
-				}
-				assert.Equal(t, tt.want, got, "convertAssign()")
-			}
+			assert.NoError(t, err, "convertAssign()")
+			assert.Equal(t, tt.want, extractDest(tt.dest), "convertAssign()")
 		})
 	}
 }
@@ -223,28 +202,10 @@ func TestConvertAssign_Time(t *testing.T) {
 			err := convertAssign(tt.dest, tt.src)
 			if tt.wantErr {
 				assert.Error(t, err, "convertAssign()")
-			} else {
-				assert.NoError(t, err, "convertAssign()")
-			}
-			if tt.wantErr {
 				return
 			}
-			if !tt.wantErr {
-				var got interface{}
-				switch d := tt.dest.(type) {
-				case *time.Time:
-					got = *d
-				case *string:
-					got = *d
-				case *[]byte:
-					got = *d
-				case *sql.RawBytes:
-					got = *d
-				}
-				if !tt.check(got) {
-					t.Errorf("convertAssign() validation failed for %v", got)
-				}
-			}
+			assert.NoError(t, err, "convertAssign()")
+			assert.True(t, tt.check(extractDest(tt.dest)), "convertAssign() validation failed")
 		})
 	}
 }
@@ -426,24 +387,10 @@ func TestConvertAssign_Numeric(t *testing.T) {
 			err := convertAssign(tt.dest, tt.src)
 			if tt.wantErr {
 				assert.Error(t, err, "convertAssign()")
-			} else {
-				assert.NoError(t, err, "convertAssign()")
-			}
-			if tt.wantErr {
 				return
 			}
-			if !tt.wantErr {
-				var got interface{}
-				switch d := tt.dest.(type) {
-				case *string:
-					got = *d
-				case *[]byte:
-					got = *d
-				case *sql.RawBytes:
-					got = *d
-				}
-				assert.Equal(t, tt.want, got, "convertAssign()")
-			}
+			assert.NoError(t, err, "convertAssign()")
+			assert.Equal(t, tt.want, extractDest(tt.dest), "convertAssign()")
 		})
 	}
 }
@@ -619,30 +566,10 @@ func TestConvertAssign_StringToInt(t *testing.T) {
 			err := convertAssign(tt.dest, tt.src)
 			if tt.wantErr {
 				assert.Error(t, err, "convertAssign()")
-			} else {
-				assert.NoError(t, err, "convertAssign()")
-			}
-			if tt.wantErr {
 				return
 			}
-			if !tt.wantErr {
-				var got interface{}
-				switch d := tt.dest.(type) {
-				case *int:
-					got = *d
-				case *int8:
-					got = *d
-				case *int16:
-					got = *d
-				case *int32:
-					got = *d
-				case *int64:
-					got = *d
-				}
-				if !tt.check(got) {
-					t.Errorf("convertAssign() validation failed for %v", got)
-				}
-			}
+			assert.NoError(t, err, "convertAssign()")
+			assert.True(t, tt.check(extractDest(tt.dest)), "convertAssign() validation failed")
 		})
 	}
 }
@@ -714,30 +641,10 @@ func TestConvertAssign_StringToUint(t *testing.T) {
 			err := convertAssign(tt.dest, tt.src)
 			if tt.wantErr {
 				assert.Error(t, err, "convertAssign()")
-			} else {
-				assert.NoError(t, err, "convertAssign()")
-			}
-			if tt.wantErr {
 				return
 			}
-			if !tt.wantErr {
-				var got interface{}
-				switch d := tt.dest.(type) {
-				case *uint:
-					got = *d
-				case *uint8:
-					got = *d
-				case *uint16:
-					got = *d
-				case *uint32:
-					got = *d
-				case *uint64:
-					got = *d
-				}
-				if !tt.check(got) {
-					t.Errorf("convertAssign() validation failed for %v", got)
-				}
-			}
+			assert.NoError(t, err, "convertAssign()")
+			assert.True(t, tt.check(extractDest(tt.dest)), "convertAssign() validation failed")
 		})
 	}
 }
@@ -785,18 +692,7 @@ func TestConvertAssign_StringToFloat(t *testing.T) {
 			if tt.wantErr {
 				return
 			}
-			if !tt.wantErr {
-				var got interface{}
-				switch d := tt.dest.(type) {
-				case *float32:
-					got = *d
-				case *float64:
-					got = *d
-				}
-				if !tt.check(got) {
-					t.Errorf("convertAssign() validation failed for %v", got)
-				}
-			}
+			assert.True(t, tt.check(extractDest(tt.dest)), "convertAssign() validation failed")
 		})
 	}
 }

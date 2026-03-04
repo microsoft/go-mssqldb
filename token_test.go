@@ -4,7 +4,116 @@ import (
 	"encoding/hex"
 	"regexp"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
+
+func TestDoneStructIsError(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  uint16
+		errors  []Error
+		wantErr bool
+	}{
+		{
+			name:    "no error status and no errors",
+			status:  0,
+			errors:  nil,
+			wantErr: false,
+		},
+		{
+			name:    "doneError status set",
+			status:  doneError,
+			errors:  nil,
+			wantErr: true,
+		},
+		{
+			name:    "has errors in slice",
+			status:  0,
+			errors:  []Error{{Message: "test error"}},
+			wantErr: true,
+		},
+		{
+			name:    "both error status and errors",
+			status:  doneError,
+			errors:  []Error{{Message: "test error"}},
+			wantErr: true,
+		},
+		{
+			name:    "doneMore flag only",
+			status:  doneMore,
+			errors:  nil,
+			wantErr: false,
+		},
+		{
+			name:    "doneCount flag only",
+			status:  doneCount,
+			errors:  nil,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := doneStruct{
+				Status: tt.status,
+				errors: tt.errors,
+			}
+			assert.Equal(t, tt.wantErr, d.isError(), "doneStruct.isError()")
+		})
+	}
+}
+
+func TestDoneStructGetError(t *testing.T) {
+	tests := []struct {
+		name        string
+		errors      []Error
+		wantMessage string
+		wantAllLen  int
+	}{
+		{
+			name:        "no errors returns default message",
+			errors:      nil,
+			wantMessage: "Request failed but didn't provide reason",
+			wantAllLen:  0,
+		},
+		{
+			name:        "empty errors slice returns default message",
+			errors:      []Error{},
+			wantMessage: "Request failed but didn't provide reason",
+			wantAllLen:  0,
+		},
+		{
+			name:        "single error",
+			errors:      []Error{{Message: "single error"}},
+			wantMessage: "single error",
+			wantAllLen:  1,
+		},
+		{
+			name: "multiple errors returns last",
+			errors: []Error{
+				{Message: "first error"},
+				{Message: "second error"},
+				{Message: "third error"},
+			},
+			wantMessage: "third error",
+			wantAllLen:  3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := doneStruct{errors: tt.errors}
+			got := d.getError()
+
+			assert.Equal(t, tt.wantMessage, got.Message, "doneStruct.getError().Message")
+
+			if len(tt.errors) > 0 {
+				assert.Len(t, got.All, tt.wantAllLen, "doneStruct.getError().All length")
+			}
+		})
+	}
+}
 
 func TestParseFeatureExtAck(t *testing.T) {
 	spacesRE := regexp.MustCompile(`\s+`)

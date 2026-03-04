@@ -106,9 +106,23 @@ Always run these commands before committing changes:
 - `go test ./msdsn ./internal/... ./integratedauth ./azuread` - run unit tests (~1.5 seconds total)
 - If you have SQL Server available: `go test ./...` with 30+ minute timeout. NEVER CANCEL.
 
+### Code Coverage Requirements
+**IMPORTANT**: This project enforces a strict **80% minimum code coverage** requirement.
+- All PRs must maintain project coverage at or above 80%
+- New code in PRs must also have at least 80% coverage
+- PRs that drop coverage below 80% will fail the Codecov status check
+- Coverage is configured in `codecov.yml` at the repository root
+
+To check coverage locally:
+```bash
+go test -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out | tail -1  # Shows total coverage
+```
+
 The CI pipeline (.github/workflows/pr-validation.yml) runs:
-1. `go test -v ./...` against SQL Server 2019 and 2022 in Docker
-2. AppVeyor runs Windows-specific tests including named pipes and shared memory
+1. `go test -coverprofile=coverage.out -v ./...` against SQL Server 2019 and 2022 in Docker
+2. Uploads coverage to Codecov for enforcement
+3. AppVeyor runs Windows-specific tests including named pipes and shared memory
 
 ## Commit Message Format
 

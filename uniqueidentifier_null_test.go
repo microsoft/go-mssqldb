@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestNullableUniqueIdentifierScanNull(t *testing.T) {
@@ -25,9 +27,7 @@ func TestNullableUniqueIdentifierScanNull(t *testing.T) {
 	if scanErr != nil {
 		t.Fatal("NullUniqueIdentifier should not error out on Scan(nil)")
 	}
-	if sut != nullUUID {
-		t.Errorf("bytes not swapped correctly: got %q; want %q", sut, nullUUID)
-	}
+	assert.Equal(t, nullUUID, sut, "bytes not swapped correctly")
 }
 
 func TestNullableUniqueIdentifierScanBytes(t *testing.T) {
@@ -43,9 +43,7 @@ func TestNullableUniqueIdentifierScanBytes(t *testing.T) {
 	if scanErr != nil {
 		t.Fatal(scanErr)
 	}
-	if sut != uuid {
-		t.Errorf("bytes not swapped correctly: got %q; want %q", sut, uuid)
-	}
+	assert.Equal(t, uuid, sut, "bytes not swapped correctly")
 }
 
 func TestNullableUniqueIdentifierScanString(t *testing.T) {
@@ -60,9 +58,7 @@ func TestNullableUniqueIdentifierScanString(t *testing.T) {
 	if scanErr != nil {
 		t.Fatal(scanErr)
 	}
-	if sut != uuid {
-		t.Errorf("string not scanned correctly: got %q; want %q", sut, uuid)
-	}
+	assert.Equal(t, uuid, sut, "string not scanned correctly")
 }
 
 func TestNullableUniqueIdentifierScanUnexpectedType(t *testing.T) {
@@ -94,9 +90,7 @@ func TestNullableUniqueIdentifierValue(t *testing.T) {
 		t.Fatalf("(%T) is not []byte", v)
 	}
 
-	if !bytes.Equal(b, dbUUID[:]) {
-		t.Errorf("got %q; want %q", b, dbUUID)
-	}
+	assert.True(t, bytes.Equal(b, dbUUID[:]), "got %q; want %q", b, dbUUID)
 }
 
 func TestNullableUniqueIdentifierValueNull(t *testing.T) {
@@ -108,13 +102,8 @@ func TestNullableUniqueIdentifierValueNull(t *testing.T) {
 
 	sut := uuid
 	v, valueErr := sut.Value()
-	if valueErr != nil {
-		t.Errorf("unexpected error for invalid uuid: %s", valueErr)
-	}
-
-	if v != nil {
-		t.Errorf("expected non-nil value for invalid uuid: %s", v)
-	}
+	assert.NoError(t, valueErr, "unexpected error for invalid uuid")
+	assert.Nil(t, v, "expected nil value for invalid uuid")
 }
 
 func TestNullableUniqueIdentifierString(t *testing.T) {
@@ -124,9 +113,7 @@ func TestNullableUniqueIdentifierString(t *testing.T) {
 		Valid: true,
 	}
 	expected := "01234567-89AB-CDEF-0123-456789ABCDEF"
-	if actual := sut.String(); actual != expected {
-		t.Errorf("sut.String() = %s; want %s", sut, expected)
-	}
+	assert.Equal(t, expected, sut.String(), "sut.String()")
 }
 
 func TestNullableUniqueIdentifierStringNull(t *testing.T) {
@@ -136,9 +123,7 @@ func TestNullableUniqueIdentifierStringNull(t *testing.T) {
 		Valid: false,
 	}
 	expected := "NULL"
-	if actual := sut.String(); actual != expected {
-		t.Errorf("sut.String() = %s; want %s", sut, expected)
-	}
+	assert.Equal(t, expected, sut.String(), "sut.String()")
 }
 
 func TestNullableUniqueIdentifierMarshalText(t *testing.T) {
@@ -149,12 +134,8 @@ func TestNullableUniqueIdentifierMarshalText(t *testing.T) {
 	}
 	expected := []byte{48, 49, 50, 51, 52, 53, 54, 55, 45, 56, 57, 65, 66, 45, 67, 68, 69, 70, 45, 48, 49, 50, 51, 45, 52, 53, 54, 55, 56, 57, 65, 66, 67, 68, 69, 70}
 	text, marshalErr := sut.MarshalText()
-	if marshalErr != nil {
-		t.Errorf("unexpected error while marshalling: %s", marshalErr)
-	}
-	if actual := text; !reflect.DeepEqual(actual, expected) {
-		t.Errorf("sut.MarshalText() = %v; want %v", actual, expected)
-	}
+	assert.NoError(t, marshalErr, "unexpected error while marshalling")
+	assert.True(t, reflect.DeepEqual(text, expected), "sut.MarshalText() = %v; want %v", text, expected)
 }
 
 func TestNullableUniqueIdentifierMarshalTextNull(t *testing.T) {
@@ -165,12 +146,8 @@ func TestNullableUniqueIdentifierMarshalTextNull(t *testing.T) {
 	}
 	expected := []byte("null")
 	text, marshalErr := sut.MarshalText()
-	if marshalErr != nil {
-		t.Errorf("unexpected error while marshalling: %s", marshalErr)
-	}
-	if actual := text; !reflect.DeepEqual(actual, expected) {
-		t.Errorf("sut.MarshalText() = %v; want %v", actual, expected)
-	}
+	assert.NoError(t, marshalErr, "unexpected error while marshalling")
+	assert.True(t, reflect.DeepEqual(text, expected), "sut.MarshalText() = %v; want %v", text, expected)
 }
 
 func TestNullableUniqueIdentifierUnmarshalJSON(t *testing.T) {
@@ -186,9 +163,7 @@ func TestNullableUniqueIdentifierUnmarshalJSON(t *testing.T) {
 		UUID:  [16]byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
 		Valid: true,
 	}
-	if u != expected {
-		t.Errorf("u.UnmarshalJSON() = %v; want %v", u, expected)
-	}
+	assert.Equal(t, expected, u, "u.UnmarshalJSON()")
 }
 
 func TestNullableUniqueIdentifierUnmarshalJSONNull(t *testing.T) {
@@ -206,9 +181,7 @@ func TestNullableUniqueIdentifierUnmarshalJSONNull(t *testing.T) {
 		UUID:  [16]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
 		Valid: false,
 	}
-	if u != expected {
-		t.Errorf("u.UnmarshalJSON() = %v; want %v", u, expected)
-	}
+	assert.Equal(t, expected, u, "u.UnmarshalJSON()")
 }
 
 func TestNullableUniqueIdentifierMarshalJSONNull(t *testing.T) {
@@ -223,9 +196,22 @@ func TestNullableUniqueIdentifierMarshalJSONNull(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []byte{0x6e, 0x75, 0x6c, 0x6c} // null = %x6e.75.6c.6c
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("got %v; want %v", got, want)
+	assert.True(t, reflect.DeepEqual(got, want), "got %v; want %v", got, want)
+}
+
+func TestNullableUniqueIdentifierMarshalJSONValid(t *testing.T) {
+	t.Parallel()
+	validUUID := NullUniqueIdentifier{
+		UUID:  [16]byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF},
+		Valid: true,
 	}
+
+	got, err := validUUID.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should be base64 encoded since UniqueIdentifier is a [16]byte array
+	assert.NotEmpty(t, got, "expected non-empty JSON output for valid UUID")
 }
 
 func TestNullableUniqueIdentifierJSONMarshalNull(t *testing.T) {
@@ -240,9 +226,7 @@ func TestNullableUniqueIdentifierJSONMarshalNull(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []byte{0x6e, 0x75, 0x6c, 0x6c}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("got %v; want %v", got, want)
-	}
+	assert.True(t, reflect.DeepEqual(got, want), "got %v; want %v", got, want)
 }
 
 var (

@@ -21,6 +21,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/microsoft/go-mssqldb/msdsn"
+	"github.com/stretchr/testify/assert"
 )
 
 type MockTransport struct {
@@ -76,9 +77,7 @@ func TestSendLogin(t *testing.T) {
 		AtchDBFile:     "filepath",
 	}
 	err := sendLogin(buf, &login)
-	if err != nil {
-		t.Error("sendLogin should succeed")
-	}
+	assert.NoError(t, err, "sendLogin should succeed")
 	ref := []byte{
 		16, 1, 0, 222, 0, 0, 1, 0, 198 + 16, 0, 0, 0, 3, 0, 10, 115, 0, 16, 0, 0, 0, 1,
 		6, 1, 100, 0, 0, 0, 0, 0, 0, 0, 224, 0, 0, 8, 16, 255, 255, 255, 4, 2, 0,
@@ -128,9 +127,7 @@ func TestSendLoginWithFeatureExt(t *testing.T) {
 	})
 	_ = login.FeatureExt.Add(&featureExtColumnEncryption{})
 	err := sendLogin(buf, &login)
-	if err != nil {
-		t.Error("sendLogin should succeed")
-	}
+	assert.NoError(t, err, "sendLogin should succeed")
 	// featureext ordering is non-deterministic
 	ref1 := []byte{
 		16, 1, 0, 0xe5, 0, 0, 1, 0, 0xdd, 0, 0, 0, 4, 0, 0, 116,
@@ -179,16 +176,14 @@ func TestSendLoginWithFeatureExt(t *testing.T) {
 func TestSendSqlBatch(t *testing.T) {
 	checkConnStr(t)
 	p, err := msdsn.Parse(makeConnStr(t).String())
-	if err != nil {
-		t.Error("parseConnectParams failed:", err.Error())
+	if !assert.NoError(t, err, "parseConnectParams failed") {
 		return
 	}
 
 	tl := testLogger{t: t}
 	defer tl.StopLogging()
 	conn, err := connect(context.Background(), &Connector{params: p}, optionalLogger{loggerAdapter{&tl}}, p)
-	if err != nil {
-		t.Error("Open connection failed:", err.Error())
+	if !assert.NoError(t, err, "Open connection failed") {
 		return
 	}
 	defer conn.buf.transport.Close()
@@ -198,8 +193,7 @@ func TestSendSqlBatch(t *testing.T) {
 			data: transDescrHdr{0, 1}.pack()},
 	}
 	err = sendSqlBatch72(conn.buf, "select 1", headers, true)
-	if err != nil {
-		t.Error("Sending sql batch failed", err.Error())
+	if !assert.NoError(t, err, "Sending sql batch failed") {
 		return
 	}
 
@@ -216,26 +210,21 @@ func TestSendSqlBatch(t *testing.T) {
 
 	switch value := reader.lastRow[0].(type) {
 	case int32:
-		if value != 1 {
-			t.Error("Invalid value returned, should be 1", value)
-			return
-		}
+		assert.Equal(t, int32(1), value, "Invalid value returned, should be 1")
 	}
 }
 
 func TestLoginWithColumnEncryption(t *testing.T) {
 	checkConnStr(t)
 	p, err := msdsn.Parse(makeConnStr(t).String())
-	if err != nil {
-		t.Error("parseConnectParams failed:", err.Error())
+	if !assert.NoError(t, err, "parseConnectParams failed") {
 		return
 	}
 	p.ColumnEncryption = true
 	tl := testLogger{t: t}
 	defer tl.StopLogging()
 	conn, err := connect(context.Background(), &Connector{params: p}, optionalLogger{loggerAdapter{&tl}}, p)
-	if err != nil {
-		t.Error("Open connection failed:", err.Error())
+	if !assert.NoError(t, err, "Open connection failed") {
 		return
 	}
 	defer conn.buf.transport.Close()
@@ -245,8 +234,7 @@ func TestLoginWithColumnEncryption(t *testing.T) {
 			data: transDescrHdr{0, 1}.pack()},
 	}
 	err = sendSqlBatch72(conn.buf, "select (@@microsoftversion / 0x1000000) & 0xff AS [VersionMajor]", headers, true)
-	if err != nil {
-		t.Error("Sending sql batch failed", err.Error())
+	if !assert.NoError(t, err, "Sending sql batch failed") {
 		return
 	}
 
@@ -392,6 +380,26 @@ func makeConnStrSettingGuidConversion(t testing.TB, guidConversion bool) *url.UR
 	return config.URL()
 }
 
+// testContext creates a context with 30 second timeout and registers cleanup.
+// Use this for integration tests that need a context with timeout.
+func testContext(t testing.TB) context.Context {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	return ctx
+}
+
+// requireTestDB opens a database connection and registers cleanup.
+// Skips the test if no connection string is available.
+func requireTestDB(t testing.TB) *sql.DB {
+	checkConnStr(t)
+	db, err := sql.Open("sqlserver", makeConnStr(t).String())
+	if err != nil {
+		t.Fatalf("sql.Open failed: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
 type testLogger struct {
 	t    testing.TB
 	mu   sync.Mutex
@@ -494,8 +502,7 @@ func TestConnectViaIp(t *testing.T) {
 
 func simpleQuery(conn *sql.DB, t *testing.T) (stmt *sql.Stmt) {
 	stmt, err := conn.Prepare("select 1 as a")
-	if err != nil {
-		t.Error("Prepare failed:", err.Error())
+	if !assert.NoError(t, err, "Prepare failed") {
 		return nil
 	}
 	return stmt
@@ -506,17 +513,11 @@ func checkSimpleQuery(rows *sql.Rows, t *testing.T) {
 	for rows.Next() {
 		var val int
 		err := rows.Scan(&val)
-		if err != nil {
-			t.Error("Scan failed:", err.Error())
-		}
-		if val != 1 {
-			t.Error("query should return 1")
-		}
+		assert.NoError(t, err, "Scan failed")
+		assert.Equal(t, 1, val, "query should return 1")
 		numrows++
 	}
-	if numrows != 1 {
-		t.Error("query should return 1 row, returned", numrows)
-	}
+	assert.Equal(t, 1, numrows, "query should return 1 row")
 }
 
 func TestQuery(t *testing.T) {
@@ -538,18 +539,12 @@ func TestQuery(t *testing.T) {
 	defer stmt.Close()
 
 	rows, err := stmt.Query()
-	if err != nil {
-		t.Error("Query failed:", err.Error())
-	}
+	assert.NoError(t, err, "Query failed")
 	defer rows.Close()
 
 	columns, err := rows.Columns()
-	if err != nil {
-		t.Error("getting columns failed", err.Error())
-	}
-	if len(columns) != 1 && columns[0] != "a" {
-		t.Error("returned incorrect columns (expected ['a']):", columns)
-	}
+	assert.NoError(t, err, "getting columns failed")
+	assert.True(t, len(columns) == 1 && columns[0] == "a", "returned incorrect columns (expected ['a']): %v", columns)
 
 	checkSimpleQuery(rows, t)
 }
@@ -565,23 +560,20 @@ func TestMultipleQueriesSequentialy(t *testing.T) {
 	SetLogger(&tl)
 
 	stmt, err := conn.Prepare("select 1 as a")
-	if err != nil {
-		t.Error("Prepare failed:", err.Error())
+	if !assert.NoError(t, err, "Prepare failed") {
 		return
 	}
 	defer stmt.Close()
 
 	rows, err := stmt.Query()
-	if err != nil {
-		t.Error("Query failed:", err.Error())
+	if !assert.NoError(t, err, "Query failed") {
 		return
 	}
 	defer rows.Close()
 	checkSimpleQuery(rows, t)
 
 	rows, err = stmt.Query()
-	if err != nil {
-		t.Error("Query failed:", err.Error())
+	if !assert.NoError(t, err, "Query failed") {
 		return
 	}
 	defer rows.Close()
@@ -598,8 +590,7 @@ func TestMultipleQueryClose(t *testing.T) {
 	SetLogger(&tl)
 
 	stmt, err := conn.Prepare("select 1 as a")
-	if err != nil {
-		t.Error("Prepare failed:", err.Error())
+	if !assert.NoError(t, err, "Prepare failed") {
 		return
 	}
 	defer stmt.Close()
@@ -772,20 +763,27 @@ func TestLeakedConnections(t *testing.T) {
 	}
 
 	// Check if the number of open connections is the same as before
+	// SQL Server may take a moment to clean up connections, so we retry a few times
 	var newOpenConnections int
-	err = goodConn.QueryRow(`
-		SELECT COUNT(*) AS openConnections 
-		FROM sys.dm_exec_connections 
-		WHERE session_id != @@SPID 
-		AND ((@p1 IS NULL AND local_net_address IS NULL) 
-			OR local_net_address = @p1)`,
-		localNetAddr).Scan(&newOpenConnections)
-	if err != nil {
-		t.Fatal("cannot scan value", err)
+	for retry := 0; retry < 5; retry++ {
+		if retry > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+		err = goodConn.QueryRow(`
+			SELECT COUNT(*) AS openConnections 
+			FROM sys.dm_exec_connections 
+			WHERE session_id != @@SPID 
+			AND ((@p1 IS NULL AND local_net_address IS NULL) 
+				OR local_net_address = @p1)`,
+			localNetAddr).Scan(&newOpenConnections)
+		if err != nil {
+			t.Fatal("cannot scan value", err)
+		}
+		if openConnections == newOpenConnections {
+			return // success
+		}
 	}
-	if openConnections != newOpenConnections {
-		t.Fatalf("Number of open connections should be the same as before, %d leaked connections found", newOpenConnections-openConnections)
-	}
+	t.Fatalf("Number of open connections should be the same as before, %d leaked connections found", newOpenConnections-openConnections)
 }
 
 func TestBadHost(t *testing.T) {
@@ -836,9 +834,7 @@ func TestSSPIAuth(t *testing.T) {
 	connStr.RawQuery = params.Encode()
 
 	db, err := sql.Open("mssql", connStr.String())
-	if err != nil {
-		t.Error("Open failed", err)
-	}
+	assert.NoError(t, err, "Open failed")
 	defer db.Close()
 
 	row := db.QueryRow("select 1, 'abc'")
@@ -846,29 +842,20 @@ func TestSSPIAuth(t *testing.T) {
 	var somenumber int64
 	var somechars string
 	err = row.Scan(&somenumber, &somechars)
-	if err != nil {
-		t.Error("scan failed", err)
-	}
-	if somenumber != int64(1) || somechars != "abc" {
-		t.Errorf("Invalid values from query: want {%d,'%s'}, got {%d,'%s'}", int64(1), "abc", somenumber, somechars)
-	}
+	assert.NoError(t, err, "scan failed")
+	assert.Equal(t, int64(1), somenumber, "Invalid values from query")
+	assert.Equal(t, "abc", somechars, "Invalid values from query")
 }
 
 func TestUcs22Str(t *testing.T) {
 	// Test valid input
 	s, err := ucs22str([]byte{0x31, 0, 0x32, 0, 0x33, 0}) // 123 in UCS2 encoding
-	if err != nil {
-		t.Errorf("ucs22str should not fail for valid ucs2 byte sequence: %s", err)
-	}
-	if s != "123" {
-		t.Errorf("ucs22str expected to return 123 but it returned %s", s)
-	}
+	assert.NoError(t, err, "ucs22str should not fail for valid ucs2 byte sequence")
+	assert.Equal(t, "123", s, "ucs22str expected to return 123")
 
 	// Test invalid input
 	_, err = ucs22str([]byte{0})
-	if err == nil {
-		t.Error("ucs22str should fail on single byte input, but it didn't")
-	}
+	assert.Error(t, err, "ucs22str should fail on single byte input")
 }
 
 var encoded123456789Bytes = []byte{0x31, 0, 0x32, 0, 0x33, 0, 0x34, 0, 0x35, 0, 0x36, 0, 0x37, 0, 0x38, 0, 0x39, 0}
@@ -965,13 +952,8 @@ func ExerciseUCS2ToStringFunction(name string, sut func([]byte) (string, error),
 
 			actual, err := sut(tt.input)
 
-			if err != nil {
-				t.Errorf("%s errored: %s", name, err)
-			}
-
-			if actual != tt.expected {
-				t.Errorf("%s expected to return %s but it returned %s", name, tt.expected, actual)
-			}
+			assert.NoError(t, err, "%s errored", name)
+			assert.Equal(t, tt.expected, actual, "%s expected to return %s", name, tt.expected)
 		})
 	}
 }
@@ -1028,62 +1010,42 @@ func BenchmarkUcs22strLongEmojis(b *testing.B) {
 func TestReadUcs2(t *testing.T) {
 	buf := bytes.NewBuffer([]byte{0x31, 0, 0x32, 0, 0x33, 0}) // 123 in UCS2 encoding
 	s, err := readUcs2(buf, 3)
-	if err != nil {
-		t.Errorf("readUcs2 should not fail for valid ucs2 byte sequence: %s", err)
-	}
-	if s != "123" {
-		t.Errorf("readUcs2 expected to return 123 but it returned %s", s)
-	}
+	assert.NoError(t, err, "readUcs2 should not fail for valid ucs2 byte sequence")
+	assert.Equal(t, "123", s, "readUcs2 expected to return 123")
 
 	buf = bytes.NewBuffer([]byte{0})
 	_, err = readUcs2(buf, 1)
-	if err == nil {
-		t.Error("readUcs2 should fail on single byte input, but it didn't")
-	}
+	assert.Error(t, err, "readUcs2 should fail on single byte input")
 }
 
 func TestReadUsVarChar(t *testing.T) {
 	// should succeed for valid buffer
 	buf := bytes.NewBuffer([]byte{3, 0, 0x31, 0, 0x32, 0, 0x33, 0}) // 123 in UCS2 encoding with length prefix 3 uint16
 	s, err := readUsVarChar(buf)
-	if err != nil {
-		t.Errorf("readUsVarChar should not fail for valid ucs2 byte sequence: %s", err)
-	}
-	if s != "123" {
-		t.Errorf("readUsVarChar expected to return 123 but it returned %s", s)
-	}
+	assert.NoError(t, err, "readUsVarChar should not fail for valid ucs2 byte sequence")
+	assert.Equal(t, "123", s, "readUsVarChar expected to return 123")
 
 	// should fail for empty buffer
 	buf = bytes.NewBuffer([]byte{})
 	_, err = readUsVarChar(buf)
-	if err == nil {
-		t.Error("readUsVarChar should fail on empty buffer, but it didn't")
-	}
+	assert.Error(t, err, "readUsVarChar should fail on empty buffer")
 }
 
 func TestReadBVarByte(t *testing.T) {
 	memBuf := bytes.NewBuffer([]byte{3, 1, 2, 3})
 	s, err := readBVarByte(memBuf)
-	if err != nil {
-		t.Errorf("readUsVarByte should not fail for valid buffer: %s", err)
-	}
-	if !bytes.Equal(s, []byte{1, 2, 3}) {
-		t.Errorf("readUsVarByte expected to return [1 2 3] but it returned %v", s)
-	}
+	assert.NoError(t, err, "readUsVarByte should not fail for valid buffer")
+	assert.Equal(t, []byte{1, 2, 3}, s, "readUsVarByte expected to return [1 2 3]")
 
 	// test empty buffer
 	memBuf = bytes.NewBuffer([]byte{})
 	_, err = readBVarByte(memBuf)
-	if err == nil {
-		t.Error("readUsVarByte should fail on empty buffer, but it didn't")
-	}
+	assert.Error(t, err, "readUsVarByte should fail on empty buffer")
 
 	// test short buffer
 	memBuf = bytes.NewBuffer([]byte{1})
 	_, err = readBVarByte(memBuf)
-	if err == nil {
-		t.Error("readUsVarByte should fail on short buffer, but it didn't")
-	}
+	assert.Error(t, err, "readUsVarByte should fail on short buffer")
 }
 
 func BenchmarkPacketSize(b *testing.B) {
@@ -1121,8 +1083,7 @@ func runBatch(t testing.TB, batch string, p msdsn.Config) int32 {
 	tl := testLogger{t: t}
 	defer tl.StopLogging()
 	conn, err := connect(context.Background(), &Connector{params: p}, optionalLogger{loggerAdapter{&tl}}, p)
-	if err != nil {
-		t.Error("Open connection failed:", err.Error())
+	if !assert.NoError(t, err, "Open connection failed") {
 		return 0
 	}
 	defer conn.buf.transport.Close()
@@ -1132,8 +1093,7 @@ func runBatch(t testing.TB, batch string, p msdsn.Config) int32 {
 			data: transDescrHdr{0, 1}.pack()},
 	}
 	err = sendSqlBatch72(conn.buf, batch, headers, true)
-	if err != nil {
-		t.Error("Sending sql batch failed", err.Error())
+	if !assert.NoError(t, err, "Sending sql batch failed") {
 		return 0
 	}
 
@@ -1180,9 +1140,7 @@ func TestDialSqlConnectionCustomDialer(t *testing.T) {
 		Host: "nonexistant-dns.svc.cluster.local",
 	}
 	connector, err := NewConnector(params.URL().String())
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
@@ -1197,29 +1155,19 @@ func TestDialSqlConnectionCustomDialer(t *testing.T) {
 		Host:   params.Host,
 	}
 
-	if mock.count != 0 {
-		t.Error("expecting no connections")
-	}
+	assert.Equal(t, int32(0), mock.count, "expecting no connections")
 	sqlDialer, _ := msdsn.ProtocolDialers["tcp"].(MssqlProtocolDialer)
 	conn, err := sqlDialer.DialSqlConnection(ctx, connector, &params)
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(t, err)
 
-	if mock.count != 1 {
-		t.Error("expecting 1 connection")
-	}
+	assert.Equal(t, int32(1), mock.count, "expecting 1 connection")
 
 	err = conn.Close()
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(t, err)
 
 	// if it is not a host dialer, the dialer should not be used to resolve DNS
 	connector.Dialer = mock
 	sqlDialer, _ = msdsn.ProtocolDialers["tcp"].(MssqlProtocolDialer)
 	_, err = sqlDialer.DialSqlConnection(ctx, connector, &params)
-	if err == nil {
-		t.Error(fmt.Errorf("dialer should not be used to resolve dns if not a host dialer"))
-	}
+	assert.Error(t, err, "dialer should not be used to resolve dns if not a host dialer")
 }
