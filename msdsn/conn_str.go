@@ -647,7 +647,7 @@ func Parse(dsn string) (Config, error) {
 	if !ok {
 		epaString = os.Getenv("MSSQL_USE_EPA")
 	}
-	if epaString !=  "" {
+	if epaString != "" {
 		epaEnabled, err := strconv.ParseBool(epaString)
 		if err != nil {
 			return p, fmt.Errorf("invalid epa enabled value '%s': %v", epaString, err)
@@ -836,7 +836,8 @@ func splitConnectionStringURL(dsn string) (map[string]string, error) {
 
 	u, err := url.Parse(dsn)
 	if err != nil {
-		return res, err
+		// Do not include the original error which may contain credentials
+		return res, fmt.Errorf("unable to parse connection string: invalid URL format")
 	}
 
 	if u.Scheme != "sqlserver" {

@@ -53,6 +53,42 @@ func TestInvalidConnectionString(t *testing.T) {
 	}
 }
 
+func TestCredentialNotLeakedInError(t *testing.T) {
+	// Test that when url.Parse fails, the error message does not contain credentials
+	testCases := []struct {
+		name     string
+		connStr  string
+		username string
+		password string
+	}{
+		{
+			name:     "URL with invalid control character",
+			connStr:  "sqlserver://myuser:secretpassword@host:1433\x00invalid",
+			username: "myuser",
+			password: "secretpassword",
+		},
+		{
+			name:     "URL with password and null byte in query",
+			connStr:  "sqlserver://admin:mysecret123@server.example.com:1433?database=test\x00",
+			username: "admin",
+			password: "mysecret123",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tc.connStr)
+			if !assert.Error(t, err, "Expected error for invalid connection string") {
+				return
+			}
+
+			errMsg := err.Error()
+			assert.NotContains(t, errMsg, tc.password, "Error message should not contain password")
+			assert.NotContains(t, errMsg, tc.username, "Error message should not contain username")
+		})
+	}
+}
+
 func TestValidConnectionString(t *testing.T) {
 	type testStruct struct {
 		connStr string
