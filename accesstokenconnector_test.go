@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestNewAccessTokenConnector(t *testing.T) {
@@ -90,4 +92,28 @@ func TestAccessTokenConnectorFailsToConnectIfNoAccessToken(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), errorText) {
 		t.Fatalf("expected error to contain %q, but got %q", errorText, err)
 	}
+}
+
+func TestNewAccessTokenConnector_TokenProviderCalled(t *testing.T) {
+	// Test that the token provider is actually called and returns expected value
+	dsn := "Server=server.database.windows.net;Database=db"
+	expectedToken := "test-token-123"
+	called := false
+	
+	tp := func() (string, error) {
+		called = true
+		return expectedToken, nil
+	}
+	
+	connector, err := NewAccessTokenConnector(dsn, tp)
+	assert.NoError(t, err, "NewAccessTokenConnector()")
+	
+	c, ok := connector.(*Connector)
+	assert.True(t, ok, "connector should be of type *Connector")
+	
+	// Call the security token provider
+	token, err := c.securityTokenProvider(context.Background())
+	assert.NoError(t, err, "securityTokenProvider()")
+	assert.True(t, called, "Token provider should be called")
+	assert.Equal(t, expectedToken, token, "token value")
 }

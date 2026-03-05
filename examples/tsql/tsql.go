@@ -22,7 +22,7 @@ func main() {
 	flag.Parse()
 
 	dsn := "server=" + *server + ";user id=" + *userid + ";password=" + *password + ";database=" + *database
-	db, err := sql.Open("mssql", dsn)
+	db, err := sql.Open("sqlserver", dsn)
 	if err != nil {
 		fmt.Println("Cannot connect: ", err.Error())
 		return

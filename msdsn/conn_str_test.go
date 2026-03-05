@@ -45,12 +45,47 @@ func TestInvalidConnectionString(t *testing.T) {
 	}
 	for _, connStr := range connStrings {
 		_, err := Parse(connStr)
-		if err == nil {
-			t.Errorf("Connection expected to fail for connection string %s but it didn't", connStr)
+		if !assert.Error(t, err, "Connection expected to fail for connection string %s but it didn't", connStr) {
 			continue
 		} else {
 			t.Logf("Connection failed for %s as expected with error %v", connStr, err)
 		}
+	}
+}
+
+func TestCredentialNotLeakedInError(t *testing.T) {
+	// Test that when url.Parse fails, the error message does not contain credentials
+	testCases := []struct {
+		name     string
+		connStr  string
+		username string
+		password string
+	}{
+		{
+			name:     "URL with invalid control character",
+			connStr:  "sqlserver://myuser:secretpassword@host:1433\x00invalid",
+			username: "myuser",
+			password: "secretpassword",
+		},
+		{
+			name:     "URL with password and null byte in query",
+			connStr:  "sqlserver://admin:mysecret123@server.example.com:1433?database=test\x00",
+			username: "admin",
+			password: "mysecret123",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tc.connStr)
+			if !assert.Error(t, err, "Expected error for invalid connection string") {
+				return
+			}
+
+			errMsg := err.Error()
+			assert.NotContains(t, errMsg, tc.password, "Error message should not contain password")
+			assert.NotContains(t, errMsg, tc.username, "Error message should not contain username")
+		})
 	}
 }
 
@@ -249,16 +284,12 @@ func TestValidConnectionString(t *testing.T) {
 	}
 	for _, ts := range connStrings {
 		p, err := Parse(ts.connStr)
-		if err == nil {
-			t.Logf("Connection string was parsed successfully %s", ts.connStr)
-		} else {
-			t.Errorf("Connection string %s failed to parse with error %s", ts.connStr, err)
+		if !assert.NoError(t, err, "Connection string %s failed to parse", ts.connStr) {
 			continue
 		}
+		t.Logf("Connection string was parsed successfully %s", ts.connStr)
 
-		if !ts.check(p) {
-			t.Errorf("Check failed on conn str %s", ts.connStr)
-		}
+		assert.True(t, ts.check(p), "Check failed on conn str %s", ts.connStr)
 	}
 }
 
@@ -354,14 +385,13 @@ func TestServerNameInTLSConfig(t *testing.T) {
 	}
 	for _, test := range tests {
 		cfg, err := Parse(test.dsn)
-		if err != nil {
-			t.Errorf("Could not parse valid connection string %s: %v", test.dsn, err)
+		if !assert.NoError(t, err, "Could not parse valid connection string %s", test.dsn) {
+			continue
 		}
-		if !test.hasTLSConfig && cfg.TLSConfig != nil {
-			t.Errorf("Expected empty TLS config, but got %v (cfg.Host was %s)", cfg.TLSConfig, cfg.Host)
-		}
-		if test.hasTLSConfig && cfg.TLSConfig.ServerName != test.host {
-			t.Errorf("Expected somehost as TLS server, but got %s (cfg.Host was %s)", cfg.TLSConfig.ServerName, cfg.Host)
+		if !test.hasTLSConfig {
+			assert.Nil(t, cfg.TLSConfig, "Expected empty TLS config for %s (cfg.Host was %s)", test.dsn, cfg.Host)
+		} else {
+			assert.Equal(t, test.host, cfg.TLSConfig.ServerName, "Expected %s as TLS server, but got %s (cfg.Host was %s)", test.host, cfg.TLSConfig.ServerName, cfg.Host)
 		}
 	}
 }
@@ -380,24 +410,20 @@ func TestAllKeysAreAvailableInParametersMap(t *testing.T) {
 	}
 
 	params, err := Parse(connString)
-	if err != nil {
-		t.Errorf("unexpected error while parsing, %v", err)
-	}
-
-	if params.Parameters == nil {
-		t.Error("Expected parameters map to be instanciated, found nil")
+	if !assert.NoError(t, err, "unexpected error while parsing") {
 		return
 	}
 
-	if len(params.Parameters) != len(keys) {
-		t.Errorf("Expected parameters map to be same length as input map length, expected %v, found %v", len(keys), len(params.Parameters))
+	if !assert.NotNil(t, params.Parameters, "Expected parameters map to be instanciated, found nil") {
+		return
+	}
+
+	if !assert.Len(t, params.Parameters, len(keys), "Expected parameters map to be same length as input map length") {
 		return
 	}
 
 	for key, val := range keys {
-		if params.Parameters[key] != val {
-			t.Errorf("Expected parameters map to contain key %v and value %v, found %v", key, val, params.Parameters[key])
-		}
+		assert.Equal(t, val, params.Parameters[key], "Expected parameters map to contain key %v and value %v", key, val)
 	}
 }
 
@@ -567,4 +593,84 @@ func TestEpaEnabledFromEnvironment(t *testing.T) {
 	config, err = Parse("server=testhost")
 	assert.Nil(t, err, "Expected no error parsing connection string")
 	assert.False(t, config.EpaEnabled, "Expected EpaEnabled to be false when MSSQL_USE_EPA is empty")
+}
+
+func TestEncodeParametersGetTimezone(t *testing.T) {
+	t.Parallel()
+
+	// Test with nil timezone - should return UTC
+	ep := EncodeParameters{Timezone: nil}
+	result := ep.GetTimezone()
+	assert.Equal(t, time.UTC, result, "GetTimezone() with nil should return UTC")
+
+	// Test with specific timezone
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skip("America/New_York timezone not available")
+	}
+	ep2 := EncodeParameters{Timezone: loc}
+	result2 := ep2.GetTimezone()
+	assert.Equal(t, loc, result2, "GetTimezone() should return the set timezone")
+}
+
+func TestConfigURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		config Config
+	}{
+		{
+			name: "basic config",
+			config: Config{
+				Host:     "localhost",
+				Port:     1433,
+				Database: "testdb",
+				User:     "testuser",
+				Password: "testpass",
+			},
+		},
+		{
+			name: "config with no port",
+			config: Config{
+				Host:     "localhost",
+				Database: "testdb",
+				User:     "testuser",
+			},
+		},
+		{
+			name: "config with instance",
+			config: Config{
+				Host:     "localhost",
+				Instance: "SQLEXPRESS",
+				Database: "testdb",
+			},
+		},
+		{
+			name: "config with protocol in host",
+			config: Config{
+				Host:     "tcp:localhost",
+				Port:     1433,
+				Database: "testdb",
+			},
+		},
+		{
+			name: "config with admin protocol",
+			config: Config{
+				Host:     "admin:localhost",
+				Port:     1434,
+				Database: "testdb",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			url := tt.config.URL()
+			if !assert.NotNil(t, url, "URL() returned nil") {
+				return
+			}
+			assert.Equal(t, "sqlserver", url.Scheme, "URL().Scheme")
+		})
+	}
 }

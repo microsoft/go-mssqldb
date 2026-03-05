@@ -173,14 +173,14 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		{"test_geom", geom, string(geom)},
 		{"test_uniqueidentifier", uid, string(uid)},
 		{"test_nulluniqueidentifier", nil, nil},
-		{"test_nullfloat", sql.NullFloat64{64, true}, 64.0},
-		{"test_nullstring", sql.NullString{"abcdefg", true}, "abcdefg"},
-		{"test_nullbyte", sql.NullByte{0x01, true}, 1},
-		{"test_nullbool", sql.NullBool{true, true}, true},
-		{"test_nullint64", sql.NullInt64{9223372036854775807, true}, 9223372036854775807},
-		{"test_nullint32", sql.NullInt32{2147483647, true}, 2147483647},
-		{"test_nullint16", sql.NullInt16{32767, true}, 32767},
-		{"test_nulltime", sql.NullTime{time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC), true}, time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC)},
+		{"test_nullfloat", sql.NullFloat64{Float64: 64, Valid: true}, 64.0},
+		{"test_nullstring", sql.NullString{String: "abcdefg", Valid: true}, "abcdefg"},
+		{"test_nullbyte", sql.NullByte{Byte: 0x01, Valid: true}, 1},
+		{"test_nullbool", sql.NullBool{Bool: true, Valid: true}, true},
+		{"test_nullint64", sql.NullInt64{Int64: 9223372036854775807, Valid: true}, 9223372036854775807},
+		{"test_nullint32", sql.NullInt32{Int32: 2147483647, Valid: true}, 2147483647},
+		{"test_nullint16", sql.NullInt16{Int16: 32767, Valid: true}, 32767},
+		{"test_nulltime", sql.NullTime{Time: time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC), Valid: true}, time.Date(2010, 11, 12, 13, 14, 15, 120000000, time.UTC)},
 		{"test_nulldecimal", decimal.NewNullDecimal(decimal.New(1232355, -4)), decimal.New(1232355, -4)},
 		{"test_nullmoney", Money[decimal.NullDecimal]{decimal.NewNullDecimal(decimal.New(-21232311232355, -4))}, decimal.New(-21232311232355, -4)},
 		{"test_datetimen_midnight", time.Date(2025, 1, 1, 23, 59, 59, 998_350_000, time.UTC), time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)},
@@ -203,6 +203,7 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		{"test_int16nvarchar", int16(1234), "1234"},
 		{"test_int8nvarchar", int8(12), "12"},
 		{"test_intnvarchar", 1234, "1234"},
+		{"test_[]{}?@!#$%^&*()_+-=~'\\\";:/.,<>|\\ ", 1, nil}, // col name escaping check
 	}
 
 	columns := make([]string, len(testValues))
@@ -275,8 +276,14 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		t.Errorf("unexpected row count %d", rowCount)
 	}
 
+	q := TSQLQuoter{}
+	selectColumns := make([]string, len(columns))
+	for i, col := range columns {
+		selectColumns[i] = q.ID(col)
+	}
+
 	//data verification
-	rows, err := conn.QueryContext(ctx, "select "+strings.Join(columns, ",")+" from "+tableName)
+	rows, err := conn.QueryContext(ctx, "select "+strings.Join(selectColumns, ",")+" from "+tableName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,6 +468,7 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 	[test_nullint32] [int] NULL,
 	[test_nullint16] [smallint] NULL,
 	[test_nulltime] [datetime] NULL,
+	[test_[]]{}?@!#$%^&*()_+-=~'\";:/.,<>|\ ] [int] NULL,
 	[test_nulldecimal] [decimal](18, 4) NULL,
 	[test_nullmoney] [money] NULL,
 	[test_datetimen_midnight] [datetime] NULL,

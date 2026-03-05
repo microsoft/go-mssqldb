@@ -837,7 +837,8 @@ func splitConnectionStringURL(dsn string) (map[string]string, error) {
 
 	u, err := url.Parse(dsn)
 	if err != nil {
-		return res, err
+		// Do not include the original error which may contain credentials
+		return res, fmt.Errorf("unable to parse connection string: invalid URL format")
 	}
 
 	if u.Scheme != "sqlserver" {

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestUniqueIdentifierScanNull(t *testing.T) {
@@ -33,9 +35,7 @@ func TestUniqueIdentifierScanBytes(t *testing.T) {
 	if scanErr != nil {
 		t.Fatal(scanErr)
 	}
-	if sut != uuid {
-		t.Errorf("bytes not swapped correctly: got %q; want %q", sut, uuid)
-	}
+	assert.Equal(t, uuid, sut, "bytes not swapped correctly")
 }
 
 func TestUniqueIdentifierScanString(t *testing.T) {
@@ -47,9 +47,7 @@ func TestUniqueIdentifierScanString(t *testing.T) {
 	if scanErr != nil {
 		t.Fatal(scanErr)
 	}
-	if sut != uuid {
-		t.Errorf("string not scanned correctly: got %q; want %q", sut, uuid)
-	}
+	assert.Equal(t, uuid, sut, "string not scanned correctly")
 }
 
 func TestUniqueIdentifierScanUnexpectedType(t *testing.T) {
@@ -82,18 +80,14 @@ func TestUniqueIdentifierValue(t *testing.T) {
 		t.Fatalf("(%T) is not []byte", v)
 	}
 
-	if !bytes.Equal(b, dbUUID[:]) {
-		t.Errorf("got %q; want %q", b, dbUUID)
-	}
+	assert.True(t, bytes.Equal(b, dbUUID[:]), "got %q; want %q", b, dbUUID)
 }
 
 func TestUniqueIdentifierString(t *testing.T) {
 	t.Parallel()
 	sut := UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}
 	expected := "01234567-89AB-CDEF-0123-456789ABCDEF"
-	if actual := sut.String(); actual != expected {
-		t.Errorf("sut.String() = %s; want %s", sut, expected)
-	}
+	assert.Equal(t, expected, sut.String(), "sut.String()")
 }
 
 func TestUniqueIdentifierMarshalText(t *testing.T) {
@@ -101,9 +95,7 @@ func TestUniqueIdentifierMarshalText(t *testing.T) {
 	sut := UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}
 	expected := []byte{48, 49, 50, 51, 52, 53, 54, 55, 45, 56, 57, 65, 66, 45, 67, 68, 69, 70, 45, 48, 49, 50, 51, 45, 52, 53, 54, 55, 56, 57, 65, 66, 67, 68, 69, 70}
 	text, _ := sut.MarshalText()
-	if actual := text; !reflect.DeepEqual(actual, expected) {
-		t.Errorf("sut.MarshalText() = %v; want %v", actual, expected)
-	}
+	assert.True(t, reflect.DeepEqual(text, expected), "sut.MarshalText() = %v; want %v", text, expected)
 }
 
 func TestUniqueIdentifierUnmarshalJSON(t *testing.T) {
@@ -116,9 +108,31 @@ func TestUniqueIdentifierUnmarshalJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}
-	if u != expected {
-		t.Errorf("u.UnmarshalJSON() = %v; want %v", u, expected)
-	}
+	assert.Equal(t, expected, u, "u.UnmarshalJSON()")
+}
+
+func TestUniqueIdentifierUnmarshalJSONInvalid(t *testing.T) {
+	t.Parallel()
+	var u UniqueIdentifier
+	// Invalid hex characters should fail
+	err := u.UnmarshalJSON([]byte("ZZZZZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZZZZZZZZZ"))
+	assert.Error(t, err, "expected error for invalid hex characters")
+}
+
+func TestUniqueIdentifierScanInvalidByteLength(t *testing.T) {
+	t.Parallel()
+	var u UniqueIdentifier
+	// Wrong byte length should fail
+	err := u.Scan([]byte{0x01, 0x02, 0x03}) // Only 3 bytes, need 16
+	assert.Error(t, err, "expected error for invalid byte length")
+}
+
+func TestUniqueIdentifierScanInvalidStringLength(t *testing.T) {
+	t.Parallel()
+	var u UniqueIdentifier
+	// Wrong string length should fail
+	err := u.Scan("too-short")
+	assert.Error(t, err, "expected error for invalid string length")
 }
 
 var _ fmt.Stringer = UniqueIdentifier{}
