@@ -425,6 +425,12 @@ func compareValue(a interface{}, expected interface{}) bool {
 			return civil.TimeOf(got) == civil.Time(expected)
 		}
 		return false
+	case DateTimeOffset:
+		// compare DateTimeOffset to time.Time returned by SQL
+		if got, ok := a.(time.Time); ok {
+			return got.Equal(time.Time(expected))
+		}
+		return false
 	case NullDate:
 		// compare NullDate to time.Time returned by SQL
 		if got, ok := a.(time.Time); ok {
