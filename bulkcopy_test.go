@@ -36,6 +36,18 @@ func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 		"test_nullmssqldatetime2",
 		"test_nullmssqltime",
 		"test_nullmssqldatetimeoffset",
+		"test_nullmssqlnullable_datetime",
+		"test_nullmssqlnullable_datetimen",
+		"test_nullmssqlnullable_datetimen_1",
+		"test_nullmssqlnullable_datetimen_midnight",
+		"test_nullmssqlnullable_datetime2_1",
+		"test_nullmssqlnullable_datetime2_3",
+		"test_nullmssqlnullable_datetime2_7",
+		"test_nullmssqlnullable_datetimeoffset_7",
+		"test_nullmssqlnullable_date",
+		"test_nullmssqlnullable_date_2",
+		"test_nullmssqlnullable_time",
+		"test_nullmssqlnullable_time_2",
 		"test_nulluniqueidentifier",
 		"test_nulldecimal",
 		"test_nullmoney",
@@ -54,6 +66,18 @@ func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 		NullDateTime2{Valid: false},
 		NullTime{Valid: false},
 		NullDateTimeOffset{Valid: false},
+		NullDateTime{Valid: false},
+		NullDateTime{Valid: false},
+		NullDateTime{Valid: false},
+		NullDateTime{Valid: false},
+		NullDateTime2{Valid: false},
+		NullDateTime2{Valid: false},
+		NullDateTime2{Valid: false},
+		NullDateTimeOffset{Valid: false},
+		NullDate{Valid: false},
+		NullDate{Valid: false},
+		NullTime{Valid: false},
+		NullTime{Valid: false},
 		NullUniqueIdentifier{Valid: false},
 		decimal.NullDecimal{Valid: false},
 		Money[decimal.NullDecimal]{decimal.NullDecimal{Valid: false}},
@@ -170,6 +194,10 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		{"test_datetime2_3", time.Date(2010, 11, 12, 13, 14, 15, 123000000, time.UTC), nil},
 		{"test_datetime2_7", time.Date(2010, 11, 12, 13, 14, 15, 123000000, time.UTC), nil},
 		{"test_datetimeoffset_7", time.Date(2010, 11, 12, 13, 14, 15, 123000000, time.UTC), nil},
+		{"test_date", time.Date(2010, 11, 12, 0, 0, 0, 0, time.UTC), nil},
+		{"test_date_2", "2015-06-07", time.Date(2015, 6, 7, 0, 0, 0, 0, time.UTC)},
+		{"test_time", time.Date(2010, 11, 12, 13, 14, 15, 123000000, time.UTC), time.Date(1, 1, 1, 13, 14, 15, 123000000, time.UTC)},
+		{"test_time_2", "13:14:15.1230000", time.Date(1, 1, 1, 13, 14, 15, 123000000, time.UTC)},
 		{"test_mssqldatetime", DateTime(civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}}), nil},
 		{"test_mssqldatetimen", DateTime(civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}}), nil},
 		{"test_mssqldatetimen_1", DateTime(civil.DateTime{Date: civil.Date{Year: 4010, Month: 11, Day: 12}}), nil},
@@ -177,15 +205,23 @@ func testBulkcopy(t *testing.T, guidConversion bool) {
 		{"test_mssqldatetime2_1", "2010-11-12 13:14:15Z", DateTime2(civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}, Time: civil.Time{Hour: 13, Minute: 14, Second: 15}})},
 		{"test_mssqldatetime2_3", DateTime2(civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}, Time: civil.Time{Hour: 13, Minute: 14, Second: 15, Nanosecond: 123000000}}), nil},
 		{"test_mssqldatetime2_7", DateTime2(civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}, Time: civil.Time{Hour: 13, Minute: 14, Second: 15, Nanosecond: 123000000}}), nil},
+		{"test_mssqldatetimeoffset_7", DateTimeOffset(time.Date(2010, 11, 12, 13, 14, 15, 123000000, time.UTC)), nil},
 		{"test_mssqldate", Date(civil.Date{Year: 2010, Month: 11, Day: 12}), nil},
 		{"test_mssqldate_2", "2015-06-07", Date(civil.Date{Year: 2015, Month: 6, Day: 7})},
-		{"test_date", time.Date(2010, 11, 12, 0, 0, 0, 0, time.UTC), nil},
-		{"test_date_2", "2015-06-07", time.Date(2015, 6, 7, 0, 0, 0, 0, time.UTC)},
-		{"test_time", time.Date(2010, 11, 12, 13, 14, 15, 123000000, time.UTC), time.Date(1, 1, 1, 13, 14, 15, 123000000, time.UTC)},
-		{"test_time_2", "13:14:15.1230000", time.Date(1, 1, 1, 13, 14, 15, 123000000, time.UTC)},
 		{"test_mssqltime", Time{Hour: 13, Minute: 14, Second: 15, Nanosecond: 123000000}, nil},
 		{"test_mssqltime_2", "13:14:15.1230000", Time{Hour: 13, Minute: 14, Second: 15, Nanosecond: 123000000}},
-
+		{"test_mssqlnullable_datetime", NullDateTime{DateTime: DateTime(civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}}), Valid: true}, nil},
+		{"test_mssqlnullable_datetimen", NullDateTime{DateTime: DateTime(civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}}), Valid: true}, nil},
+		{"test_mssqlnullable_datetimen_1", NullDateTime{DateTime: DateTime(civil.DateTime{Date: civil.Date{Year: 4010, Month: 11, Day: 12}}), Valid: true}, nil},
+		{"test_mssqlnullable_datetimen_midnight", NullDateTime{DateTime: DateTime(civil.DateTime{Date: civil.Date{Year: 2025, Month: 1, Day: 1}, Time: civil.Time{Hour: 23, Minute: 59, Second: 59, Nanosecond: 998_350_000}}), Valid: true}, NullDateTime{DateTime: DateTime(civil.DateTime{Date: civil.Date{Year: 2025, Month: 1, Day: 2}}), Valid: true}},
+		{"test_mssqlnullable_datetime2_1", "2010-11-12 13:14:15Z", NullDateTime2{DateTime2: DateTime2(civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}, Time: civil.Time{Hour: 13, Minute: 14, Second: 15}}), Valid: true}},
+		{"test_mssqlnullable_datetime2_3", NullDateTime2{DateTime2: DateTime2(civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}, Time: civil.Time{Hour: 13, Minute: 14, Second: 15, Nanosecond: 123000000}}), Valid: true}, nil},
+		{"test_mssqlnullable_datetime2_7", NullDateTime2{DateTime2: DateTime2(civil.DateTime{Date: civil.Date{Year: 2010, Month: 11, Day: 12}, Time: civil.Time{Hour: 13, Minute: 14, Second: 15, Nanosecond: 123000000}}), Valid: true}, nil},
+		{"test_mssqlnullable_datetimeoffset_7", NullDateTimeOffset{DateTimeOffset: DateTimeOffset(time.Date(2010, 11, 12, 13, 14, 15, 123000000, time.UTC)), Valid: true}, nil},
+		{"test_mssqlnullable_date", NullDate{Date: Date(civil.Date{Year: 2010, Month: 11, Day: 12}), Valid: true}, nil},
+		{"test_mssqlnullable_date_2", "2015-06-07", NullDate{Date: Date(civil.Date{Year: 2015, Month: 6, Day: 7}), Valid: true}},
+		{"test_mssqlnullable_time", NullTime{Time: Time{Hour: 13, Minute: 14, Second: 15, Nanosecond: 123000000}, Valid: true}, nil},
+		{"test_mssqlnullable_time_2", "13:14:15.1230000", NullTime{Time: Time{Hour: 13, Minute: 14, Second: 15, Nanosecond: 123000000}, Valid: true}},
 		{"test_tinyint", 255, nil},
 		{"test_smallint", 32767, nil},
 		{"test_smallintn", nil, nil},
@@ -389,6 +425,36 @@ func compareValue(a interface{}, expected interface{}) bool {
 			return civil.TimeOf(got) == civil.Time(expected)
 		}
 		return false
+	case NullDate:
+		// compare NullDate to time.Time returned by SQL
+		if got, ok := a.(time.Time); ok {
+			return expected.Valid && civil.DateOf(got) == civil.Date(expected.Date)
+		}
+		return false
+	case NullDateTime:
+		// compare NullDateTime to time.Time returned by SQL
+		if got, ok := a.(time.Time); ok {
+			return expected.Valid && civil.DateTimeOf(got) == civil.DateTime(expected.DateTime)
+		}
+		return false
+	case NullDateTime2:
+		// compare NullDateTime2 to time.Time returned by SQL
+		if got, ok := a.(time.Time); ok {
+			return expected.Valid && civil.DateTimeOf(got) == civil.DateTime(expected.DateTime2)
+		}
+		return false
+	case NullTime:
+		// compare NullTime to time.Time returned by SQL
+		if got, ok := a.(time.Time); ok {
+			return expected.Valid && civil.TimeOf(got) == civil.Time(expected.Time)
+		}
+		return false
+	case NullDateTimeOffset:
+		// compare NullDateTimeOffset to time.Time returned by SQL
+		if got, ok := a.(time.Time); ok {
+			return expected.Valid && got.Equal(time.Time(expected.DateTimeOffset))
+		}
+		return false
 	case decimal.Decimal:
 		actual, err := decimal.NewFromString(a.(string))
 		if err != nil {
@@ -424,6 +490,18 @@ func setupNullableTypeTable(ctx context.Context, t *testing.T, conn *sql.Conn, t
 	[test_nullmssqldatetime2] [datetime2] NULL,
 	[test_nullmssqltime] [time] NULL,
 	[test_nullmssqldatetimeoffset] [datetimeoffset] NULL,
+	[test_nullmssqlnullable_datetime] [datetime] NULL,
+	[test_nullmssqlnullable_datetimen] [datetime] NULL,
+	[test_nullmssqlnullable_datetimen_1] [datetime] NULL,
+	[test_nullmssqlnullable_datetimen_midnight] [datetime] NULL,
+	[test_nullmssqlnullable_datetime2_1] [datetime2](1) NULL,
+	[test_nullmssqlnullable_datetime2_3] [datetime2](3) NULL,
+	[test_nullmssqlnullable_datetime2_7] [datetime2](7) NULL,
+	[test_nullmssqlnullable_datetimeoffset_7] [datetimeoffset](7) NULL,
+	[test_nullmssqlnullable_date] [date] NULL,
+	[test_nullmssqlnullable_date_2] [date] NULL,
+	[test_nullmssqlnullable_time] [time](7) NULL,
+	[test_nullmssqlnullable_time_2] [time](7) NULL,
 	[test_nulluniqueidentifier] [uniqueidentifier] NULL,
 	[test_nulldecimal] [decimal](18, 4) NULL,
 	[test_nullmoney] [money] NULL,
@@ -472,6 +550,21 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 	[test_mssqldatetime2_1] [datetime2](1) NULL,
 	[test_mssqldatetime2_3] [datetime2](3) NULL,
 	[test_mssqldatetime2_7] [datetime2](7) NULL,
+	[test_mssqldatetimeoffset_7] [datetimeoffset](7) NULL,
+	[test_mssqltime] [time](7) NULL,
+	[test_mssqltime_2] [time](7) NULL,
+	[test_mssqlnullable_datetime] [datetime] NULL,
+	[test_mssqlnullable_datetimen] [datetime] NULL,
+	[test_mssqlnullable_datetimen_1] [datetime] NULL,
+	[test_mssqlnullable_datetimen_midnight] [datetime] NULL,
+	[test_mssqlnullable_datetime2_1] [datetime2](1) NULL,
+	[test_mssqlnullable_datetime2_3] [datetime2](3) NULL,
+	[test_mssqlnullable_datetime2_7] [datetime2](7) NULL,
+	[test_mssqlnullable_datetimeoffset_7] [datetimeoffset](7) NULL,
+	[test_mssqlnullable_date] [date] NULL,
+	[test_mssqlnullable_date_2] [date] NULL,
+	[test_mssqlnullable_time] [time](7) NULL,
+	[test_mssqlnullable_time_2] [time](7) NULL,
 	[test_datetime2_1] [datetime2](1) NULL,
 	[test_datetime2_3] [datetime2](3) NULL,
 	[test_datetime2_7] [datetime2](7) NULL,
@@ -481,8 +574,8 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 	[test_date] [date] NULL,
 	[test_date_2] [date] NULL,
 	[test_time] [time](7) NULL,
-	[test_time_2] [time](7) NULL,		[test_mssqltime] [time](7) NULL,
-		[test_mssqltime_2] [time](7) NULL,	[test_smallmoney] [smallmoney] NULL,
+	[test_time_2] [time](7) NULL,
+	[test_smallmoney] [smallmoney] NULL,
 	[test_money] [money] NULL,
 	[test_tinyint] [tinyint] NULL,
 	[test_smallint] [smallint] NOT NULL,

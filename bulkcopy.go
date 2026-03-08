@@ -522,7 +522,7 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 			res.ti.Size = len(res.buffer)
 		case NullDateTime2:
 			if val.Valid {
-				d := val.DateTime
+				d := val.DateTime2
 				dt := civil.DateTime(d)
 				res.buffer = encodeDateTime2(
 					dt.Date.Year,

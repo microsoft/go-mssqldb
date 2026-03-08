@@ -1007,7 +1007,7 @@ END;
 	})
 
 	t.Run("nullable value", func(t *testing.T) {
-		dinout := NullDateTime2{DateTime: DateTime2(civil.DateTime{Date: civil.Date{Year: 2000, Month: 6, Day: 15}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}}), Valid: true}
+		dinout := NullDateTime2{DateTime2: DateTime2(civil.DateTime{Date: civil.Date{Year: 2000, Month: 6, Day: 15}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}}), Valid: true}
 		_, err = db.ExecContext(ctx, sqltextrun,
 			sql.Named("dinout", sql.Out{Dest: &dinout}),
 		)
@@ -1016,9 +1016,9 @@ END;
 		}
 
 		expected := DateTime2(civil.DateTime{Date: civil.Date{Year: 2030, Month: 5, Day: 16}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}})
-		if !dinout.Valid || dinout.DateTime != expected {
+		if !dinout.Valid || dinout.DateTime2 != expected {
 			if dinout.Valid {
-				t.Errorf("expected 2030-05-16, got %t, %s", dinout.Valid, civil.DateTime(dinout.DateTime).String())
+				t.Errorf("expected 2030-05-16, got %t, %s", dinout.Valid, civil.DateTime(dinout.DateTime2).String())
 			} else {
 				t.Errorf("expected 2030-05-16, got NULL")
 			}
@@ -1035,9 +1035,9 @@ END;
 		}
 
 		expected := DateTime2(civil.DateTime{Date: civil.Date{Year: 2020, Month: 1, Day: 2}, Time: civil.Time{Hour: 10, Minute: 11, Second: 12}})
-		if !dinout.Valid || dinout.DateTime != expected {
+		if !dinout.Valid || dinout.DateTime2 != expected {
 			if dinout.Valid {
-				t.Errorf("expected 2020-01-02, got %t, %s", dinout.Valid, civil.DateTime(dinout.DateTime).String())
+				t.Errorf("expected 2020-01-02, got %t, %s", dinout.Valid, civil.DateTime(dinout.DateTime2).String())
 			} else {
 				t.Errorf("expected 2020-01-02, got NULL")
 			}
@@ -1045,7 +1045,7 @@ END;
 	})
 
 	t.Run("null result", func(t *testing.T) {
-		dinout := NullDateTime2{DateTime: DateTime2(civil.DateTime{Date: civil.Date{Year: 2006, Month: 1, Day: 2}, Time: civil.Time{Hour: 15, Minute: 4, Second: 5}}), Valid: true}
+		dinout := NullDateTime2{DateTime2: DateTime2(civil.DateTime{Date: civil.Date{Year: 2006, Month: 1, Day: 2}, Time: civil.Time{Hour: 15, Minute: 4, Second: 5}}), Valid: true}
 		_, err = db.ExecContext(ctx, sqltextrun,
 			sql.Named("dinout", sql.Out{Dest: &dinout}),
 		)
@@ -1054,7 +1054,7 @@ END;
 		}
 
 		if dinout.Valid {
-			t.Errorf("expected NULL, got %t, %s", dinout.Valid, civil.DateTime(dinout.DateTime).String())
+			t.Errorf("expected NULL, got %t, %s", dinout.Valid, civil.DateTime(dinout.DateTime2).String())
 		}
 	})
 }

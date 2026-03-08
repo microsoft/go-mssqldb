@@ -360,9 +360,9 @@ func testSelect(t *testing.T, guidConversion bool) {
 			return
 		}
 
-		nd := NullDateTime2{DateTime: DateTime2(civil.DateTime{Date: civil.Date{Year: 2006, Month: 1, Day: 2}, Time: civil.Time{Hour: 23, Minute: 12, Second: 44}}), Valid: true}
-		if out.DateTime != nd.DateTime || !out.Valid {
-			t.Errorf("got back a NullDateTime2 with value: %t, %s", out.Valid, civil.DateTime(out.DateTime).String())
+		nd := NullDateTime2{DateTime2: DateTime2(civil.DateTime{Date: civil.Date{Year: 2006, Month: 1, Day: 2}, Time: civil.Time{Hour: 23, Minute: 12, Second: 44}}), Valid: true}
+		if out.DateTime2 != nd.DateTime2 || !out.Valid {
+			t.Errorf("got back a NullDateTime2 with value: %t, %s", out.Valid, civil.DateTime(out.DateTime2).String())
 		}
 	})
 	t.Run("scan into NullDateTime2 from NULL", func(t *testing.T) {
@@ -375,7 +375,7 @@ func testSelect(t *testing.T, guidConversion bool) {
 		}
 
 		if out.Valid {
-			t.Errorf("got back a NullDateTime2 with value: %t, %s", out.Valid, civil.DateTime(out.DateTime).String())
+			t.Errorf("got back a NullDateTime2 with value: %t, %s", out.Valid, civil.DateTime(out.DateTime2).String())
 		}
 	})
 

@@ -2,8 +2,8 @@ package mssql
 
 import (
 	"database/sql"
-//	"database/sql/driver"
-//	"time"
+	//	"database/sql/driver"
+	//	"time"
 
 	"github.com/golang-sql/civil"
 )
@@ -169,8 +169,8 @@ func (n *NullDateTime) Scan(value any) error {
 }
 
 type NullDateTime2 struct {
-	DateTime DateTime2
-	Valid    bool
+	DateTime2 DateTime2
+	Valid     bool
 }
 
 // Scan implements the [Scanner] interface.
@@ -190,14 +190,14 @@ func (n *NullDateTime2) Scan(value any) error {
 
 	n.Valid = true
 
-	n.DateTime.Date.Year = t.Time.Year()
-	n.DateTime.Date.Month = t.Time.Month()
-	n.DateTime.Date.Day = t.Time.Day()
+	n.DateTime2.Date.Year = t.Time.Year()
+	n.DateTime2.Date.Month = t.Time.Month()
+	n.DateTime2.Date.Day = t.Time.Day()
 
-	n.DateTime.Time.Hour = t.Time.Hour()
-	n.DateTime.Time.Minute = t.Time.Minute()
-	n.DateTime.Time.Second = t.Time.Second()
-	n.DateTime.Time.Nanosecond = t.Time.Nanosecond()
+	n.DateTime2.Time.Hour = t.Time.Hour()
+	n.DateTime2.Time.Minute = t.Time.Minute()
+	n.DateTime2.Time.Second = t.Time.Second()
+	n.DateTime2.Time.Nanosecond = t.Time.Nanosecond()
 
 	return nil
 }
