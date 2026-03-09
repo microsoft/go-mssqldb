@@ -318,6 +318,57 @@ func TestConnParseRoundTripFixed(t *testing.T) {
 	}
 }
 
+func TestURLWithIPv6Address(t *testing.T) {
+	tests := []struct {
+		name     string
+		host     string
+		port     uint64
+		expected string
+	}{
+		{
+			name:     "IPv6 loopback with port",
+			host:     "::1",
+			port:     1433,
+			expected: "[::1]:1433",
+		},
+		{
+			name:     "IPv6 full address with port",
+			host:     "2001:db8::1",
+			port:     1433,
+			expected: "[2001:db8::1]:1433",
+		},
+		{
+			name:     "IPv4 address with port",
+			host:     "192.168.1.1",
+			port:     1433,
+			expected: "192.168.1.1:1433",
+		},
+		{
+			name:     "hostname with port",
+			host:     "localhost",
+			port:     1433,
+			expected: "localhost:1433",
+		},
+		{
+			name:     "IPv6 without port",
+			host:     "::1",
+			port:     0,
+			expected: "::1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Config{
+				Host: tt.host,
+				Port: tt.port,
+			}
+			u := cfg.URL()
+			assert.Equal(t, tt.expected, u.Host, "URL().Host")
+		})
+	}
+}
+
 func TestServerNameInTLSConfig(t *testing.T) {
 	var tests = []struct {
 		dsn          string

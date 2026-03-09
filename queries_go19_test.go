@@ -39,7 +39,7 @@ func TestOutputParam(t *testing.T) {
 	AS
 	SELECT @strparam = REPLICATE('a', 8000)
 	RETURN 0`
-		sqltextdrop := `drop procedure GetTask`
+		sqltextdrop := `DROP PROCEDURE IF EXISTS GetTask`
 		sqltextrun := `GetTask`
 		_, _ = db.ExecContext(ctx, sqltextdrop)
 		_, err = db.ExecContext(ctx, sqltextcreate)
@@ -74,7 +74,7 @@ BEGIN
    SELECT @intparam = 10
 END;
 `
-		sqltextdrop := `DROP PROCEDURE spwithrows;`
+		sqltextdrop := `DROP PROCEDURE IF EXISTS spwithrows;`
 		sqltextrun := `spwithrows`
 
 		db.ExecContext(ctx, sqltextdrop)
@@ -146,7 +146,7 @@ BEGIN
    SELECT @bid = @aid, @cstr = 'OK', @datetime = '2010-01-01T00:00:00';
 END;
 `
-		sqltextdrop := `DROP PROCEDURE abassign;`
+		sqltextdrop := `DROP PROCEDURE IF EXISTS abassign;`
 		sqltextrun := `abassign`
 
 		db.ExecContext(ctx, sqltextdrop)
@@ -386,7 +386,7 @@ BEGIN
 		SET @sinout = 'long_long_value'
 END;
 `
-	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextdrop := `DROP PROCEDURE IF EXISTS vinout;`
 	sqltextrun := `vinout`
 
 	checkConnStr(t)
@@ -484,7 +484,7 @@ BEGIN
 	SET @binout = CONVERT(VARBINARY(4000), 'long_long_value')
 END;
 `
-	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextdrop := `DROP PROCEDURE IF EXISTS vinout;`
 	sqltextrun := `vinout`
 
 	checkConnStr(t)
@@ -537,7 +537,7 @@ BEGIN
 		SET @dinout = 29342.1234
 END;
 `
-	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextdrop := `DROP PROCEDURE IF EXISTS vinout;`
 	sqltextrun := `vinout`
 
 	checkConnStr(t)
@@ -645,7 +645,7 @@ BEGIN
 		SET @minout = 29342.1234
 END;
 `
-	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextdrop := `DROP PROCEDURE IF EXISTS vinout;`
 	sqltextrun := `vinout`
 
 	checkConnStr(t)
@@ -758,7 +758,7 @@ BEGIN
 	SELECT @dinout
 END;
 `
-	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextdrop := `DROP PROCEDURE IF EXISTS vinout;`
 	sqltextrun := `vinout`
 
 	checkConnStr(t)
@@ -962,7 +962,7 @@ BEGIN
 	SELECT @minout
 END;
 `
-	sqltextdrop := `DROP PROCEDURE vinout;`
+	sqltextdrop := `DROP PROCEDURE IF EXISTS vinout;`
 	sqltextrun := `vinout`
 
 	checkConnStr(t)
@@ -1249,7 +1249,7 @@ BEGIN
 	;
 END;
 `
-	sqltextdrop := `DROP PROCEDURE abinout;`
+	sqltextdrop := `DROP PROCEDURE IF EXISTS abinout;`
 	sqltextrun := `abinout`
 
 	checkConnStr(t)
@@ -1451,7 +1451,7 @@ func TestOutputParamWithRows(t *testing.T) {
 		SELECT 'Row 1'
 	END
 	`
-	sqltextdrop := `DROP PROCEDURE spwithoutputandrows;`
+	sqltextdrop := `DROP PROCEDURE IF EXISTS spwithoutputandrows;`
 	sqltextrun := `spwithoutputandrows`
 
 	checkConnStr(t)
@@ -1556,7 +1556,7 @@ func TestParamNoName(t *testing.T) {
 		AS BEGIN
 			SELECT @intCol, @nvarcharCol, @varcharCol, @decimalCol, @nullDecimalCol
 		END`
-		sqltextdrop := `DROP PROCEDURE spnoparamname`
+		sqltextdrop := `DROP PROCEDURE IF EXISTS spnoparamname`
 		sqltextrun := `spnoparamname`
 
 		db.ExecContext(ctx, sqltextdrop)
@@ -2233,9 +2233,7 @@ func TestCancelWithNoResults(t *testing.T) {
 	}
 }
 
-const DropSprocWithCursor = `IF  EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[TestSqlCmd]') AND type in (N'P', N'PC'))
-DROP PROCEDURE [dbo].[TestSqlCmd]
-`
+const DropSprocWithCursor = `DROP PROCEDURE IF EXISTS [dbo].[TestSqlCmd]`
 
 // This query generates half a dozen tokenDoneInProc tokens which fill the channel if the app isn't scanning Rowsq
 const CreateSprocWithCursor = `
