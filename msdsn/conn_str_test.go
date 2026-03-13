@@ -102,6 +102,10 @@ func TestValidConnectionString(t *testing.T) {
 		{"server=(local)", func(p Config) bool { return p.Host == "localhost" }},
 		{"ServerSPN=serverspn;Workstation ID=workstid", func(p Config) bool { return p.ServerSPN == "serverspn" && p.Workstation == "workstid" }},
 		{"failoverpartner=fopartner;failoverport=2000", func(p Config) bool { return p.FailOverPartner == "fopartner" && p.FailOverPort == 2000 }},
+		{"failoverpartner=fopartner;failoverport=2000;FailoverPartnerSPN=MSSQLSvc/fopartner:2000", func(p Config) bool {
+			return p.FailOverPartner == "fopartner" && p.FailOverPort == 2000 && p.FailOverPartnerSPN == "MSSQLSvc/fopartner:2000"
+		}},
+		{"FailoverPartnerSPN=MSSQLSvc/mirror:1433", func(p Config) bool { return p.FailOverPartnerSPN == "MSSQLSvc/mirror:1433" }},
 		{"app name=appname;applicationintent=ReadOnly;database=testdb", func(p Config) bool { return p.AppName == "appname" && p.ReadOnlyIntent }},
 		{"encrypt=disable", func(p Config) bool { return p.Encryption == EncryptionDisabled }},
 		{"encrypt=disable;tlsmin=1.1", func(p Config) bool { return p.Encryption == EncryptionDisabled && p.TLSConfig == nil }},

@@ -422,6 +422,9 @@ func (d *Driver) connect(ctx context.Context, c *Connector, params msdsn.Config)
 		if params.FailOverPort != 0 {
 			params.Port = params.FailOverPort
 		}
+		if params.FailOverPartnerSPN != "" {
+			params.ServerSPN = params.FailOverPartnerSPN
+		}
 
 		sess, err = connect(ctx, c, d.logger, params)
 		if err != nil {

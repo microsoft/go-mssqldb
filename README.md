@@ -46,6 +46,7 @@ Other supported formats are listed below.
 * `keepAlive` - in seconds; 0 to disable (default is 30)
 * `failoverpartner` - host or host\instance (default is no partner).
 * `failoverport` - used only when there is no instance in failoverpartner (default 1433)
+* `FailoverPartnerSPN` - The kerberos SPN (Service Principal Name) for the failover partner. Default is MSSQLSvc/host:port.
 * `packet size` - in bytes; 512 to 32767 (default is 4096)
   * Encrypted connections have a maximum packet size of 16383 bytes
   * Further information on usage: <https://docs.microsoft.com/en-us/sql/database-engine/configure-windows/configure-the-network-packet-size-server-configuration-option>
