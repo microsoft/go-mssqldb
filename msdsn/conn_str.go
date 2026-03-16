@@ -744,6 +744,7 @@ var adoSynonyms = map[string]string{
 	"pwd":                       Password,
 	"initial catalog":           Database,
 	"column encryption setting": "columnencryption",
+	"authentication":            "fedauth",
 }
 
 func splitConnectionString(dsn string) (res map[string]string) {

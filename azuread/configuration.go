@@ -94,12 +94,51 @@ func parse(dsn string) (*azureFedAuthConfig, error) {
 	return config, nil
 }
 
+// normalizeAuthenticationMethod converts ADO.NET authentication method names to internal names
+func normalizeAuthenticationMethod(authMethod string) string {
+	// Map ADO.NET authentication names to internal names
+	// ADO.NET uses spaces in names like "Active Directory Password"
+	// We normalize them to our internal names without spaces
+	adoNetAuthMethods := map[string]string{
+		"sql password":                        "",                                // "Sql Password", not Azure AD - empty string signals non-Azure AD auth
+		"active directory password":           ActiveDirectoryPassword,           // "Active Directory Password"
+		"active directory integrated":         ActiveDirectoryIntegrated,         // "Active Directory Integrated"
+		"active directory interactive":        ActiveDirectoryInteractive,        // "Active Directory Interactive"
+		"active directory service principal":  ActiveDirectoryServicePrincipal,   // "Active Directory Service Principal"
+		"active directory device code flow":   ActiveDirectoryDeviceCode,         // "Active Directory Device Code Flow"
+		"active directory managed identity":   ActiveDirectoryManagedIdentity,    // "Active Directory Managed Identity"
+		"active directory msi":                ActiveDirectoryMSI,                // "Active Directory MSI"
+		"active directory default":            ActiveDirectoryDefault,            // "Active Directory Default"
+		"active directory workload identity":  ActiveDirectoryWorkloadIdentity,   // "Active Directory Workload Identity"
+	}
+
+	// Check if it's an ADO.NET name (case-insensitive)
+	normalized := strings.ToLower(strings.TrimSpace(authMethod))
+	if internalName, ok := adoNetAuthMethods[normalized]; ok {
+		return internalName
+	}
+
+	// Return original value if not an ADO.NET name
+	return authMethod
+}
+
 func (p *azureFedAuthConfig) validateParameters(params map[string]string) error {
 
 	fedAuthWorkflow := params["fedauth"]
 	if fedAuthWorkflow == "" {
 		return nil
 	}
+
+	// Normalize ADO.NET authentication method names
+	fedAuthWorkflow = normalizeAuthenticationMethod(fedAuthWorkflow)
+	if fedAuthWorkflow == "" {
+		// "Sql Password" was specified - this is not Azure AD authentication
+		return nil
+	}
+
+	// Update the params map with the normalized value to ensure downstream code
+	// receives the consistent internal format regardless of the input variation
+	params["fedauth"] = fedAuthWorkflow
 
 	p.fedAuthLibrary = mssql.FedAuthLibraryADAL
 
