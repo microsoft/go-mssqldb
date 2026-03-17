@@ -353,7 +353,7 @@ func readFixedType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn
 	case typeDateTim4:
 		return decodeDateTim4(buf, loc)
 	case typeFlt4:
-		return math.Float32frombits(binary.LittleEndian.Uint32(buf))
+		return float64(math.Float32frombits(binary.LittleEndian.Uint32(buf)))
 	case typeMoney4:
 		return decodeMoney4(buf)
 	case typeMoney:
