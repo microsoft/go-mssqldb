@@ -2406,6 +2406,84 @@ func TestDriverParams(t *testing.T) {
 	}
 }
 
+// TestConnectorWithProcessQueryText tests NewConnectorWithProcessQueryText,
+// which creates a Connector from a Config that pre-processes query placeholders
+// ("?" and ":N") into "@pN" parameter names, equivalent to the deprecated "mssql"
+// driver behavior.
+func TestConnectorWithProcessQueryText(t *testing.T) {
+	checkConnStr(t)
+	tl := testLogger{t: t}
+	defer tl.StopLogging()
+	SetLogger(&tl)
+
+	config := testConnParams(t)
+	connector := NewConnectorWithProcessQueryText(config)
+	db := sql.OpenDB(connector)
+	defer db.Close()
+
+	type sqlCmd struct {
+		Name   string
+		Query  string
+		Param  []interface{}
+		Expect []interface{}
+	}
+
+	list := []sqlCmd{
+		{
+			Name:   "question-mark-placeholder",
+			Query:  `select V1=?`,
+			Param:  []interface{}{"abc"},
+			Expect: []interface{}{"abc"},
+		},
+		{
+			Name:   "ordinal-placeholder",
+			Query:  `select V1=:1`,
+			Param:  []interface{}{"xyz"},
+			Expect: []interface{}{"xyz"},
+		},
+		{
+			Name:   "named-placeholder",
+			Query:  `select V1=:First`,
+			Param:  []interface{}{sql.Named("First", "def")},
+			Expect: []interface{}{"def"},
+		},
+	}
+
+	for _, cmd := range list {
+		t.Run(cmd.Name, func(t *testing.T) {
+			rows, err := db.Query(cmd.Query, cmd.Param...)
+			if err != nil {
+				t.Fatalf("failed to run query %q: %v", cmd.Query, err)
+			}
+			defer rows.Close()
+
+			columns, err := rows.Columns()
+			if err != nil {
+				t.Fatalf("failed to get column schema: %v", err)
+			}
+			if len(columns) != len(cmd.Expect) {
+				t.Fatalf("query returned %d columns, expected %d", len(columns), len(cmd.Expect))
+			}
+
+			values := make([]interface{}, len(columns))
+			into := make([]interface{}, len(columns))
+			for i := range values {
+				into[i] = &values[i]
+			}
+			for rows.Next() {
+				if err = rows.Scan(into...); err != nil {
+					t.Fatalf("failed to scan row: %v", err)
+				}
+				for i, expect := range cmd.Expect {
+					if values[i] != expect {
+						t.Fatalf("column %d: got %v, expected %v", i, values[i], expect)
+					}
+				}
+			}
+		})
+	}
+}
+
 type connInterrupt struct {
 	net.Conn
 
