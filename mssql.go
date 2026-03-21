@@ -146,6 +146,16 @@ func NewConnectorConfig(config msdsn.Config) *Connector {
 	return newConnector(config, driverInstanceNoProcess)
 }
 
+// NewConnectorWithProcessQueryText creates a new Connector for a DSN Config struct
+// that pre-processes query text, converting "?" and ":N" placeholder parameters to
+// "@pN" parameter names. This enables compatibility with libraries like sqlx that use
+// "?" as parameter placeholders. The pre-processing behavior is equivalent to that of
+// the deprecated "mssql" driver name.
+// The returned connector may be used with sql.OpenDB.
+func NewConnectorWithProcessQueryText(config msdsn.Config) *Connector {
+	return newConnector(config, driverInstance)
+}
+
 func newConnector(config msdsn.Config, driver *Driver) *Connector {
 	return &Connector{
 		params:       config,
