@@ -2416,8 +2416,11 @@ func TestConnectorWithProcessQueryText(t *testing.T) {
 	defer tl.StopLogging()
 	SetLogger(&tl)
 
-	config := testConnParams(t)
-	connector := NewConnectorWithProcessQueryText(config)
+	params, err := msdsn.Parse(makeConnStr(t).String())
+	if err != nil {
+		t.Fatalf("failed to parse connection string: %v", err)
+	}
+	connector := NewConnectorWithProcessQueryText(params)
 	db := sql.OpenDB(connector)
 	defer db.Close()
 
