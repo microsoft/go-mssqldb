@@ -153,6 +153,16 @@ func TestParseFeatureExtAck(t *testing.T) {
 	}
 }
 
+func makeFinalBuf(data []byte) *tdsBuffer {
+	return &tdsBuffer{
+		packetSize: len(data),
+		rbuf:       data,
+		rpos:       0,
+		rsize:      len(data),
+		final:      true,
+	}
+}
+
 func TestParseColInfo(t *testing.T) {
 	tests := []struct {
 		name string
@@ -171,15 +181,20 @@ func TestParseColInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := &tdsBuffer{
-				packetSize: len(tt.data),
-				rbuf:       tt.data,
-				rpos:       0,
-				rsize:      len(tt.data),
-			}
-			parseColInfo(r)
+			parseColInfo(makeFinalBuf(tt.data))
 		})
 	}
+
+	t.Run("truncated stream panics", func(t *testing.T) {
+		defer func() {
+			if v := recover(); v == nil {
+				t.Fatal("expected panic for truncated COLINFO stream")
+			}
+		}()
+		// size=4 but only 1 byte of payload follows; io.CopyN should hit EOF
+		parseColInfo(makeFinalBuf([]byte{0x04, 0x00, 0x01}))
+		t.Fatal("parseColInfo should have panicked")
+	})
 }
 
 func TestParseTabName(t *testing.T) {
@@ -200,15 +215,25 @@ func TestParseTabName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := &tdsBuffer{
-				packetSize: len(tt.data),
-				rbuf:       tt.data,
-				rpos:       0,
-				rsize:      len(tt.data),
-			}
-			parseTabName(r)
+			parseTabName(makeFinalBuf(tt.data))
 		})
 	}
+
+	t.Run("truncated stream panics", func(t *testing.T) {
+		defer func() {
+			if v := recover(); v == nil {
+				t.Fatal("expected panic for truncated TABNAME stream")
+			}
+		}()
+		// size=4 but only 1 byte of payload follows; io.CopyN should hit EOF
+		parseTabName(makeFinalBuf([]byte{0x04, 0x00, 'x'}))
+		t.Fatal("parseTabName should have panicked")
+	})
+}
+
+func TestTokenString(t *testing.T) {
+	assert.Equal(t, "tokenTabName", tokenTabName.String())
+	assert.Equal(t, "tokenColInfo", tokenColInfo.String())
 }
 
 // TestProcessSingleResponseWithTriggerTableTokens verifies that COLINFO (0xA5)
