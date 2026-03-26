@@ -26,6 +26,8 @@ type token byte
 const (
 	tokenReturnStatus  token = 121 // 0x79
 	tokenColMetadata   token = 129 // 0x81
+	tokenTabName       token = 164 // 0xA4
+	tokenColInfo       token = 165 // 0xA5
 	tokenOrder         token = 169 // 0xA9
 	tokenError         token = 170 // 0xAA
 	tokenInfo          token = 171 // 0xAB
@@ -409,6 +411,28 @@ func parseOrder(r *tdsBuffer) (res orderStruct) {
 		res.ColIds[i] = r.uint16()
 	}
 	return res
+}
+
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/9b5c1e40-b6ce-4e5f-9ce2-2284cc44a38d
+func parseTabName(r *tdsBuffer) {
+	// The TABNAME token describes the table names associated with a result set.
+	// It is sent in response to browse-mode queries and INSERT/UPDATE/DELETE on tables with triggers.
+	// We read and discard the data since it is informational only.
+	size := r.uint16()
+	if _, err := io.CopyN(io.Discard, r, int64(size)); err != nil {
+		badStreamPanic(err)
+	}
+}
+
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/7ec86c73-d57e-4a0d-b945-d660ef8e5bf8
+func parseColInfo(r *tdsBuffer) {
+	// The COLINFO token describes the source of the column data in browse mode and
+	// for INSERT/UPDATE/DELETE on tables with triggers.
+	// We read and discard the data since it is informational only.
+	size := r.uint16()
+	if _, err := io.CopyN(io.Discard, r, int64(size)); err != nil {
+		badStreamPanic(err)
+	}
 }
 
 // https://msdn.microsoft.com/en-us/library/dd340421.aspx
@@ -997,6 +1021,10 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 		case tokenFeatureExtAck:
 			featureExtAck := parseFeatureExtAck(sess.buf)
 			ch <- featureExtAck
+		case tokenTabName:
+			parseTabName(sess.buf)
+		case tokenColInfo:
+			parseColInfo(sess.buf)
 		case tokenOrder:
 			order := parseOrder(sess.buf)
 			ch <- order
