@@ -1,6 +1,9 @@
 package mssql
 
 import (
+	"bytes"
+	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"regexp"
 	"testing"
@@ -147,5 +150,127 @@ func TestParseFeatureExtAck(t *testing.T) {
 		}
 
 		parseFeatureExtAck(r)
+	}
+}
+
+func makeFinalBuf(data []byte) *tdsBuffer {
+	return &tdsBuffer{
+		packetSize: len(data),
+		rbuf:       data,
+		rpos:       0,
+		rsize:      len(data),
+		final:      true,
+	}
+}
+
+func TestParseColInfo(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "empty",
+			data: []byte{0x00, 0x00}, // length=0, no data
+		},
+		{
+			name: "with column info",
+			// length=3, ColNum=1, TableNum=1, Status=0
+			data: []byte{0x03, 0x00, 0x01, 0x01, 0x00},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parseColInfo(makeFinalBuf(tt.data))
+		})
+	}
+
+	t.Run("truncated stream panics", func(t *testing.T) {
+		defer func() {
+			if v := recover(); v == nil {
+				t.Fatal("expected panic for truncated COLINFO stream")
+			}
+		}()
+		// size=4 but only 1 byte of payload follows; io.CopyN should hit EOF
+		parseColInfo(makeFinalBuf([]byte{0x04, 0x00, 0x01}))
+		t.Fatal("parseColInfo should have panicked")
+	})
+}
+
+func TestParseTabName(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "empty",
+			data: []byte{0x00, 0x00}, // length=0, no data
+		},
+		{
+			name: "with table name",
+			// length=4, "tabl"
+			data: []byte{0x04, 0x00, 't', 'a', 'b', 'l'},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parseTabName(makeFinalBuf(tt.data))
+		})
+	}
+
+	t.Run("truncated stream panics", func(t *testing.T) {
+		defer func() {
+			if v := recover(); v == nil {
+				t.Fatal("expected panic for truncated TABNAME stream")
+			}
+		}()
+		// size=4 but only 1 byte of payload follows; io.CopyN should hit EOF
+		parseTabName(makeFinalBuf([]byte{0x04, 0x00, 'x'}))
+		t.Fatal("parseTabName should have panicked")
+	})
+}
+
+func TestTokenString(t *testing.T) {
+	assert.Equal(t, "tokenTabName", tokenTabName.String())
+	assert.Equal(t, "tokenColInfo", tokenColInfo.String())
+}
+
+// TestProcessSingleResponseWithTriggerTableTokens verifies that COLINFO (0xA5)
+// and TABNAME (0xA4) tokens are handled without error. SQL Server sends these
+// tokens when executing INSERT/UPDATE/DELETE on tables that have triggers.
+func TestProcessSingleResponseWithTriggerTableTokens(t *testing.T) {
+	// Construct a minimal valid TDS reply packet containing COLINFO + TABNAME
+	// tokens followed by a DONE token.
+	tokenStream := []byte{
+		byte(tokenColInfo), 0x03, 0x00, 0x01, 0x01, 0x00, // COLINFO: length=3, ColNum=1, TableNum=1, Status=0
+		byte(tokenTabName), 0x04, 0x00, 't', 'a', 'b', 'l', // TABNAME: length=4, "tabl"
+		byte(tokenDone), 0x00, 0x00, 0x00, 0x00, // Status=doneFinal, CurCmd=0
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // RowCount=0
+	}
+
+	totalSize := 8 + len(tokenStream)
+	packet := make([]byte, totalSize)
+	packet[0] = byte(packReply)
+	packet[1] = 0x01 // Status = final
+	binary.BigEndian.PutUint16(packet[2:4], uint16(totalSize))
+	packet[6] = 0x01 // PacketNo
+	copy(packet[8:], tokenStream)
+
+	sess := &tdsSession{
+		buf: newTdsBuffer(defaultPacketSize, closableBuffer{bytes.NewBuffer(packet)}),
+	}
+
+	ch := make(chan tokenStruct, 10)
+	processSingleResponse(context.Background(), sess, ch, outputs{})
+
+	// Drain the channel and verify no errors were received.
+	// processSingleResponse closes ch when it returns.
+	// Before the fix, processSingleResponse would panic with
+	// "unknown token type returned: token(165)" when it encountered tokenColInfo.
+	for tok := range ch {
+		if err, ok := tok.(error); ok {
+			t.Fatalf("unexpected error processing COLINFO/TABNAME tokens: %v", err)
+		}
 	}
 }
