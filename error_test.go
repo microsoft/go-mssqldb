@@ -99,6 +99,9 @@ func TestError_Methods(t *testing.T) {
 		ProcName:   "TestProc",
 		LineNo:     42,
 	}
+	// Error.All must always contain the error itself.
+	// See func (d doneStruct) getError() Error
+	err.All = []Error{err}
 
 	// Test Error() method
 	errorStr := err.Error()
