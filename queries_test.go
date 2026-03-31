@@ -724,6 +724,19 @@ func TestError(t *testing.T) {
 		if sqlerr.Number != 2812 { // Could not find stored procedure 'bad'
 			t.Fatalf("Should be specific error code 2812, actually %d %s", sqlerr.Number, sqlerr)
 		}
+		if len(sqlerr.All) != 1 {
+			t.Fatalf("Should have one error, actually %d: %+v", len(sqlerr.All), sqlerr.All)
+		}
+		if sqlerr.Number != sqlerr.All[0].Number {
+			t.Fatalf("Should have the same error number, actually %d and %d", sqlerr.Number, sqlerr.All[0].Number)
+		}
+
+		// Error() reports one and only error in the list, in this case:
+		//     "mssql: Could not find stored procedure 'bad'."
+		expectedErrorText := fmt.Sprintf(`mssql: %s`, sqlerr.Message)
+		if err.Error() != expectedErrorText {
+			t.Fatalf("Expected error text '%s', got '%s'", expectedErrorText, err.Error())
+		}
 	}
 }
 
@@ -757,6 +770,13 @@ func TestMultipleErrors(t *testing.T) {
 		}
 		if sqlerr.All[0].Number != 8111 { // Cannot define PRIMARY KEY constraint on nullable column in table
 			t.Fatalf("Should be specific error code 8111, actually %d %s", sqlerr.All[0].Number, sqlerr.All[0])
+		}
+
+		// Error() reports only the last error message, in this case:
+		//     "mssql: Could not create constraint or index. See previous errors."
+		expectedErrorText := fmt.Sprintf(`mssql: %s`, sqlerr.Message)
+		if err.Error() != expectedErrorText {
+			t.Fatalf("Expected error text '%s', got '%s'", expectedErrorText, err.Error())
 		}
 	}
 }
