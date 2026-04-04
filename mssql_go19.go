@@ -50,7 +50,8 @@ type DateTime1 time.Time
 type DateTimeOffset time.Time
 
 func convertInputParameter(val interface{}) (interface{}, error) {
-	switch v := val.(type) {
+	rv := reflect.ValueOf(val)
+	switch val.(type) {
 	case int, int16, int32, int64, int8:
 		return val, nil
 	case byte:
@@ -97,9 +98,13 @@ func convertInputParameter(val interface{}) (interface{}, error) {
 		return val, nil
 	case driver.Valuer:
 		return val, nil
-	default:
-		return driver.DefaultParameterConverter.ConvertValue(v)
 	}
+
+	if rv.Kind() == reflect.Pointer && !rv.IsNil() {
+		return convertInputParameter(rv.Elem().Interface())
+	}
+
+	return driver.DefaultParameterConverter.ConvertValue(val)
 }
 
 func (c *Conn) CheckNamedValue(nv *driver.NamedValue) error {

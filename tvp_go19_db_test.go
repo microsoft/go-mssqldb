@@ -162,7 +162,7 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 	decimalValue := decimal.New(4821212, -4)
 	moneyValue := Money[decimal.Decimal]{decimal.New(4821212, -4)}
 	dateValue := Date{Year: 2020, Month: 8, Day: 26}
-	dateTimeValue := DateTime{Date: civil.Date{Year: 2020, Month: 8, Day: 26}, Time: civil.Time{Hour: 23, Minute: 59, Second: 39}}
+	dateTimeValue := DateTime{Date: civil.Date{Year: 2020, Month: 8, Day: 26}, Time: civil.Time{Hour: 23, Minute: 59, Second: 39, Nanosecond: 30000000}}
 	dateTime2Value := DateTime2{Date: civil.Date{Year: 2020, Month: 8, Day: 26}, Time: civil.Time{Hour: 23, Minute: 59, Second: 39, Nanosecond: 100}}
 	dateTimeOffsetValue := DateTimeOffset(time.Date(2020, 8, 26, 23, 59, 39, 100, time.UTC))
 	timeValue := Time{Hour: 23, Minute: 59, Second: 39, Nanosecond: 100}
@@ -238,15 +238,15 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 			PMoneyNull:   Money[decimal.NullDecimal]{decimal.NullDecimal{}},
 			SMoney:       Money[decimal.Decimal]{decimal.New(20012, 2)},
 			SMoneyNull:   nil,
-			PDate:        Date{},
+			PDate:        Date{Year: 1, Month: 1, Day: 1}, // date can't be earlier the Jan 1, 1
 			PDateNull:    NullDate{},
 			SDate:        Date{Year: 2001, Month: 11, Day: 16},
 			SDateNull:    nil,
-			PDateTime:    DateTime{},
+			PDateTime:    DateTime{Date: civil.Date{Year:1753, Month:1, Day:1}}, // datetime can't be earlier the Jan 1, 1753
 			PDateTimeNull: NullDateTime{},
 			SDateTime:    DateTime{Date: civil.Date{Year: 2001, Month: 11, Day: 16}, Time: civil.Time{Hour: 23, Minute: 59, Second: 39}},
 			SDateTimeNull: nil,
-			PDateTime2:   DateTime2{},
+			PDateTime2:   DateTime2{Date:civil.Date{Year:1, Month:1, Day:1}}, // datetime2 can't be earlier the Jan 1, 1
 			PDateTime2Null: NullDateTime2{},
 			SDateTime2:   DateTime2{Date: civil.Date{Year: 2001, Month: 11, Day: 16}, Time: civil.Time{Hour: 23, Minute: 59, Second: 39}},
 			SDateTime2Null: nil,
@@ -300,21 +300,21 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 			PDateNull:    NullDate{Date: Date{Year: 2010, Month: 5, Day: 15}, Valid: true},
 			SDate:        Date{Year: 2010, Month: 5, Day: 15},
 			SDateNull:    &dateValue,
-			PDateTime:    DateTime{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45}},
-			PDateTimeNull: NullDateTime{DateTime: DateTime{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45}}, Valid: true},
-			SDateTime:    DateTime{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45}},
+			PDateTime:    DateTime{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 40000000}},
+			PDateTimeNull: NullDateTime{DateTime: DateTime{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 50000000}}, Valid: true},
+			SDateTime:    DateTime{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 70000000}},
 			SDateTimeNull: &dateTimeValue,
-			PDateTime2:   DateTime2{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123456}},
-			PDateTime2Null: NullDateTime2{DateTime2: DateTime2{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123456}}, Valid: true},
-			SDateTime2:   DateTime2{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123456}},
+			PDateTime2:   DateTime2{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400}},
+			PDateTime2Null: NullDateTime2{DateTime2: DateTime2{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400}}, Valid: true},
+			SDateTime2:   DateTime2{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400}},
 			SDateTime2Null: &dateTime2Value,
-			PDateTimeOffset: DateTimeOffset(time.Date(2010, 5, 15, 14, 30, 45, 123456, time.UTC)),
-			PDateTimeOffsetNull: NullDateTimeOffset{DateTimeOffset: DateTimeOffset(time.Date(2010, 5, 15, 14, 30, 45, 123456, time.UTC)), Valid: true},
-			SDateTimeOffset: DateTimeOffset(time.Date(2010, 5, 15, 14, 30, 45, 123456, time.UTC)),
+			PDateTimeOffset: DateTimeOffset(time.Date(2010, 5, 15, 14, 30, 45, 123400, time.FixedZone("", 2*60*60))),
+			PDateTimeOffsetNull: NullDateTimeOffset{DateTimeOffset: DateTimeOffset(time.Date(2010, 5, 15, 14, 30, 45, 123400, time.FixedZone("", 2*60*60))), Valid: true},
+			SDateTimeOffset: DateTimeOffset(time.Date(2010, 5, 15, 14, 30, 45, 123400, time.FixedZone("", 2*60*60))),
 			SDateTimeOffsetNull: &dateTimeOffsetValue,
-			PTime:        Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123456},
-			PTimeNull:    NullTime{Time: Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123456}, Valid: true},
-			STime:        Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123456},
+			PTime:        Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400},
+			PTimeNull:    NullTime{Time: Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400}, Valid: true},
+			STime:        Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400},
 			STimeNull:    &timeValue,
 		},
 	}
@@ -395,40 +395,8 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 
 		result1 = append(result1, val)
 	}
-
-	for i := 0; i < min(len(param1), len(result1)); i++ {
-		param1[i].PDecimal.Decimal, result1[i].PDecimal.Decimal = decimal.RescalePair(
-			param1[i].PDecimal.Decimal, result1[i].PDecimal.Decimal)
-		param1[i].PDecimalNull.Decimal, result1[i].PDecimalNull.Decimal = decimal.RescalePair(
-			param1[i].PDecimalNull.Decimal, result1[i].PDecimalNull.Decimal)
-		param1[i].SDecimal, result1[i].SDecimal = decimal.RescalePair(
-			param1[i].SDecimal, result1[i].SDecimal)
-
-		if param1[i].SDecimalNull != nil && result1[i].SDecimalNull != nil {
-			p1, r1 := decimal.RescalePair(
-				*param1[i].SDecimalNull, *result1[i].SDecimalNull)
-			param1[i].SDecimalNull = &p1
-			result1[i].SDecimalNull = &r1
-		}
-	}
-
-	for i := 0; i < min(len(param1), len(result1)); i++ {
-		param1[i].PMoney.Decimal.Decimal, result1[i].PMoney.Decimal.Decimal = decimal.RescalePair(
-			param1[i].PMoney.Decimal.Decimal, result1[i].PMoney.Decimal.Decimal)
-		param1[i].PMoneyNull.Decimal.Decimal, result1[i].PMoneyNull.Decimal.Decimal = decimal.RescalePair(
-			param1[i].PMoneyNull.Decimal.Decimal, result1[i].PMoneyNull.Decimal.Decimal)
-		param1[i].SMoney.Decimal, result1[i].SMoney.Decimal = decimal.RescalePair(
-			param1[i].SMoney.Decimal, result1[i].SMoney.Decimal)
-
-		if param1[i].SMoneyNull != nil && result1[i].SMoneyNull != nil {
-			p1, r1 := decimal.RescalePair(
-				param1[i].SMoneyNull.Decimal, result1[i].SMoneyNull.Decimal)
-			param1[i].SMoneyNull.Decimal = p1
-			result1[i].SMoneyNull.Decimal = r1
-		}
-	}
-
-	if !reflect.DeepEqual(param1, result1) {
+	
+	if !compare(param1, result1) {
 		t.Logf("expected: %+v", param1)
 		t.Logf("actual: %+v", result1)
 		t.Errorf("first resultset did not match param1")
@@ -457,6 +425,94 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 	if result3 != "test" {
 		t.Errorf("third result set had wrong value expected: %s actual: %s", "test", result3)
 	}
+}
+
+func compare[T any](param, result []T) bool {
+	l := len(param)
+	if l != len(result) {
+		return false
+	}
+
+	for j := 0; j < l; j++ {
+		for i := 0; i < reflect.ValueOf(param[j]).NumField(); i++ {
+			paramValue := reflect.ValueOf(param[j]).Field(i)
+			resultValue := reflect.ValueOf(result[j]).Field(i)
+
+			if paramValue.Type() != resultValue.Type() {
+				return false
+			}
+
+			var paramInterface any
+			var resultInterface any
+
+			switch paramValue.Kind() {
+			case reflect.Ptr:
+				if paramValue.IsNil() != resultValue.IsNil() {
+					return false
+				}
+
+				if paramValue.IsNil() {
+					continue
+				}
+
+				paramInterface = paramValue.Elem().Interface()
+                                resultInterface = resultValue.Elem().Interface()
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+				reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+				reflect.Float32, reflect.Float64, reflect.Bool, reflect.String:
+
+				if paramValue.Equal(resultValue) {
+					continue
+				}
+
+				return false
+			default:
+				paramInterface = paramValue.Interface()
+				resultInterface = resultValue.Interface()
+			}
+
+			switch v := paramInterface.(type) {
+			case decimal.Decimal:
+				if !v.Equal(resultInterface.(decimal.Decimal)) {
+					return false
+				}
+			case decimal.NullDecimal:
+				if v.Valid != resultInterface.(decimal.NullDecimal).Valid {
+					return false
+				}
+
+				if v.Valid && !v.Decimal.Equal(resultInterface.(decimal.NullDecimal).Decimal) {
+					return false
+				}
+			case Money[decimal.Decimal]:
+				if !v.Decimal.Equal(resultInterface.(Money[decimal.Decimal]).Decimal) {
+					return false
+				}
+			case Money[decimal.NullDecimal]:
+				if v.Decimal.Valid != resultInterface.(Money[decimal.NullDecimal]).Decimal.Valid {
+					return false
+				}
+
+				if v.Decimal.Valid && !v.Decimal.Decimal.Equal(resultInterface.(Money[decimal.NullDecimal]).Decimal.Decimal) {
+					return false
+				}
+			case DateTimeOffset:
+				if !time.Time(v).Equal(time.Time(resultInterface.(DateTimeOffset))) {
+					return false
+				}
+			case NullDateTimeOffset:
+				if v.Valid != resultInterface.(NullDateTimeOffset).Valid || !time.Time(v.DateTimeOffset).Equal(time.Time(resultInterface.(NullDateTimeOffset).DateTimeOffset)) {
+					return false
+				}
+			default:
+				if !reflect.DeepEqual(paramInterface, resultInterface) {
+					return false
+				}
+			}
+		}
+	}
+
+	return true
 }
 
 func TestTVPGoSQLTypes(t *testing.T) {

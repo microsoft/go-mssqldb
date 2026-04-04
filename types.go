@@ -392,7 +392,8 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 	case typeTimeN:
 		return decodeTime(ti.Scale, buf, loc)
 	case typeDateTime2N:
-		return decodeDateTime2(ti.Scale, buf, loc)
+		v := decodeDateTime2(ti.Scale, buf, loc)
+		return v
 	case typeDateTimeOffsetN:
 		return decodeDateTimeOffset(ti.Scale, buf)
 	case typeGuid:
@@ -1006,6 +1007,7 @@ func encodeDateTime2(year, yearDay, hour, minute, second, nanosecond, scale int)
 	buf[timesize] = byte(days)
 	buf[timesize+1] = byte(days >> 8)
 	buf[timesize+2] = byte(days >> 16)
+
 	return
 }
 

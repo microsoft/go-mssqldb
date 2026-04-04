@@ -853,12 +853,12 @@ CREATE PROCEDURE vinout
    @dinout DATETIME OUTPUT
 AS
 BEGIN
-	IF @dinout = '2006-01-02 15:04:05'
+	IF @dinout = '2006-01-02 15:04:05.05'
 		SET @dinout = NULL
 	ELSE IF @dinout IS NULL
-		SET @dinout = '2020-01-02 10:11:12'
+		SET @dinout = '2020-01-02 10:11:12.06'
 	ELSE
-		SET @dinout = '2030-05-16 06:07:08'
+		SET @dinout = '2030-05-16 06:07:08.07'
 END;
 `
 	sqltextdrop := `DROP PROCEDURE vinout;`
@@ -886,7 +886,7 @@ END;
 	defer db.ExecContext(ctx, sqltextdrop)
 
 	t.Run("original test", func(t *testing.T) {
-		dinout := DateTime(civil.DateTime{Date: civil.Date{Year: 2000, Month: 6, Day: 15}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}})
+		dinout := DateTime(civil.DateTime{Date: civil.Date{Year: 2000, Month: 6, Day: 15}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8, Nanosecond: 123456}})
 		_, err = db.ExecContext(ctx, sqltextrun,
 			sql.Named("dinout", sql.Out{Dest: &dinout}),
 		)
@@ -894,14 +894,14 @@ END;
 			t.Error(err)
 		}
 
-		expected := DateTime(civil.DateTime{Date: civil.Date{Year: 2030, Month: 5, Day: 16}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}})
+		expected := DateTime(civil.DateTime{Date: civil.Date{Year: 2030, Month: 5, Day: 16}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8, Nanosecond: 70000000}})
 		if dinout != expected {
-			t.Errorf("expected 2030-05-16 06:07:08, got %s", civil.DateTime(dinout).String())
+			t.Errorf("expected 2030-05-16 06:07:08.07, got %s", civil.DateTime(dinout).String())
 		}
 	})
 
 	t.Run("nullable value", func(t *testing.T) {
-		dinout := NullDateTime{DateTime: DateTime(civil.DateTime{Date: civil.Date{Year: 2000, Month: 6, Day: 15}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}}), Valid: true}
+		dinout := NullDateTime{DateTime: DateTime(civil.DateTime{Date: civil.Date{Year: 2000, Month: 6, Day: 15}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8, Nanosecond: 222222}}), Valid: true}
 		_, err = db.ExecContext(ctx, sqltextrun,
 			sql.Named("dinout", sql.Out{Dest: &dinout}),
 		)
@@ -909,7 +909,7 @@ END;
 			t.Error(err)
 		}
 
-		expected := DateTime(civil.DateTime{Date: civil.Date{Year: 2030, Month: 5, Day: 16}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}})
+		expected := DateTime(civil.DateTime{Date: civil.Date{Year: 2030, Month: 5, Day: 16}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8, Nanosecond: 70000000}})
 		if !dinout.Valid || dinout.DateTime != expected {
 			if dinout.Valid {
 				t.Errorf("expected 2030-05-16, got %t, %s", dinout.Valid, civil.DateTime(dinout.DateTime).String())
@@ -928,18 +928,18 @@ END;
 			t.Error(err)
 		}
 
-		expected := DateTime(civil.DateTime{Date: civil.Date{Year: 2020, Month: 1, Day: 2}, Time: civil.Time{Hour: 10, Minute: 11, Second: 12}})
+		expected := DateTime(civil.DateTime{Date: civil.Date{Year: 2020, Month: 1, Day: 2}, Time: civil.Time{Hour: 10, Minute: 11, Second: 12, Nanosecond: 60000000}})
 		if !dinout.Valid || dinout.DateTime != expected {
 			if dinout.Valid {
-				t.Errorf("expected 2020-01-02, got %t, %s", dinout.Valid, civil.DateTime(dinout.DateTime).String())
+				t.Errorf("expected %#v, got %t, %s", expected, dinout.Valid, civil.DateTime(dinout.DateTime).String())
 			} else {
-				t.Errorf("expected 2020-01-02, got NULL")
+				t.Errorf("expected %#v, got NULL", expected)
 			}
 		}
 	})
 
 	t.Run("null result", func(t *testing.T) {
-		dinout := NullDateTime{DateTime: DateTime(civil.DateTime{Date: civil.Date{Year: 2006, Month: 1, Day: 2}, Time: civil.Time{Hour: 15, Minute: 4, Second: 5}}), Valid: true}
+		dinout := NullDateTime{DateTime: DateTime(civil.DateTime{Date: civil.Date{Year: 2006, Month: 1, Day: 2}, Time: civil.Time{Hour: 15, Minute: 4, Second: 5, Nanosecond: 50000000}}), Valid: true}
 		_, err = db.ExecContext(ctx, sqltextrun,
 			sql.Named("dinout", sql.Out{Dest: &dinout}),
 		)
@@ -959,12 +959,12 @@ CREATE PROCEDURE vinout
    @dinout DATETIME2 OUTPUT
 AS
 BEGIN
-	IF @dinout = '2006-01-02 15:04:05'
+	IF @dinout = '2006-01-02 15:04:05.0000005'
 		SET @dinout = NULL
 	ELSE IF @dinout IS NULL
-		SET @dinout = '2020-01-02 10:11:12'
+		SET @dinout = '2020-01-02 10:11:12.0000006'
 	ELSE
-		SET @dinout = '2030-05-16 06:07:08'
+		SET @dinout = '2030-05-16 06:07:08.0000007'
 END;
 `
 	sqltextdrop := `DROP PROCEDURE vinout;`
@@ -992,7 +992,7 @@ END;
 	defer db.ExecContext(ctx, sqltextdrop)
 
 	t.Run("original test", func(t *testing.T) {
-		dinout := DateTime2(civil.DateTime{Date: civil.Date{Year: 2000, Month: 6, Day: 15}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}})
+		dinout := DateTime2(civil.DateTime{Date: civil.Date{Year: 2000, Month: 6, Day: 15}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8, Nanosecond: 123456}})
 		_, err = db.ExecContext(ctx, sqltextrun,
 			sql.Named("dinout", sql.Out{Dest: &dinout}),
 		)
@@ -1000,14 +1000,14 @@ END;
 			t.Error(err)
 		}
 
-		expected := DateTime2(civil.DateTime{Date: civil.Date{Year: 2030, Month: 5, Day: 16}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}})
+		expected := DateTime2(civil.DateTime{Date: civil.Date{Year: 2030, Month: 5, Day: 16}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8, Nanosecond: 700}})
 		if dinout != expected {
 			t.Errorf("expected 2030-05-16 06:07:08, got %s", civil.DateTime(dinout).String())
 		}
 	})
 
 	t.Run("nullable value", func(t *testing.T) {
-		dinout := NullDateTime2{DateTime2: DateTime2(civil.DateTime{Date: civil.Date{Year: 2000, Month: 6, Day: 15}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}}), Valid: true}
+		dinout := NullDateTime2{DateTime2: DateTime2(civil.DateTime{Date: civil.Date{Year: 2000, Month: 6, Day: 15}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8, Nanosecond: 222222}}), Valid: true}
 		_, err = db.ExecContext(ctx, sqltextrun,
 			sql.Named("dinout", sql.Out{Dest: &dinout}),
 		)
@@ -1015,7 +1015,7 @@ END;
 			t.Error(err)
 		}
 
-		expected := DateTime2(civil.DateTime{Date: civil.Date{Year: 2030, Month: 5, Day: 16}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8}})
+		expected := DateTime2(civil.DateTime{Date: civil.Date{Year: 2030, Month: 5, Day: 16}, Time: civil.Time{Hour: 6, Minute: 7, Second: 8, Nanosecond: 700}})
 		if !dinout.Valid || dinout.DateTime2 != expected {
 			if dinout.Valid {
 				t.Errorf("expected 2030-05-16, got %t, %s", dinout.Valid, civil.DateTime(dinout.DateTime2).String())
@@ -1034,7 +1034,7 @@ END;
 			t.Error(err)
 		}
 
-		expected := DateTime2(civil.DateTime{Date: civil.Date{Year: 2020, Month: 1, Day: 2}, Time: civil.Time{Hour: 10, Minute: 11, Second: 12}})
+		expected := DateTime2(civil.DateTime{Date: civil.Date{Year: 2020, Month: 1, Day: 2}, Time: civil.Time{Hour: 10, Minute: 11, Second: 12, Nanosecond: 600}})
 		if !dinout.Valid || dinout.DateTime2 != expected {
 			if dinout.Valid {
 				t.Errorf("expected 2020-01-02, got %t, %s", dinout.Valid, civil.DateTime(dinout.DateTime2).String())
@@ -1045,7 +1045,7 @@ END;
 	})
 
 	t.Run("null result", func(t *testing.T) {
-		dinout := NullDateTime2{DateTime2: DateTime2(civil.DateTime{Date: civil.Date{Year: 2006, Month: 1, Day: 2}, Time: civil.Time{Hour: 15, Minute: 4, Second: 5}}), Valid: true}
+		dinout := NullDateTime2{DateTime2: DateTime2(civil.DateTime{Date: civil.Date{Year: 2006, Month: 1, Day: 2}, Time: civil.Time{Hour: 15, Minute: 4, Second: 5, Nanosecond: 500}}), Valid: true}
 		_, err = db.ExecContext(ctx, sqltextrun,
 			sql.Named("dinout", sql.Out{Dest: &dinout}),
 		)
