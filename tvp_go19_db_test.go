@@ -95,50 +95,50 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 	END;`
 
 	type TvpGoSQLTypes struct {
-		PBool        sql.NullBool
-		PBoolNull    sql.NullBool
-		SBool        bool
-		SBoolNull    *bool
-		PFloat64     sql.NullFloat64
-		PFloat64Null sql.NullFloat64
-		SFloat64     float64
-		SFloat64Null *float64
-		PInt64       sql.NullInt64
-		PInt64Null   sql.NullInt64
-		SInt64       int64
-		SInt64Null   *int64
-		PString      sql.NullString
-		PStringNull  sql.NullString
-		SString      string
-		SStringNull  *string
-		PDecimal     decimal.NullDecimal
-		PDecimalNull decimal.NullDecimal
-		SDecimal     decimal.Decimal
-		SDecimalNull *decimal.Decimal
-		PMoney       Money[decimal.NullDecimal]
-		PMoneyNull   Money[decimal.NullDecimal]
-		SMoney       Money[decimal.Decimal]
-		SMoneyNull   *Money[decimal.Decimal]
-		PDate        Date
-		PDateNull    NullDate
-		SDate        Date
-		SDateNull    *Date
-		PDateTime    DateTime
-		PDateTimeNull NullDateTime
-		SDateTime    DateTime
-		SDateTimeNull *DateTime
-		PDateTime2   DateTime2
-		PDateTime2Null NullDateTime2
-		SDateTime2   DateTime2
-		SDateTime2Null *DateTime2
-		PDateTimeOffset DateTimeOffset
+		PBool               sql.NullBool
+		PBoolNull           sql.NullBool
+		SBool               bool
+		SBoolNull           *bool
+		PFloat64            sql.NullFloat64
+		PFloat64Null        sql.NullFloat64
+		SFloat64            float64
+		SFloat64Null        *float64
+		PInt64              sql.NullInt64
+		PInt64Null          sql.NullInt64
+		SInt64              int64
+		SInt64Null          *int64
+		PString             sql.NullString
+		PStringNull         sql.NullString
+		SString             string
+		SStringNull         *string
+		PDecimal            decimal.NullDecimal
+		PDecimalNull        decimal.NullDecimal
+		SDecimal            decimal.Decimal
+		SDecimalNull        *decimal.Decimal
+		PMoney              Money[decimal.NullDecimal]
+		PMoneyNull          Money[decimal.NullDecimal]
+		SMoney              Money[decimal.Decimal]
+		SMoneyNull          *Money[decimal.Decimal]
+		PDate               Date
+		PDateNull           NullDate
+		SDate               Date
+		SDateNull           *Date
+		PDateTime           DateTime
+		PDateTimeNull       NullDateTime
+		SDateTime           DateTime
+		SDateTimeNull       *DateTime
+		PDateTime2          DateTime2
+		PDateTime2Null      NullDateTime2
+		SDateTime2          DateTime2
+		SDateTime2Null      *DateTime2
+		PDateTimeOffset     DateTimeOffset
 		PDateTimeOffsetNull NullDateTimeOffset
-		SDateTimeOffset DateTimeOffset
+		SDateTimeOffset     DateTimeOffset
 		SDateTimeOffsetNull *DateTimeOffset
-		PTime        Time
-		PTimeNull    NullTime
-		STime        Time
-		STimeNull    *Time
+		PTime               Time
+		PTimeNull           NullTime
+		STime               Time
+		STimeNull           *Time
 	}
 
 	sqltextdropsp := `DROP PROCEDURE spwithtvpGoSQLTypesWithStandardType;`
@@ -187,77 +187,77 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 				String: "test=tvp",
 				Valid:  true,
 			},
-			PStringNull:  sql.NullString{},
-			PDecimal:     decimal.NewNullDecimal(decimal.New(-2323, -3)),
-			PDecimalNull: decimal.NullDecimal{},
-			PMoney:       Money[decimal.NullDecimal]{decimal.NewNullDecimal(decimal.New(-2323, -3))},
-			PMoneyNull:   Money[decimal.NullDecimal]{decimal.NullDecimal{}},
-			PDate:        dateValue,
-			PDateNull:    NullDate{},
-			SDate:        dateValue,
-			SDateNull:    &dateValue,
-			PDateTime:    dateTimeValue,
-			PDateTimeNull: NullDateTime{},
-			SDateTime:    dateTimeValue,
-			SDateTimeNull: &dateTimeValue,
-			PDateTime2:   dateTime2Value,
-			PDateTime2Null: NullDateTime2{},
-			SDateTime2:   dateTime2Value,
-			SDateTime2Null: &dateTime2Value,
-			PDateTimeOffset: dateTimeOffsetValue,
+			PStringNull:         sql.NullString{},
+			PDecimal:            decimal.NewNullDecimal(decimal.New(-2323, -3)),
+			PDecimalNull:        decimal.NullDecimal{},
+			PMoney:              Money[decimal.NullDecimal]{decimal.NewNullDecimal(decimal.New(-2323, -3))},
+			PMoneyNull:          Money[decimal.NullDecimal]{decimal.NullDecimal{}},
+			PDate:               dateValue,
+			PDateNull:           NullDate{},
+			SDate:               dateValue,
+			SDateNull:           &dateValue,
+			PDateTime:           dateTimeValue,
+			PDateTimeNull:       NullDateTime{},
+			SDateTime:           dateTimeValue,
+			SDateTimeNull:       &dateTimeValue,
+			PDateTime2:          dateTime2Value,
+			PDateTime2Null:      NullDateTime2{},
+			SDateTime2:          dateTime2Value,
+			SDateTime2Null:      &dateTime2Value,
+			PDateTimeOffset:     dateTimeOffsetValue,
 			PDateTimeOffsetNull: NullDateTimeOffset{},
-			SDateTimeOffset: dateTimeOffsetValue,
+			SDateTimeOffset:     dateTimeOffsetValue,
 			SDateTimeOffsetNull: &dateTimeOffsetValue,
-			PTime:        timeValue,
-			PTimeNull:    NullTime{},
-			STime:        timeValue,
-			STimeNull:    &timeValue,
+			PTime:               timeValue,
+			PTimeNull:           NullTime{},
+			STime:               timeValue,
+			STimeNull:           &timeValue,
 		},
 		{
-			PBool:        sql.NullBool{},
-			PBoolNull:    sql.NullBool{},
-			SBool:        true,
-			SBoolNull:    nil,
-			PFloat64:     sql.NullFloat64{},
-			PFloat64Null: sql.NullFloat64{},
-			SFloat64:     1.1,
-			SFloat64Null: nil,
-			PInt64:       sql.NullInt64{},
-			PInt64Null:   sql.NullInt64{},
-			SInt64:       1,
-			SInt64Null:   nil,
-			PString:      sql.NullString{},
-			PStringNull:  sql.NullString{},
-			SString:      "any",
-			SStringNull:  nil,
-			PDecimal:     decimal.NullDecimal{},
-			PDecimalNull: decimal.NullDecimal{},
-			SDecimal:     decimal.New(20012, 2),
-			SDecimalNull: nil,
-			PMoney:       Money[decimal.NullDecimal]{decimal.NullDecimal{}},
-			PMoneyNull:   Money[decimal.NullDecimal]{decimal.NullDecimal{}},
-			SMoney:       Money[decimal.Decimal]{decimal.New(20012, 2)},
-			SMoneyNull:   nil,
-			PDate:        Date{Year: 1, Month: 1, Day: 1}, // date can't be earlier the Jan 1, 1
-			PDateNull:    NullDate{},
-			SDate:        Date{Year: 2001, Month: 11, Day: 16},
-			SDateNull:    nil,
-			PDateTime:    DateTime{Date: civil.Date{Year:1753, Month:1, Day:1}}, // datetime can't be earlier the Jan 1, 1753
-			PDateTimeNull: NullDateTime{},
-			SDateTime:    DateTime{Date: civil.Date{Year: 2001, Month: 11, Day: 16}, Time: civil.Time{Hour: 23, Minute: 59, Second: 39}},
-			SDateTimeNull: nil,
-			PDateTime2:   DateTime2{Date:civil.Date{Year:1, Month:1, Day:1}}, // datetime2 can't be earlier the Jan 1, 1
-			PDateTime2Null: NullDateTime2{},
-			SDateTime2:   DateTime2{Date: civil.Date{Year: 2001, Month: 11, Day: 16}, Time: civil.Time{Hour: 23, Minute: 59, Second: 39}},
-			SDateTime2Null: nil,
-			PDateTimeOffset: DateTimeOffset{},
+			PBool:               sql.NullBool{},
+			PBoolNull:           sql.NullBool{},
+			SBool:               true,
+			SBoolNull:           nil,
+			PFloat64:            sql.NullFloat64{},
+			PFloat64Null:        sql.NullFloat64{},
+			SFloat64:            1.1,
+			SFloat64Null:        nil,
+			PInt64:              sql.NullInt64{},
+			PInt64Null:          sql.NullInt64{},
+			SInt64:              1,
+			SInt64Null:          nil,
+			PString:             sql.NullString{},
+			PStringNull:         sql.NullString{},
+			SString:             "any",
+			SStringNull:         nil,
+			PDecimal:            decimal.NullDecimal{},
+			PDecimalNull:        decimal.NullDecimal{},
+			SDecimal:            decimal.New(20012, 2),
+			SDecimalNull:        nil,
+			PMoney:              Money[decimal.NullDecimal]{decimal.NullDecimal{}},
+			PMoneyNull:          Money[decimal.NullDecimal]{decimal.NullDecimal{}},
+			SMoney:              Money[decimal.Decimal]{decimal.New(20012, 2)},
+			SMoneyNull:          nil,
+			PDate:               Date{Year: 1, Month: 1, Day: 1}, // date can't be earlier the Jan 1, 1
+			PDateNull:           NullDate{},
+			SDate:               Date{Year: 2001, Month: 11, Day: 16},
+			SDateNull:           nil,
+			PDateTime:           DateTime{Date: civil.Date{Year: 1753, Month: 1, Day: 1}}, // datetime can't be earlier the Jan 1, 1753
+			PDateTimeNull:       NullDateTime{},
+			SDateTime:           DateTime{Date: civil.Date{Year: 2001, Month: 11, Day: 16}, Time: civil.Time{Hour: 23, Minute: 59, Second: 39}},
+			SDateTimeNull:       nil,
+			PDateTime2:          DateTime2{Date: civil.Date{Year: 1, Month: 1, Day: 1}}, // datetime2 can't be earlier the Jan 1, 1
+			PDateTime2Null:      NullDateTime2{},
+			SDateTime2:          DateTime2{Date: civil.Date{Year: 2001, Month: 11, Day: 16}, Time: civil.Time{Hour: 23, Minute: 59, Second: 39}},
+			SDateTime2Null:      nil,
+			PDateTimeOffset:     DateTimeOffset{},
 			PDateTimeOffsetNull: NullDateTimeOffset{},
-			SDateTimeOffset: DateTimeOffset(time.Date(2001, 11, 16, 23, 59, 39, 0, time.UTC)),
+			SDateTimeOffset:     DateTimeOffset(time.Date(2001, 11, 16, 23, 59, 39, 0, time.UTC)),
 			SDateTimeOffsetNull: nil,
-			PTime:        Time{},
-			PTimeNull:    NullTime{},
-			STime:        Time{Hour: 12, Minute: 30, Second: 45},
-			STimeNull:    nil,
+			PTime:               Time{},
+			PTimeNull:           NullTime{},
+			STime:               Time{Hour: 12, Minute: 30, Second: 45},
+			STimeNull:           nil,
 		},
 		{
 			PBool: sql.NullBool{
@@ -285,37 +285,37 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 				String: "jifdijrgio",
 				Valid:  true,
 			},
-			PStringNull:  sql.NullString{},
-			SString:      "geniefkl123",
-			SStringNull:  &nvarchar,
-			PDecimal:     decimal.NewNullDecimal(decimal.New(892332, -3)),
-			PDecimalNull: decimal.NullDecimal{},
-			SDecimal:     decimal.New(1004, -1),
-			SDecimalNull: &decimalValue,
-			PMoney:       Money[decimal.NullDecimal]{decimal.NewNullDecimal(decimal.New(892332, -3))},
-			PMoneyNull:   Money[decimal.NullDecimal]{decimal.NullDecimal{}},
-			SMoney:       Money[decimal.Decimal]{decimal.New(1004, -1)},
-			SMoneyNull:   &moneyValue,
-			PDate:        Date{Year: 2010, Month: 5, Day: 15},
-			PDateNull:    NullDate{Date: Date{Year: 2010, Month: 5, Day: 15}, Valid: true},
-			SDate:        Date{Year: 2010, Month: 5, Day: 15},
-			SDateNull:    &dateValue,
-			PDateTime:    DateTime{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 40000000}},
-			PDateTimeNull: NullDateTime{DateTime: DateTime{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 50000000}}, Valid: true},
-			SDateTime:    DateTime{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 70000000}},
-			SDateTimeNull: &dateTimeValue,
-			PDateTime2:   DateTime2{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400}},
-			PDateTime2Null: NullDateTime2{DateTime2: DateTime2{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400}}, Valid: true},
-			SDateTime2:   DateTime2{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400}},
-			SDateTime2Null: &dateTime2Value,
-			PDateTimeOffset: DateTimeOffset(time.Date(2010, 5, 15, 14, 30, 45, 123400, time.FixedZone("", 2*60*60))),
+			PStringNull:         sql.NullString{},
+			SString:             "geniefkl123",
+			SStringNull:         &nvarchar,
+			PDecimal:            decimal.NewNullDecimal(decimal.New(892332, -3)),
+			PDecimalNull:        decimal.NullDecimal{},
+			SDecimal:            decimal.New(1004, -1),
+			SDecimalNull:        &decimalValue,
+			PMoney:              Money[decimal.NullDecimal]{decimal.NewNullDecimal(decimal.New(892332, -3))},
+			PMoneyNull:          Money[decimal.NullDecimal]{decimal.NullDecimal{}},
+			SMoney:              Money[decimal.Decimal]{decimal.New(1004, -1)},
+			SMoneyNull:          &moneyValue,
+			PDate:               Date{Year: 2010, Month: 5, Day: 15},
+			PDateNull:           NullDate{Date: Date{Year: 2010, Month: 5, Day: 15}, Valid: true},
+			SDate:               Date{Year: 2010, Month: 5, Day: 15},
+			SDateNull:           &dateValue,
+			PDateTime:           DateTime{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 40000000}},
+			PDateTimeNull:       NullDateTime{DateTime: DateTime{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 50000000}}, Valid: true},
+			SDateTime:           DateTime{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 70000000}},
+			SDateTimeNull:       &dateTimeValue,
+			PDateTime2:          DateTime2{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400}},
+			PDateTime2Null:      NullDateTime2{DateTime2: DateTime2{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400}}, Valid: true},
+			SDateTime2:          DateTime2{Date: civil.Date{Year: 2010, Month: 5, Day: 15}, Time: civil.Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400}},
+			SDateTime2Null:      &dateTime2Value,
+			PDateTimeOffset:     DateTimeOffset(time.Date(2010, 5, 15, 14, 30, 45, 123400, time.FixedZone("", 2*60*60))),
 			PDateTimeOffsetNull: NullDateTimeOffset{DateTimeOffset: DateTimeOffset(time.Date(2010, 5, 15, 14, 30, 45, 123400, time.FixedZone("", 2*60*60))), Valid: true},
-			SDateTimeOffset: DateTimeOffset(time.Date(2010, 5, 15, 14, 30, 45, 123400, time.FixedZone("", 2*60*60))),
+			SDateTimeOffset:     DateTimeOffset(time.Date(2010, 5, 15, 14, 30, 45, 123400, time.FixedZone("", 2*60*60))),
 			SDateTimeOffsetNull: &dateTimeOffsetValue,
-			PTime:        Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400},
-			PTimeNull:    NullTime{Time: Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400}, Valid: true},
-			STime:        Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400},
-			STimeNull:    &timeValue,
+			PTime:               Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400},
+			PTimeNull:           NullTime{Time: Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400}, Valid: true},
+			STime:               Time{Hour: 14, Minute: 30, Second: 45, Nanosecond: 123400},
+			STimeNull:           &timeValue,
 		},
 	}
 
@@ -395,7 +395,7 @@ func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 
 		result1 = append(result1, val)
 	}
-	
+
 	if !compare(param1, result1) {
 		t.Logf("expected: %+v", param1)
 		t.Logf("actual: %+v", result1)
@@ -456,7 +456,7 @@ func compare[T any](param, result []T) bool {
 				}
 
 				paramInterface = paramValue.Elem().Interface()
-                                resultInterface = resultValue.Elem().Interface()
+				resultInterface = resultValue.Elem().Interface()
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 				reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 				reflect.Float32, reflect.Float64, reflect.Bool, reflect.String:
@@ -544,7 +544,17 @@ func TestTVPGoSQLTypes(t *testing.T) {
 			p_decimal           DECIMAL(18, 4),
 			p_decimalNull       DECIMAL(18, 4),
 			p_money             MONEY,
-			p_moneyNull         MONEY
+			p_moneyNull         MONEY,
+			p_date              DATE,
+			p_dateNull          DATE,
+			p_datetime          DATETIME,
+			p_datetimeNull      DATETIME,
+			p_datetime2         DATETIME2,
+			p_datetime2Null     DATETIME2,
+			p_datetimeoffset    DATETIMEOFFSET,
+			p_datetimeoffsetNull DATETIMEOFFSET,
+			p_time              TIME,
+			p_timeNull          TIME
 		); `
 
 	sqltextdroptable := `DROP TYPE tvpGoSQLTypes;`
@@ -563,18 +573,28 @@ func TestTVPGoSQLTypes(t *testing.T) {
 	END;`
 
 	type TvpGoSQLTypes struct {
-		PBool        sql.NullBool
-		PBoolNull    sql.NullBool
-		PFloat64     sql.NullFloat64
-		PFloat64Null sql.NullFloat64
-		PInt64       sql.NullInt64
-		PInt64Null   sql.NullInt64
-		PString      sql.NullString
-		PStringNull  sql.NullString
-		PDecimal     decimal.NullDecimal
-		PDecimalNull decimal.NullDecimal
-		PMoney       Money[decimal.NullDecimal]
-		PMoneyNull   Money[decimal.NullDecimal]
+		PBool               sql.NullBool
+		PBoolNull           sql.NullBool
+		PFloat64            sql.NullFloat64
+		PFloat64Null        sql.NullFloat64
+		PInt64              sql.NullInt64
+		PInt64Null          sql.NullInt64
+		PString             sql.NullString
+		PStringNull         sql.NullString
+		PDecimal            decimal.NullDecimal
+		PDecimalNull        decimal.NullDecimal
+		PMoney              Money[decimal.NullDecimal]
+		PMoneyNull          Money[decimal.NullDecimal]
+		PDate               Date
+		PDateNull           NullDate
+		PDateTime           DateTime
+		PDateTimeNull       NullDateTime
+		PDateTime2          DateTime2
+		PDateTime2Null      NullDateTime2
+		PDateTimeOffset     DateTimeOffset
+		PDateTimeOffsetNull NullDateTimeOffset
+		PTime               Time
+		PTimeNull           NullTime
 	}
 
 	sqltextdropsp := `DROP PROCEDURE spwithtvpGoSQLTypes;`
@@ -590,6 +610,13 @@ func TestTVPGoSQLTypes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.ExecContext(ctx, sqltextdropsp)
+
+	dateValue := Date{Year: 2020, Month: 8, Day: 26}
+	dateTimeValue := DateTime{Date: civil.Date{Year: 2020, Month: 8, Day: 26}, Time: civil.Time{Hour: 23, Minute: 59, Second: 39, Nanosecond: 30000000}}
+	dateTime2Value := DateTime2{Date: civil.Date{Year: 2020, Month: 8, Day: 26}, Time: civil.Time{Hour: 23, Minute: 59, Second: 39, Nanosecond: 100}}
+	dateTimeOffsetValue := DateTimeOffset(time.Date(2020, 8, 26, 23, 59, 39, 100, time.UTC))
+	timeValue := Time{Hour: 23, Minute: 59, Second: 39, Nanosecond: 100}
+
 	param1 := []TvpGoSQLTypes{
 		{
 			PBool: sql.NullBool{
@@ -611,11 +638,21 @@ func TestTVPGoSQLTypes(t *testing.T) {
 				String: "test=tvp",
 				Valid:  true,
 			},
-			PStringNull:  sql.NullString{},
-			PDecimal:     decimal.NewNullDecimal(decimal.New(-7644, -2)),
-			PDecimalNull: decimal.NullDecimal{},
-			PMoney:       Money[decimal.NullDecimal]{decimal.NewNullDecimal(decimal.New(-7644, -2))},
-			PMoneyNull:   Money[decimal.NullDecimal]{decimal.NullDecimal{}},
+			PStringNull:         sql.NullString{},
+			PDecimal:            decimal.NewNullDecimal(decimal.New(-7644, -2)),
+			PDecimalNull:        decimal.NullDecimal{},
+			PMoney:              Money[decimal.NullDecimal]{decimal.NewNullDecimal(decimal.New(-7644, -2))},
+			PMoneyNull:          Money[decimal.NullDecimal]{decimal.NullDecimal{}},
+			PDate:               dateValue,
+			PDateNull:           NullDate{},
+			PDateTime:           dateTimeValue,
+			PDateTimeNull:       NullDateTime{},
+			PDateTime2:          dateTime2Value,
+			PDateTime2Null:      NullDateTime2{},
+			PDateTimeOffset:     dateTimeOffsetValue,
+			PDateTimeOffsetNull: NullDateTimeOffset{},
+			PTime:               timeValue,
+			PTimeNull:           NullTime{},
 		},
 	}
 
@@ -655,6 +692,16 @@ func TestTVPGoSQLTypes(t *testing.T) {
 			&val.PDecimalNull,
 			&val.PMoney,
 			&val.PMoneyNull,
+			&val.PDate,
+			&val.PDateNull,
+			&val.PDateTime,
+			&val.PDateTimeNull,
+			&val.PDateTime2,
+			&val.PDateTime2Null,
+			&val.PDateTimeOffset,
+			&val.PDateTimeOffsetNull,
+			&val.PTime,
+			&val.PTimeNull,
 		)
 		if err != nil {
 			t.Fatalf("scan failed with error: %s", err)
@@ -677,7 +724,7 @@ func TestTVPGoSQLTypes(t *testing.T) {
 			param1[i].PMoneyNull.Decimal.Decimal, result1[i].PMoneyNull.Decimal.Decimal)
 	}
 
-	if !reflect.DeepEqual(param1, result1) {
+	if !compare(param1, result1) {
 		t.Logf("expected: %+v", param1)
 		t.Logf("actual: %+v", result1)
 		t.Errorf("first resultset did not match param1")
