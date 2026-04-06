@@ -534,6 +534,18 @@ func TestAuthenticationSynonym(t *testing.T) {
 			name:           "authentication with spaces (ADO.NET style)",
 			connStr:        "server=testhost;authentication=Active Directory Default",
 			expectedFedAuth: "Active Directory Default",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config, err := Parse(tt.connStr)
+			assert.Nil(t, err, "Expected no error parsing connection string")
+			assert.Equal(t, tt.expectedFedAuth, config.Parameters["fedauth"], "Expected fedauth parameter to match")
+		})
+	}
+}
+
 func TestEncodeParametersGetTimezone(t *testing.T) {
 	t.Parallel()
 
@@ -605,9 +617,6 @@ func TestConfigURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config, err := Parse(tt.connStr)
-			assert.Nil(t, err, "Expected no error parsing connection string")
-			assert.Equal(t, tt.expectedFedAuth, config.Parameters["fedauth"], "Expected fedauth parameter to match")
 			url := tt.config.URL()
 			if !assert.NotNil(t, url, "URL() returned nil") {
 				return
