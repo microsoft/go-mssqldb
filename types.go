@@ -998,8 +998,12 @@ func encodeTimeInt(seconds, ns, scale int, buf []byte) {
 	buf[0] = byte(t)
 	buf[1] = byte(t >> 8)
 	buf[2] = byte(t >> 16)
-	buf[3] = byte(t >> 24)
-	buf[4] = byte(t >> 32)
+	if scale > 2 {
+		buf[3] = byte(t >> 24)
+	}
+	if scale > 4 {
+		buf[4] = byte(t >> 32)
+	}
 }
 
 func decodeTime(scale uint8, buf []byte, loc *time.Location) time.Time {
