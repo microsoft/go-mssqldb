@@ -1809,6 +1809,7 @@ func TestColumnTypeIntrospection(t *testing.T) {
 		{"cast(getdate() as datetimeoffset(7))", "DATETIMEOFFSET", reflect.TypeOf(time.Time{}), false, 0, true, 0, 7},
 		{"cast(getdate() as date)", "DATE", reflect.TypeOf(time.Time{}), false, 0, false, 0, 0},
 		{"cast(getdate() as time)", "TIME", reflect.TypeOf(time.Time{}), false, 0, true, 0, 7},
+		{"cast(getdate() as time(3))", "TIME", reflect.TypeOf(time.Time{}), false, 0, true, 0, 3},
 		{"'abc'", "VARCHAR", reflect.TypeOf(""), true, 3, false, 0, 0},
 		{"cast('abc' as varchar(max))", "VARCHAR", reflect.TypeOf(""), true, 2147483645, false, 0, 0},
 		{"N'abc'", "NVARCHAR", reflect.TypeOf(""), true, 3, false, 0, 0},
