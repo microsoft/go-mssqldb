@@ -6,15 +6,26 @@ on:
       - main
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
+# Remove all default token permissions at the workflow level.
+# Individual jobs grant only the permissions they need.
+permissions: {}
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      # Opt in to Node.js 24 now. release-please-action v4.4.0 ships node20;
+      # GitHub will force Node 24 on June 2 2026 and remove Node 20 on Sep 16 2026.
+      # Remove this once the action publishes a node24-native version.
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: googleapis/release-please-action@v4
+      - name: Run Release Please
+        # googleapis/release-please-action v4.4.0
+        uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38
         with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
