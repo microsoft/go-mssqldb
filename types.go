@@ -1210,7 +1210,7 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 	case typeBigBinary:
 		return reflect.TypeOf([]byte{})
 	case typeVariant:
-		return reflect.TypeOf(nil)
+		return reflect.TypeOf((*interface{})(nil)).Elem()
 	case typeUdt:
 		return reflect.TypeOf([]byte{})
 	default:
