@@ -19,10 +19,11 @@ func TestSessionInitSQL(t *testing.T) {
 	tl := testLogger{t: t}
 	defer tl.StopLogging()
 	d := &Driver{logger: optionalLogger{loggerAdapter{&tl}}}
-	connector, err := d.OpenConnector(makeConnStr(t).String())
+	driverConnector, err := d.OpenConnector(makeConnStr(t).String())
 	if err != nil {
 		t.Fatal("unable to open connector", err)
 	}
+	connector := driverConnector.(*Connector)
 
 	// Do not use these settings in your application
 	// unless you know what they do.
