@@ -5,17 +5,25 @@ on:
     branches:
     - main
 
+# Remove all default token permissions at the workflow level.
+# Individual jobs grant only the permissions they need.
+permissions: {}
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         go: ['1.25.7']
         sqlImage: ['2017-latest','2019-latest','2022-latest','2025-latest']
     steps:
-    - uses: actions/checkout@v6
+    # actions/checkout v6
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
     - name: Setup go
-      uses: actions/setup-go@v6
+      # actions/setup-go v6
+      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
       with:
         go-version: '${{ matrix.go }}'
     - name: Install sqlcmd
@@ -65,7 +73,8 @@ jobs:
         fi
         go test -coverprofile=coverage.out -covermode=atomic -v ./...
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v6
+      # codecov/codecov-action v6
+      uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6
       with:
         files: coverage.out
         flags: unittests
@@ -73,4 +82,6 @@ jobs:
         fail_ci_if_error: false
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
+    - name: Show SQL Server logs on failure
+      if: failure()
+      run: docker logs sqlserver
