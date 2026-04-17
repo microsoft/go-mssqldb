@@ -1169,6 +1169,14 @@ initiate_connection:
 		return nil, err
 	}
 
+	// Ensure the TCP connection is closed if connect() returns an error.
+	// On success the connection is owned by the returned tdsSession.
+	defer func() {
+		if err != nil {
+			conn.Close()
+		}
+	}()
+
 	toconn := newTimeoutConn(conn, p.ConnTimeout)
 	outbuf := newTdsBuffer(packetSize, toconn)
 
@@ -1376,7 +1384,6 @@ initiate_connection:
 				if token.isError() {
 					tokenErr := token.getError()
 					tokenErr.Message = "login error: " + tokenErr.Message
-					conn.Close()
 					return nil, tokenErr
 				}
 			case error:
