@@ -1214,7 +1214,7 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 	case typeUdt:
 		return reflect.TypeOf([]byte{})
 	default:
-		panic(fmt.Sprintf("not implemented makeGoLangScanType for type %d", ti.TypeId))
+		return reflect.TypeOf((*interface{})(nil)).Elem()
 	}
 }
 
@@ -1341,7 +1341,7 @@ func makeDecl(ti typeInfo) string {
 		}
 		return fmt.Sprintf("%s READONLY", ti.UdtInfo.TypeName)
 	default:
-		panic(fmt.Sprintf("not implemented makeDecl for type %#x", ti.TypeId))
+		return ""
 	}
 }
 
@@ -1450,7 +1450,7 @@ func makeGoLangTypeName(ti typeInfo) string {
 	case typeUdt:
 		return strings.ToUpper(ti.UdtInfo.TypeName)
 	default:
-		panic(fmt.Sprintf("not implemented makeGoLangTypeName for type %d", ti.TypeId))
+		return ""
 	}
 }
 
@@ -1582,10 +1582,10 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 		case "geometry":
 			return 2147483647, true
 		default:
-			panic(fmt.Sprintf("not implemented makeGoLangTypeLength for user defined type %s", ti.UdtInfo.TypeName))
+			return 0, false
 		}
 	default:
-		panic(fmt.Sprintf("not implemented makeGoLangTypeLength for type %d", ti.TypeId))
+		return 0, false
 	}
 
 	return 0, false
@@ -1701,6 +1701,6 @@ func makeGoLangTypePrecisionScale(ti typeInfo) (int64, int64, bool) {
 	case typeUdt:
 		return 0, 0, false
 	default:
-		panic(fmt.Sprintf("not implemented makeGoLangTypePrecisionScale for type %d", ti.TypeId))
+		return 0, 0, false
 	}
 }
