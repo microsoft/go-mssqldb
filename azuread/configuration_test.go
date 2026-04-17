@@ -207,6 +207,39 @@ func TestValidateParameters(t *testing.T) {
 				fedAuthWorkflow: ActiveDirectoryOnBehalfOf,
 			},
 		},
+		{
+			name: "ADO.Net Authentication synonym for fedauth",
+			dsn:  "server=someserver.database.windows.net;Authentication=ActiveDirectoryDefault",
+			expected: &azureFedAuthConfig{
+				adalWorkflow:    mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow: ActiveDirectoryDefault,
+			},
+		},
+		{
+			name: "ADO.Net spaced auth name: Active Directory Password",
+			dsn:  "server=someserver.database.windows.net;Authentication=Active Directory Password;user id=azure-ad-user@example.com;password=somesecret;" + appid,
+			expected: &azureFedAuthConfig{
+				adalWorkflow:        mssql.FedAuthADALWorkflowPassword,
+				user:                "azure-ad-user@example.com",
+				password:            passphrase,
+				applicationClientID: "someguid",
+				fedAuthWorkflow:     ActiveDirectoryPassword,
+			},
+		},
+		{
+			name: "ADO.Net spaced auth name: Active Directory Managed Identity",
+			dsn:  "server=someserver.database.windows.net;Authentication=Active Directory Managed Identity;user id=identity-client-id",
+			expected: &azureFedAuthConfig{
+				adalWorkflow:    mssql.FedAuthADALWorkflowMSI,
+				clientID:        "identity-client-id",
+				fedAuthWorkflow: ActiveDirectoryManagedIdentity,
+			},
+		},
+		{
+			name:     "ADO.Net Sql Password means no fedauth",
+			dsn:      "server=someserver.database.windows.net;Authentication=Sql Password;user id=sa;password=somesecret",
+			expected: &azureFedAuthConfig{fedAuthLibrary: mssql.FedAuthLibraryReserved},
+		},
 	}
 	for _, tst := range tests {
 		config, err := parse(tst.dsn)
