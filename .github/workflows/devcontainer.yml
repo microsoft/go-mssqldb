@@ -1,0 +1,28 @@
+name: devcontainer
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.devcontainer/**'
+      - '.dockerignore'
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build devcontainer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # actions/checkout v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Build devcontainer image
+        # devcontainers/ci v0.3
+        uses: devcontainers/ci@b63b30de439b47a52267f241112c5b453b673db5 # v0.3
+        with:
+          imageName: go-mssqldb-devcontainer
+          push: never
