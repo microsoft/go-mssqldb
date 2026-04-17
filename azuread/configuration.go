@@ -94,11 +94,35 @@ func parse(dsn string) (*azureFedAuthConfig, error) {
 	return config, nil
 }
 
+// adoNetAuthMap matches the string constants from
+// Microsoft.Data.SqlClient's DbConnectionStringUtilities.
+var adoNetAuthMap = map[string]string{
+	"sql password":                        "", // SQL auth, no fedauth needed
+	"active directory password":           ActiveDirectoryPassword,
+	"active directory integrated":         ActiveDirectoryIntegrated,
+	"active directory interactive":        ActiveDirectoryInteractive,
+	"active directory service principal":  ActiveDirectoryServicePrincipal,
+	"active directory device code flow":   ActiveDirectoryDeviceCode,
+	"active directory managed identity":   ActiveDirectoryManagedIdentity,
+	"active directory msi":                ActiveDirectoryMSI,
+	"active directory default":            ActiveDirectoryDefault,
+	"active directory workload identity":  ActiveDirectoryWorkloadIdentity,
+}
+
 func (p *azureFedAuthConfig) validateParameters(params map[string]string) error {
 
 	fedAuthWorkflow := params["fedauth"]
 	if fedAuthWorkflow == "" {
 		return nil
+	}
+
+	// Normalize ADO.Net-style authentication names to driver names
+	if mapped, ok := adoNetAuthMap[strings.ToLower(fedAuthWorkflow)]; ok {
+		if mapped == "" {
+			// "Sql Password" means standard SQL auth, no federated auth
+			return nil
+		}
+		fedAuthWorkflow = mapped
 	}
 
 	p.fedAuthLibrary = mssql.FedAuthLibraryADAL
