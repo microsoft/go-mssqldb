@@ -845,18 +845,23 @@ func (rc *Rows) Close() error {
 	// and check closing after reading only few rows
 	rc.cancel()
 
+	var closeErr error
 	for {
 		tok, err := rc.reader.nextToken()
 		if err == nil {
 			if tok == nil {
-				return nil
-			} else {
-				// continue consuming tokens
-				continue
+				return closeErr
 			}
+			// Check for server errors in done tokens so that errors
+			// arriving after result rows (e.g. XACT_ABORT rollbacks)
+			// are not silently swallowed.
+			if done, ok := tok.(doneStruct); ok && done.isError() {
+				closeErr = rc.stmt.c.checkBadConn(rc.reader.ctx, done.getError(), false)
+			}
+			continue
 		} else {
 			if err == rc.reader.ctx.Err() {
-				return nil
+				return closeErr
 			} else {
 				return err
 			}
