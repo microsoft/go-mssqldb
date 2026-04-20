@@ -7,7 +7,17 @@ on:
     paths:
       - '.devcontainer/**'
       - '.dockerignore'
+      - '.github/workflows/devcontainer.yml'
       - 'go.mod'
+  push:
+    branches:
+      - main
+    paths:
+      - '.devcontainer/**'
+      - '.dockerignore'
+      - '.github/workflows/devcontainer.yml'
+      - 'go.mod'
+  workflow_dispatch:
 
 permissions: {}
 
@@ -28,7 +38,7 @@ jobs:
           GOMOD_MAJOR_MINOR=$(echo "$GOMOD_VERSION" | grep -oE '^[0-9]+\.[0-9]+')
 
           # Extract the Go version from the Dockerfile base image tag
-          DOCKERFILE_TAG=$(grep -oP 'devcontainers/go:\K[0-9]+\.[0-9]+' .devcontainer/Dockerfile)
+          DOCKERFILE_TAG=$(sed -n 's/.*devcontainers\/go:\([0-9]*\.[0-9]*\).*/\1/p' .devcontainer/Dockerfile)
 
           echo "go.mod requires:        go ${GOMOD_VERSION} (major.minor: ${GOMOD_MAJOR_MINOR})"
           echo "Dockerfile base image:  go:${DOCKERFILE_TAG}"
