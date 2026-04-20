@@ -65,7 +65,7 @@ type Driver struct {
 }
 
 // OpenConnector opens a new connector. Useful to dial with a context.
-func (d *Driver) OpenConnector(dsn string) (*Connector, error) {
+func (d *Driver) OpenConnector(dsn string) (driver.Connector, error) {
 	params, err := msdsn.Parse(dsn)
 	if err != nil {
 		return nil, err
@@ -1196,6 +1196,7 @@ func (r *Result) RowsAffected() (int64, error) {
 	return r.rowsAffected, nil
 }
 
+var _ driver.DriverContext = &Driver{}
 var _ driver.Pinger = &Conn{}
 
 // Ping is used to check if the remote server is available and satisfies the Pinger interface.

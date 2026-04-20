@@ -13,9 +13,10 @@ import (
 func testConnectionBad(t *testing.T, connStr string) (err error) {
 	conn, err := sql.Open("mssql", connStr)
 	if err != nil {
-		// should not fail here
-		t.Fatal("Open connection failed:", err.Error())
-		return
+		// With DriverContext, sql.Open calls OpenConnector which parses the
+		// DSN eagerly. Some protocol dialers (e.g. shared memory) reject
+		// invalid hosts during parsing, so Open itself may fail.
+		return err
 	}
 	defer conn.Close()
 	row := conn.QueryRow("select 1")
