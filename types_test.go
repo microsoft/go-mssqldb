@@ -54,7 +54,7 @@ func TestMakeGoLangScanType(t *testing.T) {
 		{"typeNText", typeInfo{TypeId: typeNText}, reflect.TypeOf("")},
 		{"typeImage", typeInfo{TypeId: typeImage}, reflect.TypeOf([]byte{})},
 		{"typeBigBinary", typeInfo{TypeId: typeBigBinary}, reflect.TypeOf([]byte{})},
-		{"typeVariant", typeInfo{TypeId: typeVariant}, reflect.TypeOf(nil)},
+		{"typeVariant", typeInfo{TypeId: typeVariant}, reflect.TypeOf((*interface{})(nil)).Elem()},
 		{"typeUdt", typeInfo{TypeId: typeUdt}, reflect.TypeOf([]byte{})},
 	}
 
