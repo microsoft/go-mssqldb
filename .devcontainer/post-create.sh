@@ -48,6 +48,16 @@ if [ "$sql_ready" = false ]; then
     echo "⚠️  Warning: Could not verify SQL Server connection. Tests may fail."
 fi
 
+# Set up go-sqlcmd context so 'sqlcmd' (and the 'sql' wrapper) connect
+# to the dev container's SQL Server without needing -S/-U/-P flags.
+if [ "$sql_ready" = true ]; then
+    echo "🔧 Configuring go-sqlcmd default context..."
+    SQLCMD_PASSWORD="${SQLPASSWORD}" sqlcmd config add-user --name sa-dev --username sa --password-encryption none 2>/dev/null || true
+    sqlcmd config add-endpoint --name local-dev --address localhost --port 1433 2>/dev/null || true
+    sqlcmd config add-context --name devcontainer --user sa-dev --endpoint local-dev 2>/dev/null || true
+    sqlcmd config use-context devcontainer 2>/dev/null || true
+fi
+
 # Run initial setup SQL if it exists and SQL Server is ready
 if [ -f ".devcontainer/mssql/setup.sql" ]; then
     if [ "$sql_ready" = true ]; then
@@ -58,8 +68,35 @@ if [ -f ".devcontainer/mssql/setup.sql" ]; then
     fi
 fi
 
-# Create useful aliases in a dedicated directory (safe and idempotent)
-echo "🔧 Setting up helpful aliases..."
+# Create convenience scripts on PATH so they work in every terminal type
+# (aliases only work in interactive shells that source ~/.bashrc).
+echo "🔧 Setting up helper scripts and aliases..."
+mkdir -p ~/bin
+
+# sql - go-sqlcmd (uses this driver - dogfooding!)
+# Plain wrapper so all subcommands (create, query, open, etc.) and flags work.
+# For a quick connected session: sql -S localhost -U sa -P $SQLPASSWORD -C
+# Or just: sql query "SELECT 1"   (uses the current sqlcmd context)
+cat > ~/bin/sql << 'SCRIPT'
+#!/bin/bash
+exec sqlcmd "$@"
+SCRIPT
+
+# sql-odbc - legacy ODBC sqlcmd (for compatibility testing)
+cat > ~/bin/sql-odbc << 'SCRIPT'
+#!/bin/bash
+exec /opt/mssql-tools18/bin/sqlcmd "$@"
+SCRIPT
+
+# test-db - quick connection test against the dev container's SQL Server
+cat > ~/bin/test-db << 'SCRIPT'
+#!/bin/bash
+exec sqlcmd -S localhost -U sa -P "$SQLPASSWORD" -C -Q "SELECT @@VERSION"
+SCRIPT
+
+chmod +x ~/bin/sql ~/bin/sql-odbc ~/bin/test-db
+
+# Also set up bash aliases for the Go workflow shortcuts
 mkdir -p ~/.bash_aliases.d
 cat > ~/.bash_aliases.d/go-mssqldb << 'EOF'
 # go-mssqldb development aliases
@@ -70,17 +107,6 @@ alias gbuild='go build ./...'
 alias gfmt='go fmt ./...'
 alias gvet='go vet ./...'
 alias glint='golangci-lint run'
-
-# sql  - connect via go-sqlcmd (uses this driver - dogfooding!)
-alias sql='sqlcmd -S localhost -U sa -P "$SQLPASSWORD" -C'
-
-# sql-odbc - connect via legacy ODBC sqlcmd (for compatibility testing)
-# The legacy binary lives at /opt/mssql-tools18/bin/sqlcmd and is always
-# available by full path. This alias is a convenience shorthand.
-alias sql-odbc='/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SQLPASSWORD" -C'
-
-# Quick test connection
-alias test-db='sqlcmd -S localhost -U sa -P "$SQLPASSWORD" -C -Q "SELECT @@VERSION"'
 EOF
 
 # Ensure aliases are sourced from .bashrc
@@ -88,13 +114,7 @@ if ! grep -q 'go-mssqldb aliases' ~/.bashrc 2>/dev/null; then
     {
         echo ''
         echo '# go-mssqldb aliases'
-        echo 'if [ -f ~/.bash_aliases ]; then'
-        echo '    # Source traditional aliases file if present'
-        echo '    . ~/.bash_aliases'
-        echo 'fi'
-        echo ''
         echo 'if [ -d ~/.bash_aliases.d ]; then'
-        echo '    # Source all alias snippets from ~/.bash_aliases.d'
         echo '    for f in ~/.bash_aliases.d/*; do'
         echo '        [ -r "$f" ] && . "$f"'
         echo '    done'

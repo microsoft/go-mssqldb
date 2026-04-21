@@ -53,22 +53,22 @@ go test ./msdsn ./internal/... ./integratedauth ./azuread -v
 go test -short ./...
 ```
 
-### Helpful Aliases
+### Helpful Commands and Aliases
 
-After the container starts, these aliases are available:
+After the container starts, these shortcuts are available:
 
-| Alias | Command |
-|-------|---------|
-| `gtest` | Run all tests |
-| `gtest-unit` | Run unit tests only |
-| `gtest-short` | Run short tests |
-| `gbuild` | Build all packages |
-| `gfmt` | Format code |
-| `gvet` | Run go vet |
-| `glint` | Run golangci-lint |
-| `test-db` | Test database connection |
-| `sql` | Connect to SQL Server (using go-sqlcmd) |
-| `sql-odbc` | Connect using legacy ODBC sqlcmd |
+| Command | Type | Description |
+|---------|------|-------------|
+| `sql` | script | go-sqlcmd wrapper (uses this driver). Supports all subcommands: `sql query`, `sql open`, etc. |
+| `sql-odbc` | script | Legacy ODBC sqlcmd wrapper (`/opt/mssql-tools18/bin/sqlcmd`) |
+| `test-db` | script | Quick SQL Server connection test |
+| `gtest` | alias | Run all tests |
+| `gtest-unit` | alias | Run unit tests only |
+| `gtest-short` | alias | Run short tests |
+| `gbuild` | alias | Build all packages |
+| `gfmt` | alias | Format code |
+| `gvet` | alias | Run go vet |
+| `glint` | alias | Run golangci-lint |
 
 ## SQL Server Connection
 
@@ -81,14 +81,17 @@ The SQL Server instance is accessible at:
 
 ### Connecting with go-sqlcmd
 
-The container includes [go-sqlcmd](https://github.com/microsoft/go-sqlcmd), which is built on this driver (dogfooding!):
+The container includes [go-sqlcmd](https://github.com/microsoft/go-sqlcmd), which is built on this driver (dogfooding!). A default context (`devcontainer`) is pre-configured at container creation so you can connect without flags:
 
 ```bash
-# Using the alias
+# Interactive session (uses pre-configured context)
 sql
 
-# Or explicitly (-C trusts the self-signed certificate used by the devcontainer SQL Server)
-sqlcmd -S localhost -U sa -P "MssqlDriver@2025!" -C
+# Run a query
+sql query "SELECT @@VERSION"
+
+# Or use sqlcmd directly with explicit flags
+sqlcmd -S localhost -U sa -P "$SQLPASSWORD" -C
 ```
 
 ### VS Code SQL Extension
@@ -102,8 +105,8 @@ This container ships two versions of `sqlcmd`:
 | Command | Binary | Description |
 |---------|--------|-------------|
 | `sqlcmd` | go-sqlcmd (default) | Modern Go-based CLI built on this driver. Supports `sqlcmd create`, `sqlcmd query`, and more. |
-| `sql` (alias) | go-sqlcmd | Shorthand to connect to the local SQL Server instance |
-| `sql-odbc` (alias) | Legacy ODBC | Uses `/opt/mssql-tools18/bin/sqlcmd` for compatibility testing |
+| `sql` (script) | go-sqlcmd | Wrapper script on PATH — passes all arguments through to go-sqlcmd |
+| `sql-odbc` (script) | Legacy ODBC | Wrapper script on PATH — uses `/opt/mssql-tools18/bin/sqlcmd` for compatibility testing |
 
 The modern go-sqlcmd takes precedence on `PATH`. To invoke the legacy version directly:
 

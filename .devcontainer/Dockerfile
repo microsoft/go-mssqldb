@@ -61,7 +61,8 @@ RUN go install golang.org/x/tools/gopls@v0.21.1 \
 RUN mkdir -p /home/vscode/bin \
     && chown -R vscode:vscode /home/vscode/go /home/vscode/bin
 
-# PATH priority: GOPATH/bin comes before mssql-tools18 so the modern go-sqlcmd
-# is the default 'sqlcmd'. The legacy ODBC sqlcmd remains available at its full
-# path (/opt/mssql-tools18/bin/sqlcmd) and via the 'sql-odbc' alias.
+# PATH priority: ~/bin (convenience scripts like sql, sql-odbc, test-db) and
+# GOPATH/bin (go-sqlcmd) come before mssql-tools18 so the modern go-sqlcmd is
+# the default 'sqlcmd'. The legacy ODBC sqlcmd remains available at its full
+# path (/opt/mssql-tools18/bin/sqlcmd) and via the 'sql-odbc' wrapper.
 ENV PATH="/home/vscode/go/bin:/home/vscode/bin:${PATH}"
