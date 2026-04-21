@@ -247,6 +247,9 @@ type Conn struct {
 	processQueryText bool
 	connectionGood   bool
 
+	// True between Begin() and Commit()/Rollback(); detects server-side rollback.
+	inTransaction bool
+
 	outs outputs
 }
 
@@ -303,6 +306,18 @@ func (c *Conn) clearOuts() {
 	c.outs = outputs{}
 }
 
+// checkServerAbortedTransaction returns an error when the server ended
+// the transaction without the driver's knowledge (e.g. XACT_ABORT).
+func (c *Conn) checkServerAbortedTransaction() error {
+	if c.inTransaction && c.sess.tranid == 0 {
+		return Error{
+			Number:  0,
+			Message: "server does not have an active transaction: the transaction was aborted by the server, likely due to an error while SET XACT_ABORT is ON; any changes have been rolled back",
+		}
+	}
+	return nil
+}
+
 func (c *Conn) simpleProcessResp(ctx context.Context, isRollback bool) error {
 	reader := startReading(c.sess, ctx, c.outs)
 	reader.noAttn = isRollback
@@ -319,6 +334,10 @@ func (c *Conn) simpleProcessResp(ctx context.Context, isRollback bool) error {
 func (c *Conn) Commit() error {
 	if !c.connectionGood {
 		return driver.ErrBadConn
+	}
+	defer func() { c.inTransaction = false }()
+	if err := c.checkServerAbortedTransaction(); err != nil {
+		return err
 	}
 	if err := c.sendCommitRequest(); err != nil {
 		return c.checkBadConn(c.transactionCtx, err, true)
@@ -344,6 +363,11 @@ func (c *Conn) sendCommitRequest() error {
 func (c *Conn) Rollback() error {
 	if !c.connectionGood {
 		return driver.ErrBadConn
+	}
+	defer func() { c.inTransaction = false }()
+	// Server already rolled back (e.g. XACT_ABORT); nothing to send.
+	if c.inTransaction && c.sess.tranid == 0 {
+		return nil
 	}
 	if err := c.sendRollbackRequest(); err != nil {
 		return c.checkBadConn(c.transactionCtx, err, true)
@@ -407,6 +431,7 @@ func (c *Conn) processBeginResponse(ctx context.Context) (driver.Tx, error) {
 	}
 	// successful BEGINXACT request will return sess.tranid
 	// for started transaction
+	c.inTransaction = true
 	return c, nil
 }
 
@@ -508,6 +533,11 @@ func (s *Stmt) NumInput() int {
 }
 
 func (s *Stmt) sendQuery(ctx context.Context, args []namedValue) (err error) {
+	// Fail fast if XACT_ABORT rolled back the transaction. The mssql.Error
+	// type avoids triggering checkBadConn's retry/reconnect path.
+	if err := s.c.checkServerAbortedTransaction(); err != nil {
+		return err
+	}
 	headers := []headerStruct{
 		{hdrtype: dataStmHdrTransDescr,
 			data: transDescrHdr{s.c.sess.tranid, 1}.pack()},
@@ -841,8 +871,10 @@ type Rows struct {
 }
 
 func (rc *Rows) Close() error {
-	// need to add a test which returns lots of rows
-	// and check closing after reading only few rows
+	// Cancel the context first to prevent blocking indefinitely if
+	// processSingleResponse is waiting on a network read. This is safe
+	// because nextToken's non-blocking first select still delivers any
+	// tokens already buffered in the channel before ctx.Done() fires.
 	rc.cancel()
 
 	var closeErr error
@@ -855,8 +887,15 @@ func (rc *Rows) Close() error {
 			// Check for server errors in done tokens so that errors
 			// arriving after result rows (e.g. XACT_ABORT rollbacks)
 			// are not silently swallowed.
+			// We only check doneStruct, not doneInProcStruct, because
+			// in-proc done tokens accumulate their errors into the
+			// subsequent doneStruct (via the errs slice in
+			// processSingleResponse). A standalone doneInProcStruct
+			// error here would be a duplicate.
 			if done, ok := tok.(doneStruct); ok && done.isError() {
-				closeErr = rc.stmt.c.checkBadConn(rc.reader.ctx, done.getError(), false)
+				if closeErr == nil {
+					closeErr = rc.stmt.c.checkBadConn(rc.reader.ctx, done.getError(), false)
+				}
 			}
 			continue
 		} else {
