@@ -26,18 +26,26 @@
                 "go.testEnvVars": {
                     "HOST": "localhost",
                     "SQLUSER": "sa",
-                    "SQLPASSWORD": "${env:SQLPASSWORD}",
+                    "SQLPASSWORD": "MssqlDriver@2025!",
                     "DATABASE": "master"
                 },
+                "mssql.connectionGroups": [
+                    {
+                        "name": "ROOT",
+                        "id": "ROOT"
+                    }
+                ],
                 "mssql.connections": [
                     {
                         "server": "localhost,1433",
                         "database": "master",
                         "authenticationType": "SqlLogin",
                         "user": "sa",
-                        "password": "",
-                        "savePassword": false,
-                        "profileName": "mssql-container (use SQLPASSWORD env var)",
+                        "password": "MssqlDriver@2025!",
+                        "savePassword": true,
+                        "profileName": "mssql-container",
+                        "groupId": "ROOT",
+                        "id": "devcontainer-mssql-1",
                         "encrypt": "Optional",
                         "trustServerCertificate": true
                     }
