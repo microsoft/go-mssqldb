@@ -444,21 +444,32 @@ func (d *Driver) open(ctx context.Context, dsn string) (*Conn, error) {
 	return d.connect(ctx, c, params)
 }
 
+
+func failoverPartnerParams(params msdsn.Config) *msdsn.Config {
+	if params.FailOverPartner == "" {
+		return nil
+	}
+	params.Host = params.FailOverPartner
+	if params.FailOverPort != 0 {
+		params.Port = params.FailOverPort
+	}
+	if params.FailOverPartnerSPN != "" {
+		params.ServerSPN = params.FailOverPartnerSPN
+	}
+	return &params
+}
+
 // connect to the server, using the provided context for dialing only.
 func (d *Driver) connect(ctx context.Context, c *Connector, params msdsn.Config) (*Conn, error) {
 	sess, err := connect(ctx, c, d.logger, params)
 	if err != nil {
 		// main server failed, try fail-over partner
-		if params.FailOverPartner == "" {
+		foParams := failoverPartnerParams(params)
+		if foParams == nil {
 			return nil, err
 		}
 
-		params.Host = params.FailOverPartner
-		if params.FailOverPort != 0 {
-			params.Port = params.FailOverPort
-		}
-
-		sess, err = connect(ctx, c, d.logger, params)
+		sess, err = connect(ctx, c, d.logger, *foParams)
 		if err != nil {
 			// fail-over partner also failed, now fail
 			return nil, err

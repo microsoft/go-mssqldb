@@ -79,6 +79,7 @@ const (
 	ApplicationIntent      = "applicationintent"
 	FailoverPartner        = "failoverpartner"
 	FailOverPort           = "failoverport"
+	FailoverPartnerSpn     = "failoverpartnerspn"
 	DisableRetry           = "disableretry"
 	Server                 = "server"
 	Protocol               = "protocol"
@@ -115,8 +116,9 @@ type Config struct {
 	Encryption Encryption
 	TLSConfig  *tls.Config
 
-	FailOverPartner string
-	FailOverPort    uint64
+	FailOverPartner    string
+	FailOverPort       uint64
+	FailOverPartnerSPN string
 
 	// If true the TLSConfig servername should use the routed server.
 	HostInCertificateProvided bool
@@ -528,6 +530,11 @@ func Parse(dsn string) (Config, error) {
 		}
 	}
 
+	failOverPartnerSPN, ok := params[FailoverPartnerSpn]
+	if ok {
+		p.FailOverPartnerSPN = failOverPartnerSPN
+	}
+
 	disableRetry, ok := params[DisableRetry]
 	if ok {
 		var err error
@@ -723,6 +730,19 @@ func (p Config) URL() *url.URL {
 
 	if tz := p.Encoding.Timezone; tz != nil && tz != time.UTC {
 		q.Add(Timezone, tz.String())
+	}
+
+	if p.FailOverPartner != "" {
+		q.Add(FailoverPartner, p.FailOverPartner)
+	}
+	if p.FailOverPort != 0 {
+		q.Add(FailOverPort, strconv.FormatUint(p.FailOverPort, 10))
+	}
+	if p.ServerSPN != "" {
+		q.Add(ServerSpn, p.ServerSPN)
+	}
+	if p.FailOverPartnerSPN != "" {
+		q.Add(FailoverPartnerSpn, p.FailOverPartnerSPN)
 	}
 
 	if len(q) > 0 {

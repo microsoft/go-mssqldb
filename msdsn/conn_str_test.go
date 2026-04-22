@@ -102,6 +102,10 @@ func TestValidConnectionString(t *testing.T) {
 		{"server=(local)", func(p Config) bool { return p.Host == "localhost" }},
 		{"ServerSPN=serverspn;Workstation ID=workstid", func(p Config) bool { return p.ServerSPN == "serverspn" && p.Workstation == "workstid" }},
 		{"failoverpartner=fopartner;failoverport=2000", func(p Config) bool { return p.FailOverPartner == "fopartner" && p.FailOverPort == 2000 }},
+		{"failoverpartner=fopartner;failoverport=2000;FailoverPartnerSPN=MSSQLSvc/fopartner:2000", func(p Config) bool {
+			return p.FailOverPartner == "fopartner" && p.FailOverPort == 2000 && p.FailOverPartnerSPN == "MSSQLSvc/fopartner:2000"
+		}},
+		{"FailoverPartnerSPN=MSSQLSvc/mirror:1433", func(p Config) bool { return p.FailOverPartnerSPN == "MSSQLSvc/mirror:1433" }},
 		{"app name=appname;applicationintent=ReadOnly;database=testdb", func(p Config) bool { return p.AppName == "appname" && p.ReadOnlyIntent }},
 		{"encrypt=disable", func(p Config) bool { return p.Encryption == EncryptionDisabled }},
 		{"encrypt=disable;tlsmin=1.1", func(p Config) bool { return p.Encryption == EncryptionDisabled && p.TLSConfig == nil }},
@@ -366,6 +370,26 @@ func TestURLWithIPv6Address(t *testing.T) {
 			u := cfg.URL()
 			assert.Equal(t, tt.expected, u.Host, "URL().Host")
 		})
+	}
+}
+
+func TestConnParseRoundTripFailoverPartnerSPN(t *testing.T) {
+	connStr := "sqlserver://sa:sa@localhost?database=master&failoverpartner=mirror&failoverport=2000&serverspn=MSSQLSvc%2Fprimary%3A1433&failoverpartnerspn=MSSQLSvc%2Fmirror%3A2000&disableretry=true&dial+timeout=30"
+	params, err := Parse(connStr)
+	if err != nil {
+		t.Fatal("Test URL is not valid", err)
+	}
+	if params.FailOverPartner != "mirror" || params.FailOverPort != 2000 || params.FailOverPartnerSPN != "MSSQLSvc/mirror:2000" || params.ServerSPN != "MSSQLSvc/primary:1433" {
+		t.Fatal("Initial parse did not set failover fields correctly")
+	}
+	rtParams, err := Parse(params.URL().String())
+	if err != nil {
+		t.Fatal("Params after roundtrip are not valid", err)
+	}
+	params.ActivityID = nil
+	rtParams.ActivityID = nil
+	if !reflect.DeepEqual(params, rtParams) {
+		t.Fatal("Parameters do not match after roundtrip", params, rtParams)
 	}
 }
 
