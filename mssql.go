@@ -1030,6 +1030,51 @@ func makeStrParam(val string) (res param) {
 	return
 }
 
+// makeNullVectorParam returns a param configured as nvarchar(1) NULL.
+// SQL Server accepts this for any VECTOR(...) column regardless of dimensionality,
+// which works around the limitation that native VECTOR parameters require matching dimensions.
+func makeNullVectorParam() param {
+	return param{ti: typeInfo{TypeId: typeNVarChar, Size: 2}}
+}
+
+// makeVectorJSONParam creates a param from a Vector using JSON encoding.
+// Used when native binary format is not supported or for float16 vectors.
+func makeVectorJSONParam(v Vector) (param, error) {
+	jsonVal, err := v.Value()
+	if err != nil {
+		return param{}, err
+	}
+	if jsonVal == nil {
+		return makeNullVectorParam(), nil
+	}
+	return makeStrParam(jsonVal.(string)), nil
+}
+
+// makeVectorParam creates a parameter for native binary vector format.
+// This is used when the server supports vector feature extension (SQL Server 2025+).
+func (s *Stmt) makeVectorParam(v Vector) (res param, err error) {
+	if v.Data == nil {
+		return makeNullVectorParam(), nil
+	}
+	buf, err := v.encodeToBytes()
+	if err != nil {
+		return res, err
+	}
+	res.ti.TypeId = typeVectorN
+	res.buffer = buf
+	res.ti.Size = len(buf)
+	res.ti.Scale = byte(v.ElementType)
+	return
+}
+
+// makeVectorOrJSON returns a native binary param if supported, otherwise JSON.
+func (s *Stmt) makeVectorOrJSON(v Vector) (param, error) {
+	if s.c.sess.vectorSupported && v.ElementType == VectorElementFloat32 {
+		return s.makeVectorParam(v)
+	}
+	return makeVectorJSONParam(v)
+}
+
 func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 	if val == nil {
 		res.ti.TypeId = typeNull
@@ -1060,6 +1105,27 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		if valuer.Decimal.Valid {
 			return s.makeParam(Money[decimal.Decimal]{valuer.Decimal.Decimal})
 		}
+	// Vector types handled before driver.Valuer for native binary format when supported.
+	case *Vector:
+		if valuer == nil || valuer.Data == nil {
+			return makeNullVectorParam(), nil
+		}
+		return s.makeParam(*valuer)
+	case *NullVector:
+		if valuer == nil || !valuer.Valid {
+			return makeNullVectorParam(), nil
+		}
+		return s.makeParam(valuer.Vector)
+	case Vector:
+		if valuer.Data == nil {
+			return makeNullVectorParam(), nil
+		}
+		return s.makeVectorOrJSON(valuer)
+	case NullVector:
+		if !valuer.Valid {
+			return makeNullVectorParam(), nil
+		}
+		return s.makeVectorOrJSON(valuer.Vector)
 	case UniqueIdentifier:
 	case NullUniqueIdentifier:
 	default:
@@ -1172,6 +1238,22 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 		res.ti.TypeId = typeFltN
 		res.ti.Size = 8
 		res.buffer = []byte{}
+
+	// Vector and NullVector are handled in the first switch before driver.Valuer
+	// to ensure native binary format is used when supported.
+
+	case []float32:
+		v, err := NewVector(val)
+		if err != nil {
+			return res, err
+		}
+		return s.makeVectorOrJSON(v)
+	case []float64:
+		v, err := NewVectorFromFloat64(val)
+		if err != nil {
+			return res, err
+		}
+		return s.makeVectorOrJSON(v)
 
 	case []byte:
 		res.ti.TypeId = typeBigVarBin
