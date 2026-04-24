@@ -634,7 +634,9 @@ func TestSecureWithInvalidHostName(t *testing.T) {
 	dsn := makeConnStr(t)
 	dsnParams := dsn.Query()
 	dsnParams.Set("encrypt", "true")
-	dsnParams.Set("TrustServerCertificate", "false")
+	// URL() emits the canonical lowercase key, so use the constant to match exactly
+	dsnParams.Del(msdsn.TrustServerCertificate)
+	dsnParams.Set(msdsn.TrustServerCertificate, "false")
 	dsnParams.Set("hostNameInCertificate", "foo.bar")
 	dsn.RawQuery = dsnParams.Encode()
 
@@ -645,7 +647,7 @@ func TestSecureWithInvalidHostName(t *testing.T) {
 	defer conn.Close()
 	err = conn.Ping()
 	if err == nil {
-		t.Fatal("Connected to fake foo.bar server")
+		t.Fatal("Expected TLS hostname validation failure, but connection succeeded")
 	}
 }
 
@@ -658,7 +660,9 @@ func TestSecureConnection(t *testing.T) {
 	dsn := makeConnStr(t)
 	dsnParams := dsn.Query()
 	dsnParams.Set("encrypt", "true")
-	dsnParams.Set("TrustServerCertificate", "true")
+	// URL() emits the canonical lowercase key, so use the constant to match exactly
+	dsnParams.Del(msdsn.TrustServerCertificate)
+	dsnParams.Set(msdsn.TrustServerCertificate, "true")
 	dsn.RawQuery = dsnParams.Encode()
 
 	conn, err := sql.Open("mssql", dsn.String())

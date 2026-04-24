@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/microsoft/go-mssqldb/msdsn"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -66,7 +67,9 @@ func TestConnection_TLSHandshake_Integration(t *testing.T) {
 	// Ensure we're using encryption (TLS)
 	q := connStr.Query()
 	q.Set("encrypt", "true")
-	q.Set("TrustServerCertificate", "true")
+	// URL() emits the canonical lowercase key, so use the constant to match exactly
+	q.Del(msdsn.TrustServerCertificate)
+	q.Set(msdsn.TrustServerCertificate, "true")
 	connStr.RawQuery = q.Encode()
 
 	connector, err := NewConnector(connStr.String())

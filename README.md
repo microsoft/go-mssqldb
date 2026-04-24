@@ -21,6 +21,8 @@ The recommended connection string uses a URL format:
 `sqlserver://username:password@host/instance?param1=value&param2=value`
 Other supported formats are listed below.
 
+All connection string parameters are case-insensitive. Providing the same parameter more than once with different casing (e.g., `TrustServerCertificate` and `trustservercertificate`) will result in a parse error.
+
 ### Common parameters
 
 * `user id` - enter the SQL Server Authentication user id or the Windows Authentication user id in the DOMAIN\User format. On Windows, if user id is empty or missing Single-Sign-On is used. The user domain sensitive to the case which is defined in the connection string.

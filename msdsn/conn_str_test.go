@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInvalidConnectionString(t *testing.T) {
@@ -42,6 +43,7 @@ func TestInvalidConnectionString(t *testing.T) {
 		// URL mode
 		"sqlserver://\x00",
 		"sqlserver://host?key=value1&key=value2", // duplicate keys
+		"sqlserver://host?TrustServerCertificate=true&trustservercertificate=false", // case-insensitive duplicate keys
 	}
 	for _, connStr := range connStrings {
 		_, err := Parse(connStr)
@@ -617,6 +619,85 @@ func TestEpaEnabledFromEnvironment(t *testing.T) {
 	config, err = Parse("server=testhost")
 	assert.Nil(t, err, "Expected no error parsing connection string")
 	assert.False(t, config.EpaEnabled, "Expected EpaEnabled to be false when MSSQL_USE_EPA is empty")
+}
+
+func TestParseTLS_SetupTLSFailure(t *testing.T) {
+	connStr := "sqlserver://user:pass@host?encrypt=true&certificate=/nonexistent/cert.pem&TrustServerCertificate=true"
+	_, err := Parse(connStr)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to setup TLS")
+}
+
+func TestTrustServerCertificateField(t *testing.T) {
+	tests := []struct {
+		name     string
+		connStr  string
+		expected bool
+	}{
+		{"TrustServerCertificate=true", "sqlserver://user:pass@host?TrustServerCertificate=true", true},
+		{"TrustServerCertificate=false", "sqlserver://user:pass@host?TrustServerCertificate=false", false},
+		{"TrustServerCertificate=1", "sqlserver://user:pass@host?TrustServerCertificate=1", true},
+		{"TrustServerCertificate=0", "sqlserver://user:pass@host?TrustServerCertificate=0", false},
+		{"No TrustServerCertificate with encrypt", "sqlserver://user:pass@host?encrypt=true", false},
+		{"No TrustServerCertificate without encrypt defaults true", "sqlserver://user:pass@host", true},
+		{"ADO format true", "server=host;user id=user;password=pass;TrustServerCertificate=true", true},
+		{"ADO format false", "server=host;user id=user;password=pass;TrustServerCertificate=false", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config, err := Parse(tt.connStr)
+			require.NoError(t, err, "Failed to parse connection string")
+			assert.Equal(t, tt.expected, config.TrustServerCertificate, "TrustServerCertificate")
+		})
+	}
+}
+
+func TestTrustServerCertificateRoundTrip(t *testing.T) {
+	tests := []struct {
+		name    string
+		connStr string
+	}{
+		{"TrustServerCertificate=true round-trips", "sqlserver://user:pass@host?TrustServerCertificate=true"},
+		{"TrustServerCertificate=false round-trips", "sqlserver://user:pass@host?TrustServerCertificate=false&encrypt=true"},
+		{"Implicit default not emitted", "sqlserver://user:pass@host"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config, err := Parse(tt.connStr)
+			require.NoError(t, err, "Failed to parse connection string")
+			urlStr := config.URL().String()
+			config2, err := Parse(urlStr)
+			require.NoError(t, err, "Failed to parse round-tripped URL")
+			assert.Equal(t, config.TrustServerCertificate, config2.TrustServerCertificate,
+				"TrustServerCertificate changed after round-trip (URL: %s)", urlStr)
+		})
+	}
+}
+
+func TestTrustServerCertificateURLOverride(t *testing.T) {
+	// Verify that URL() emits a lowercase key that can be cleanly overridden
+	// via url.Values without creating duplicate keys.
+	config, err := Parse("sqlserver://user:pass@host?TrustServerCertificate=true&encrypt=true")
+	require.NoError(t, err)
+	assert.True(t, config.TrustServerCertificate)
+
+	u := config.URL()
+	q := u.Query()
+
+	// URL() must emit the canonical lowercase key
+	vals, ok := q[TrustServerCertificate]
+	require.True(t, ok, "URL() should emit %s", TrustServerCertificate)
+	assert.Equal(t, []string{"true"}, vals)
+
+	// Override to false using the same canonical key
+	q.Set(TrustServerCertificate, "false")
+	u.RawQuery = q.Encode()
+
+	config2, err := Parse(u.String())
+	require.NoError(t, err)
+	assert.False(t, config2.TrustServerCertificate, "override to false must take effect")
 }
 
 func TestEncodeParametersGetTimezone(t *testing.T) {
