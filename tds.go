@@ -176,7 +176,7 @@ type tdsSession struct {
 	activityid      UniqueIdentifier
 	encoding        msdsn.EncodeParameters
 	// readDone is closed when the current processSingleResponse goroutine
-	// completes. startReading waits on this to prevent concurrent buffer reads.
+	// completes. startResponseReader waits on this to prevent concurrent buffer reads.
 	readDone chan struct{}
 }
 

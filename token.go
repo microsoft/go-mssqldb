@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/golang-sql/sqlexp"
 	"github.com/microsoft/go-mssqldb/aecmk"
@@ -111,8 +112,29 @@ const (
 	// TODO implement more flags
 )
 
+// Connection is marked bad if cancel drain exceeds this timeout.
+const cancelDrainTimeout = 5 * time.Second
+
+type cancelConfirmationResult uint8
+
+const (
+	cancelConfirmationReceived cancelConfirmationResult = iota
+	cancelConfirmationChannelClosed
+	cancelConfirmationUnavailable
+)
+
 // interface for all tokens
 type tokenStruct interface{}
+
+// cancelDrainError builds a descriptive error message for cancel-drain
+// failures, including the underlying cause when available.
+func cancelDrainError(phase string, drainCtx context.Context) string {
+	msg := "did not get cancellation confirmation from the server"
+	if drainCtx.Err() != nil {
+		return fmt.Sprintf("%s (%s: %v)", msg, phase, drainCtx.Err())
+	}
+	return fmt.Sprintf("%s (%s)", msg, phase)
+}
 
 type orderStruct struct {
 	ColIds []uint16
@@ -1280,36 +1302,74 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		// in this case current response would not contain confirmation
 		// and we would need to read one more response
 
+		// t.ctx is already cancelled; use a separate context to drain.
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), cancelDrainTimeout)
+		defer drainCancel()
+
 		// first lets finish reading current response and look
 		// for confirmation in it
-		if readCancelConfirmation(t.tokChan) {
+		switch readCancelConfirmation(drainCtx, t.tokChan) {
+		case cancelConfirmationReceived:
 			// we got confirmation in current response
 			return nil, t.ctx.Err()
+		case cancelConfirmationUnavailable:
+			return nil, ServerError{Error{Message: cancelDrainError("current response", drainCtx)}}
 		}
 		// we did not get cancellation confirmation in the current response
 		// read one more response, it must be there
 		t.tokChan = make(chan tokenStruct, 5)
+		// Use t.ctx (already cancelled) for processSingleResponse so that
+		// ReturnMessageEnqueue calls return immediately via ctx.Done()
+		// instead of blocking on a full message queue, which would stall
+		// the goroutine and prevent it from delivering the DONE_ATTN token.
 		t.sess.startResponseReader(t.ctx, t.tokChan, t.outs)
-		if readCancelConfirmation(t.tokChan) {
+		// Fresh timeout for second drain so the first attempt's elapsed
+		// time does not reduce the budget for the second response.
+		drainCtx2, drainCancel2 := context.WithTimeout(context.Background(), cancelDrainTimeout)
+		defer drainCancel2()
+		if readCancelConfirmation(drainCtx2, t.tokChan) == cancelConfirmationReceived {
 			return nil, t.ctx.Err()
 		}
 		// we did not get cancellation confirmation, something is not
 		// right, this connection is not usable anymore
-		return nil, ServerError{Error{Message: "did not get cancellation confirmation from the server"}}
+		return nil, ServerError{Error{Message: cancelDrainError("second response", drainCtx2)}}
 	}
 }
 
-func readCancelConfirmation(tokChan chan tokenStruct) bool {
-	for tok := range tokChan {
-		switch tok := tok.(type) {
+func readCancelConfirmation(ctx context.Context, tokChan chan tokenStruct) cancelConfirmationResult {
+	for {
+		select {
+		case tok, ok := <-tokChan:
+			if !ok {
+				return cancelConfirmationChannelClosed
+			}
+			switch done := tok.(type) {
+			case doneStruct:
+				if done.Status&doneAttn != 0 {
+					return cancelConfirmationReceived
+				}
+			case error:
+				return cancelConfirmationUnavailable
+			}
+			continue
 		default:
-		// just skip token
-		case doneStruct:
-			if tok.Status&doneAttn != 0 {
-				// got cancellation confirmation, exit
-				return true
+		}
+
+		select {
+		case <-ctx.Done():
+			return cancelConfirmationUnavailable
+		case tok, ok := <-tokChan:
+			if !ok {
+				return cancelConfirmationChannelClosed
+			}
+			switch done := tok.(type) {
+			case doneStruct:
+				if done.Status&doneAttn != 0 {
+					return cancelConfirmationReceived
+				}
+			case error:
+				return cancelConfirmationUnavailable
 			}
 		}
 	}
-	return false
 }
