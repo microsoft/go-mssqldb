@@ -1153,6 +1153,13 @@ func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Co
 		packetSize = 32767
 	}
 
+	var toconn *timeoutConn
+	defer func() {
+		if err != nil && toconn != nil {
+			toconn.Close()
+		}
+	}()
+
 initiate_connection:
 	dialCtx := ctx
 	if p.DialTimeout >= 0 {
@@ -1169,7 +1176,7 @@ initiate_connection:
 		return nil, err
 	}
 
-	toconn := newTimeoutConn(conn, p.ConnTimeout)
+	toconn = newTimeoutConn(conn, p.ConnTimeout)
 	outbuf := newTdsBuffer(packetSize, toconn)
 
 	if p.Encryption == msdsn.EncryptionStrict {
@@ -1376,7 +1383,6 @@ initiate_connection:
 				if token.isError() {
 					tokenErr := token.getError()
 					tokenErr.Message = "login error: " + tokenErr.Message
-					conn.Close()
 					return nil, tokenErr
 				}
 			case error:
@@ -1387,6 +1393,7 @@ initiate_connection:
 
 	if sess.routedServer != "" {
 		toconn.Close()
+		toconn = nil // prevent defer from double-closing on subsequent error
 		// Need to handle case when routedServer is in "host\instance" format.
 		routedParts := strings.SplitN(sess.routedServer, "\\", 2)
 		p.Host = routedParts[0]
