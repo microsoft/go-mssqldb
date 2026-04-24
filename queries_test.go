@@ -2276,8 +2276,27 @@ func TestQueryTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), latency+2000*time.Millisecond)
 	defer cancel()
 	_, err := conn.ExecContext(ctx, "waitfor delay '00:00:20'")
-	if err != context.DeadlineExceeded {
-		t.Errorf("ExecContext expected to fail with DeadlineExceeded but it returned %v", err)
+	if err == nil {
+		t.Fatal("ExecContext expected to fail but succeeded")
+	}
+	// After the context deadline, the driver sends ATTENTION to cancel.
+	// Depending on timing, OS, and SQL Server version the surfaced error
+	// can be any of:
+	//   - context.DeadlineExceeded
+	//   - a net.Error with Timeout() (i/o timeout on read/write)
+	//   - SQL Server error 3980 ("batch aborted") when the server
+	//     acknowledges ATTENTION before the client sees the timeout
+	//   - the driver's explicit cancel-confirmation failure when ATTENTION
+	//     was sent but the server never completed the cancellation handshake
+	if errors.Is(err, context.DeadlineExceeded) {
+		// ok
+	} else if ne := (net.Error)(nil); errors.As(err, &ne) && ne.Timeout() {
+		// ok: net-level timeout
+	} else if sqlErr := (Error{}); errors.As(err, &sqlErr) &&
+		(sqlErr.Number == 3980 || sqlErr.Message == "did not get cancellation confirmation from the server") {
+		// ok: server aborted the batch after receiving ATTENTION
+	} else {
+		t.Fatalf("wrong kind of error for query timeout: %T: %v", err, err)
 	}
 
 	// connection should be usable after timeout

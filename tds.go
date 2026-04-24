@@ -1128,6 +1128,27 @@ func getTLSConn(conn *timeoutConn, p msdsn.Config, alpnSeq string) (tlsConn *tls
 	return tlsConn, nil
 }
 
+func preloginTimeout(ctx context.Context, connTimeout time.Duration) (time.Duration, error) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return connTimeout, nil
+	}
+
+	ctxTimeout := time.Until(deadline)
+	if ctxTimeout <= 0 {
+		if err := ctx.Err(); err != nil {
+			return connTimeout, err
+		}
+		return connTimeout, context.DeadlineExceeded
+	}
+
+	if connTimeout == 0 || ctxTimeout < connTimeout {
+		return ctxTimeout, nil
+	}
+
+	return connTimeout, nil
+}
+
 func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Config) (res *tdsSession, err error) {
 	var cbt *integratedauth.ChannelBindings
 	isTransportEncrypted := false
@@ -1206,7 +1227,22 @@ initiate_connection:
 		return nil, err
 	}
 
+	// Ensure the prelogin read respects the context deadline so connect()
+	// does not hang indefinitely when the server never responds.
+	// We temporarily reduce toconn.timeout rather than using SetReadDeadline
+	// because timeoutConn.Read() calls SetDeadline(now+timeout) on every
+	// read, which would overwrite a SetReadDeadline value.
+	origTimeout := toconn.timeout
+	toconn.timeout, err = preloginTimeout(ctx, origTimeout)
+	if err != nil {
+		return nil, err
+	}
+
 	fields, err = readPrelogin(outbuf)
+
+	// Restore the original timeout for subsequent reads.
+	toconn.timeout = origTimeout
+
 	if err != nil {
 		return nil, err
 	}
