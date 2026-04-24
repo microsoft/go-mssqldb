@@ -2,6 +2,7 @@ package mssql
 
 import (
 	"encoding/binary"
+	"fmt"
 	"testing"
 
 	"github.com/microsoft/go-mssqldb/msdsn"
@@ -346,4 +347,73 @@ func TestBrowserDataType(t *testing.T) {
 
 	assert.Len(t, data, 1, "BrowserData length")
 	assert.Equal(t, "1433", data["INSTANCE1"]["tcp"], "BrowserData[INSTANCE1][tcp]")
+}
+
+func TestWrapTLSError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		err          error
+		wantNil      bool
+		wantContains []string
+	}{
+		{
+			name:    "nil error",
+			err:     nil,
+			wantNil: true,
+		},
+		{
+			name: "negative serial number",
+			err:  fmt.Errorf("x509: negative serial number"),
+			wantContains: []string{
+				"TLS Handshake failed",
+				"negative serial number",
+				"GODEBUG=x509negativeserial=1",
+			},
+		},
+		{
+			name: "SHA-1 uppercase",
+			err:  fmt.Errorf("tls: peer certificate uses SHA-1 based signature"),
+			wantContains: []string{
+				"TLS Handshake failed",
+				"SHA-1",
+				"GODEBUG=tlssha1=1",
+				"SHA-256",
+			},
+		},
+		{
+			name: "sha1 lowercase",
+			err:  fmt.Errorf("tls: sha1 signature not supported"),
+			wantContains: []string{
+				"TLS Handshake failed",
+				"GODEBUG=tlssha1=1",
+			},
+		},
+		{
+			name: "unknown TLS error",
+			err:  fmt.Errorf("tls: some other error"),
+			wantContains: []string{
+				"TLS Handshake failed",
+				"some other error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := wrapTLSError(tt.err)
+			if tt.wantNil {
+				assert.Nil(t, result)
+				return
+			}
+			assert.NotNil(t, result)
+			msg := result.Error()
+			for _, s := range tt.wantContains {
+				assert.Contains(t, msg, s)
+			}
+			// Original error should be unwrappable
+			assert.ErrorIs(t, result, tt.err)
+		})
+	}
 }
