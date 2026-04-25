@@ -113,6 +113,8 @@ const (
 )
 
 // cancelDrainTimeout bounds how long to wait for the server's cancel confirmation.
+// If the drain fails for any reason (timeout, I/O error, or context cancellation),
+// the connection is marked bad via checkBadConn.
 const cancelDrainTimeout = 5 * time.Second
 
 type cancelConfirmationResult uint8
