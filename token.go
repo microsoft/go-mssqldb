@@ -1322,6 +1322,12 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 			// we got confirmation in current response
 			return nil, t.ctx.Err()
 		case cancelConfirmationUnavailable:
+			// Drain tokChan in the background so processSingleResponse
+			// can finish sending and exit once the connection closes.
+			go func() {
+				for range t.tokChan {
+				}
+			}()
 			return nil, cancelDrainError("current response", drainCtx, tokErr)
 		}
 		// we did not get cancellation confirmation in the current response
@@ -1342,6 +1348,12 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		}
 		// we did not get cancellation confirmation, something is not
 		// right, this connection is not usable anymore
+		// Drain tokChan in the background so processSingleResponse
+		// can finish sending and exit once the connection closes.
+		go func() {
+			for range t.tokChan {
+			}
+		}()
 		return nil, cancelDrainError("second response", drainCtx2, tokErr2)
 	}
 }
