@@ -136,13 +136,10 @@ func cancelDrainError(phase string, drainCtx context.Context, tokErr error) erro
 	if cause == nil {
 		cause = drainCtx.Err()
 	}
-	var detail string
 	if cause != nil {
-		detail = fmt.Sprintf("%s (%s: %v)", msg, phase, cause)
-	} else {
-		detail = fmt.Sprintf("%s (%s)", msg, phase)
+		return StreamError{InnerError: fmt.Errorf("%s (%s: %w)", msg, phase, cause)}
 	}
-	return StreamError{InnerError: fmt.Errorf("%s", detail)}
+	return StreamError{InnerError: fmt.Errorf("%s (%s)", msg, phase)}
 }
 
 type orderStruct struct {
@@ -1368,7 +1365,28 @@ func readCancelConfirmation(ctx context.Context, tokChan chan tokenStruct) (canc
 
 		select {
 		case <-ctx.Done():
-			return cancelConfirmationUnavailable, nil
+			// When ctx fires simultaneously with a token arrival, Go's
+			// select picks randomly. Do a non-blocking drain of tokChan
+			// so we don't spuriously miss a just-arrived DONE_ATTN.
+			for {
+				select {
+				case tok, ok := <-tokChan:
+					if !ok {
+						return cancelConfirmationChannelClosed, nil
+					}
+					switch tok := tok.(type) {
+					case doneStruct:
+						if tok.Status&doneAttn != 0 {
+							return cancelConfirmationReceived, nil
+						}
+					case error:
+						return cancelConfirmationUnavailable, tok
+					}
+					continue
+				default:
+					return cancelConfirmationUnavailable, nil
+				}
+			}
 		case tok, ok := <-tokChan:
 			if !ok {
 				return cancelConfirmationChannelClosed, nil
