@@ -126,17 +126,23 @@ const (
 // interface for all tokens
 type tokenStruct interface{}
 
-// cancelDrainError builds a diagnostic error message for cancel-drain failures.
-func cancelDrainError(phase string, drainCtx context.Context, tokErr error) string {
+// cancelDrainError builds a StreamError for cancel-drain failures.
+// StreamError is used instead of ServerError because this is a client-side
+// drain failure, not a server internal error, and StreamError.Error()
+// surfaces the diagnostic message whereas ServerError.Error() is a fixed string.
+func cancelDrainError(phase string, drainCtx context.Context, tokErr error) error {
 	msg := "did not get cancellation confirmation from the server"
 	cause := tokErr
 	if cause == nil {
 		cause = drainCtx.Err()
 	}
+	var detail string
 	if cause != nil {
-		return fmt.Sprintf("%s (%s: %v)", msg, phase, cause)
+		detail = fmt.Sprintf("%s (%s: %v)", msg, phase, cause)
+	} else {
+		detail = fmt.Sprintf("%s (%s)", msg, phase)
 	}
-	return fmt.Sprintf("%s (%s)", msg, phase)
+	return StreamError{InnerError: fmt.Errorf("%s", detail)}
 }
 
 type orderStruct struct {
@@ -1317,7 +1323,7 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 			// we got confirmation in current response
 			return nil, t.ctx.Err()
 		case cancelConfirmationUnavailable:
-			return nil, ServerError{Error{Message: cancelDrainError("current response", drainCtx, tokErr)}}
+			return nil, cancelDrainError("current response", drainCtx, tokErr)
 		}
 		// we did not get cancellation confirmation in the current response
 		// read one more response, it must be there
@@ -1337,7 +1343,7 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		}
 		// we did not get cancellation confirmation, something is not
 		// right, this connection is not usable anymore
-		return nil, ServerError{Error{Message: cancelDrainError("second response", drainCtx2, tokErr2)}}
+		return nil, cancelDrainError("second response", drainCtx2, tokErr2)
 	}
 }
 
