@@ -348,6 +348,7 @@ func TestNextToken_CancelDrainUnavailableDoesNotStartSecondResponse(t *testing.T
 
 	tokChan := make(chan tokenStruct, 1)
 	go func() {
+		defer close(tokChan)
 		<-attentionWritten
 		tokChan <- io.EOF
 	}()
@@ -392,6 +393,7 @@ func TestNextToken_CancelDrainCurrentResponseConfirmationReturnsContextError(t *
 
 	tokChan := make(chan tokenStruct, 1)
 	go func() {
+		defer close(tokChan)
 		<-attentionWritten
 		tokChan <- doneStruct{Status: doneAttn}
 	}()
