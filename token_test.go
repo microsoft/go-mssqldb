@@ -364,8 +364,8 @@ func TestNextToken_CancelDrainUnavailableDoesNotStartSecondResponse(t *testing.T
 	if tok != nil {
 		t.Fatalf("expected nil token, got %T", tok)
 	}
-	if _, ok := err.(ServerError); !ok {
-		t.Fatalf("expected ServerError, got %T: %v", err, err)
+	if _, ok := err.(StreamError); !ok {
+		t.Fatalf("expected StreamError, got %T: %v", err, err)
 	}
 
 	readCalls, writeCalls := transport.counts()
