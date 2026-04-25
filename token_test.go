@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"io"
 	"regexp"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -272,5 +274,196 @@ func TestProcessSingleResponseWithTriggerTableTokens(t *testing.T) {
 		if err, ok := tok.(error); ok {
 			t.Fatalf("unexpected error processing COLINFO/TABNAME tokens: %v", err)
 		}
+	}
+}
+
+type countingTransport struct {
+	reader  *bytes.Reader
+	writes  bytes.Buffer
+	onWrite func()
+
+	mu         sync.Mutex
+	readCalls  int
+	writeCalls int
+}
+
+func (transport *countingTransport) Read(p []byte) (n int, err error) {
+	transport.mu.Lock()
+	transport.readCalls++
+	transport.mu.Unlock()
+	if transport.reader == nil {
+		return 0, io.EOF
+	}
+	return transport.reader.Read(p)
+}
+
+func (transport *countingTransport) Write(p []byte) (n int, err error) {
+	transport.mu.Lock()
+	transport.writeCalls++
+	onWrite := transport.onWrite
+	transport.mu.Unlock()
+	if onWrite != nil {
+		onWrite()
+	}
+	return transport.writes.Write(p)
+}
+
+func (*countingTransport) Close() error {
+	return nil
+}
+
+func (transport *countingTransport) counts() (readCalls int, writeCalls int) {
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	return transport.readCalls, transport.writeCalls
+}
+
+func makeDoneReplyPacket(status uint16) []byte {
+	tokenStream := make([]byte, 1+2+2+8)
+	tokenStream[0] = byte(tokenDone)
+	binary.LittleEndian.PutUint16(tokenStream[1:3], status)
+
+	totalSize := 8 + len(tokenStream)
+	packet := make([]byte, totalSize)
+	packet[0] = byte(packReply)
+	packet[1] = 0x01
+	binary.BigEndian.PutUint16(packet[2:4], uint16(totalSize))
+	packet[6] = 0x01
+	copy(packet[8:], tokenStream)
+	return packet
+}
+
+func TestNextToken_CancelDrainUnavailableDoesNotStartSecondResponse(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	attentionWritten := make(chan struct{})
+	var attentionOnce sync.Once
+	transport := &countingTransport{
+		onWrite: func() {
+			attentionOnce.Do(func() { close(attentionWritten) })
+		},
+	}
+
+	tokChan := make(chan tokenStruct, 1)
+	go func() {
+		defer close(tokChan)
+		<-attentionWritten
+		tokChan <- io.EOF
+	}()
+
+	reader := tokenProcessor{
+		tokChan: tokChan,
+		ctx:     ctx,
+		sess: &tdsSession{
+			buf: newTdsBuffer(defaultPacketSize, transport),
+		},
+	}
+
+	tok, err := reader.nextToken()
+	if tok != nil {
+		t.Fatalf("expected nil token, got %T", tok)
+	}
+	if _, ok := err.(StreamError); !ok {
+		t.Fatalf("expected StreamError, got %T: %v", err, err)
+	}
+
+	readCalls, writeCalls := transport.counts()
+	if readCalls != 0 {
+		t.Fatalf("expected no second response read, got %d reads", readCalls)
+	}
+	if writeCalls == 0 {
+		t.Fatal("expected attention packet to be written")
+	}
+}
+
+func TestNextToken_CancelDrainCurrentResponseConfirmationReturnsContextError(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	attentionWritten := make(chan struct{})
+	var attentionOnce sync.Once
+	transport := &countingTransport{
+		onWrite: func() {
+			attentionOnce.Do(func() { close(attentionWritten) })
+		},
+	}
+
+	tokChan := make(chan tokenStruct, 1)
+	go func() {
+		defer close(tokChan)
+		<-attentionWritten
+		tokChan <- doneStruct{Status: doneAttn}
+	}()
+
+	reader := tokenProcessor{
+		tokChan: tokChan,
+		ctx:     ctx,
+		sess: &tdsSession{
+			buf: newTdsBuffer(defaultPacketSize, transport),
+		},
+	}
+
+	tok, err := reader.nextToken()
+	if tok != nil {
+		t.Fatalf("expected nil token, got %T", tok)
+	}
+	if err != context.Canceled {
+		t.Fatalf("expected context.Canceled, got %T: %v", err, err)
+	}
+
+	readCalls, writeCalls := transport.counts()
+	if readCalls != 0 {
+		t.Fatalf("expected no second response read, got %d reads", readCalls)
+	}
+	if writeCalls == 0 {
+		t.Fatal("expected attention packet to be written")
+	}
+}
+
+func TestNextToken_CancelDrainClosedChannelStartsSecondResponse(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	attentionWritten := make(chan struct{})
+	var attentionOnce sync.Once
+	transport := &countingTransport{
+		reader: bytes.NewReader(makeDoneReplyPacket(doneAttn)),
+		onWrite: func() {
+			attentionOnce.Do(func() { close(attentionWritten) })
+		},
+	}
+
+	tokChan := make(chan tokenStruct)
+	go func() {
+		<-attentionWritten
+		close(tokChan)
+	}()
+
+	reader := tokenProcessor{
+		tokChan: tokChan,
+		ctx:     ctx,
+		sess: &tdsSession{
+			buf: newTdsBuffer(defaultPacketSize, transport),
+		},
+	}
+
+	tok, err := reader.nextToken()
+	if tok != nil {
+		t.Fatalf("expected nil token, got %T", tok)
+	}
+	if err != context.Canceled {
+		t.Fatalf("expected context.Canceled, got %T: %v", err, err)
+	}
+
+	readCalls, writeCalls := transport.counts()
+	if readCalls == 0 {
+		t.Fatal("expected second response to be read")
+	}
+	if writeCalls == 0 {
+		t.Fatal("expected attention packet to be written")
 	}
 }

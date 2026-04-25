@@ -1576,9 +1576,10 @@ func TestProcessQueryCancelConfirmationError(t *testing.T) {
 	if err == nil {
 		t.Error("processQueryResponse expected to fail but it succeeded")
 	}
-	// should not fail with ErrBadConn because query was successfully sent to server
-	if _, ok := err.(ServerError); !ok {
-		t.Error("processQueryResponse expected to fail with ServerError error but failed with other error: ", err)
+	// should not fail with ErrBadConn because query was successfully sent to server.
+	// StreamError is used because this is a client-side drain failure, not a server error.
+	if _, ok := err.(StreamError); !ok {
+		t.Error("processQueryResponse expected to fail with StreamError but failed with other error: ", err)
 	}
 
 	if conn.connectionGood {

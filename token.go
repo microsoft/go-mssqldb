@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/golang-sql/sqlexp"
 	"github.com/microsoft/go-mssqldb/aecmk"
@@ -111,8 +112,37 @@ const (
 	// TODO implement more flags
 )
 
+// cancelDrainTimeout bounds how long to wait for the server's cancel confirmation.
+// If the drain fails for any reason (timeout, I/O error, or context cancellation),
+// the connection is marked bad via checkBadConn.
+const cancelDrainTimeout = 5 * time.Second
+
+type cancelConfirmationResult uint8
+
+const (
+	cancelConfirmationReceived cancelConfirmationResult = iota
+	cancelConfirmationChannelClosed
+	cancelConfirmationUnavailable
+)
+
 // interface for all tokens
 type tokenStruct interface{}
+
+// cancelDrainError builds a StreamError for cancel-drain failures.
+// StreamError is used instead of ServerError because this is a client-side
+// drain failure, not a server internal error, and StreamError.Error()
+// surfaces the diagnostic message whereas ServerError.Error() is a fixed string.
+func cancelDrainError(phase string, drainCtx context.Context, tokErr error) error {
+	msg := "did not get cancellation confirmation from the server"
+	cause := tokErr
+	if cause == nil {
+		cause = drainCtx.Err()
+	}
+	if cause != nil {
+		return StreamError{InnerError: fmt.Errorf("%s (%s: %w)", msg, phase, cause)}
+	}
+	return StreamError{InnerError: fmt.Errorf("%s (%s)", msg, phase)}
+}
 
 type orderStruct struct {
 	ColIds []uint16
@@ -1169,9 +1199,23 @@ type tokenProcessor struct {
 	noAttn bool
 }
 
+// startResponseReader waits for any previous reader goroutine to finish,
+// then launches a new one that writes tokens to tokChan.
+func (sess *tdsSession) startResponseReader(ctx context.Context, tokChan chan tokenStruct, outs outputs) {
+	if sess.readDone != nil {
+		<-sess.readDone
+	}
+	readDone := make(chan struct{})
+	sess.readDone = readDone
+	go func() {
+		defer close(readDone)
+		processSingleResponse(ctx, sess, tokChan, outs)
+	}()
+}
+
 func startReading(sess *tdsSession, ctx context.Context, outs outputs) *tokenProcessor {
 	tokChan := make(chan tokenStruct, 5)
-	go processSingleResponse(ctx, sess, tokChan, outs)
+	sess.startResponseReader(ctx, tokChan, outs)
 	return &tokenProcessor{
 		tokChan: tokChan,
 		ctx:     ctx,
@@ -1266,36 +1310,90 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		// in this case current response would not contain confirmation
 		// and we would need to read one more response
 
+		// t.ctx is already cancelled; use a separate context to drain.
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), cancelDrainTimeout)
+		defer drainCancel()
+
 		// first lets finish reading current response and look
 		// for confirmation in it
-		if readCancelConfirmation(t.tokChan) {
+		result, tokErr := readCancelConfirmation(drainCtx, t.tokChan)
+		switch result {
+		case cancelConfirmationReceived:
 			// we got confirmation in current response
 			return nil, t.ctx.Err()
+		case cancelConfirmationUnavailable:
+			// Drain tokChan in the background so processSingleResponse
+			// can finish sending and exit once the connection closes.
+			go func() {
+				for range t.tokChan {
+				}
+			}()
+			return nil, cancelDrainError("current response", drainCtx, tokErr)
 		}
 		// we did not get cancellation confirmation in the current response
 		// read one more response, it must be there
 		t.tokChan = make(chan tokenStruct, 5)
-		go processSingleResponse(t.ctx, t.sess, t.tokChan, t.outs)
-		if readCancelConfirmation(t.tokChan) {
+		// Use t.ctx (already cancelled) for processSingleResponse so that
+		// ReturnMessageEnqueue calls return immediately via ctx.Done()
+		// instead of blocking on a full message queue, which would stall
+		// the goroutine and prevent it from delivering the DONE_ATTN token.
+		t.sess.startResponseReader(t.ctx, t.tokChan, t.outs)
+		// Fresh timeout for second drain so the first attempt's elapsed
+		// time does not reduce the budget for the second response.
+		drainCtx2, drainCancel2 := context.WithTimeout(context.Background(), cancelDrainTimeout)
+		defer drainCancel2()
+		result2, tokErr2 := readCancelConfirmation(drainCtx2, t.tokChan)
+		if result2 == cancelConfirmationReceived {
 			return nil, t.ctx.Err()
 		}
 		// we did not get cancellation confirmation, something is not
 		// right, this connection is not usable anymore
-		return nil, ServerError{Error{Message: "did not get cancellation confirmation from the server"}}
+		// Drain tokChan in the background so processSingleResponse
+		// can finish sending and exit once the connection closes.
+		go func() {
+			for range t.tokChan {
+			}
+		}()
+		return nil, cancelDrainError("second response", drainCtx2, tokErr2)
 	}
 }
 
-func readCancelConfirmation(tokChan chan tokenStruct) bool {
-	for tok := range tokChan {
-		switch tok := tok.(type) {
-		default:
-		// just skip token
-		case doneStruct:
-			if tok.Status&doneAttn != 0 {
-				// got cancellation confirmation, exit
-				return true
+func readCancelConfirmation(ctx context.Context, tokChan chan tokenStruct) (cancelConfirmationResult, error) {
+	for {
+		select {
+		case <-ctx.Done():
+			// ctx.Done may win the select even when tokChan is also
+			// ready (Go select is pseudo-random). Drain any buffered
+			// tokens so we don't miss a just-arrived DONE_ATTN.
+			for {
+				select {
+				case tok, ok := <-tokChan:
+					if !ok {
+						return cancelConfirmationChannelClosed, nil
+					}
+					if done, isDone := tok.(doneStruct); isDone && done.Status&doneAttn != 0 {
+						return cancelConfirmationReceived, nil
+					}
+					if tokErr, isErr := tok.(error); isErr {
+						return cancelConfirmationUnavailable, tokErr
+					}
+					continue
+				default:
+					return cancelConfirmationUnavailable, nil
+				}
+			}
+		case tok, ok := <-tokChan:
+			if !ok {
+				return cancelConfirmationChannelClosed, nil
+			}
+			switch tok := tok.(type) {
+			case doneStruct:
+				if tok.Status&doneAttn != 0 {
+					return cancelConfirmationReceived, nil
+				}
+			case error:
+				return cancelConfirmationUnavailable, tok
 			}
 		}
 	}
-	return false
 }
