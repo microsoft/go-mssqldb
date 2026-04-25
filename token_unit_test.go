@@ -147,7 +147,7 @@ func TestReadCancelConfirmation_Success(t *testing.T) {
 	t.Parallel()
 	tokChan := make(chan tokenStruct, 1)
 	tokChan <- doneStruct{Status: doneAttn}
-	result := readCancelConfirmation(context.Background(), tokChan)
+	result, _ := readCancelConfirmation(context.Background(), tokChan)
 	if result != cancelConfirmationReceived {
 		t.Fatalf("expected cancelConfirmationReceived, got %v", result)
 	}
@@ -157,7 +157,7 @@ func TestReadCancelConfirmation_ChannelClosedWithoutConfirmation(t *testing.T) {
 	t.Parallel()
 	tokChan := make(chan tokenStruct)
 	close(tokChan)
-	result := readCancelConfirmation(context.Background(), tokChan)
+	result, _ := readCancelConfirmation(context.Background(), tokChan)
 	if result != cancelConfirmationChannelClosed {
 		t.Fatalf("expected cancelConfirmationChannelClosed, got %v", result)
 	}
@@ -168,9 +168,12 @@ func TestReadCancelConfirmation_ContextCancelled(t *testing.T) {
 	tokChan := make(chan tokenStruct) // never sends
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	result := readCancelConfirmation(ctx, tokChan)
+	result, tokErr := readCancelConfirmation(ctx, tokChan)
 	if result != cancelConfirmationUnavailable {
 		t.Fatalf("expected cancelConfirmationUnavailable, got %v", result)
+	}
+	if tokErr != nil {
+		t.Fatalf("expected nil tokErr for context cancellation, got %v", tokErr)
 	}
 }
 
@@ -180,7 +183,7 @@ func TestReadCancelConfirmation_SkipsNonAttnTokens(t *testing.T) {
 	tokChan <- orderStruct{}
 	tokChan <- doneStruct{Status: doneCount}
 	tokChan <- doneStruct{Status: doneAttn}
-	result := readCancelConfirmation(context.Background(), tokChan)
+	result, _ := readCancelConfirmation(context.Background(), tokChan)
 	if result != cancelConfirmationReceived {
 		t.Fatalf("expected cancelConfirmationReceived, got %v", result)
 	}
@@ -192,7 +195,7 @@ func TestReadCancelConfirmation_PrioritizesBufferedTokenOverCancelledContext(t *
 	tokChan <- doneStruct{Status: doneAttn}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	result := readCancelConfirmation(ctx, tokChan)
+	result, _ := readCancelConfirmation(ctx, tokChan)
 	if result != cancelConfirmationReceived {
 		t.Fatalf("expected cancelConfirmationReceived, got %v", result)
 	}
@@ -202,8 +205,11 @@ func TestReadCancelConfirmation_ErrorTokenIsUnavailable(t *testing.T) {
 	t.Parallel()
 	tokChan := make(chan tokenStruct, 1)
 	tokChan <- io.EOF
-	result := readCancelConfirmation(context.Background(), tokChan)
+	result, tokErr := readCancelConfirmation(context.Background(), tokChan)
 	if result != cancelConfirmationUnavailable {
 		t.Fatalf("expected cancelConfirmationUnavailable, got %v", result)
+	}
+	if tokErr != io.EOF {
+		t.Fatalf("expected io.EOF, got %v", tokErr)
 	}
 }

@@ -112,7 +112,7 @@ const (
 	// TODO implement more flags
 )
 
-// Connection is marked bad if cancel drain exceeds this timeout.
+// cancelDrainTimeout bounds how long to wait for the server's cancel confirmation.
 const cancelDrainTimeout = 5 * time.Second
 
 type cancelConfirmationResult uint8
@@ -126,12 +126,15 @@ const (
 // interface for all tokens
 type tokenStruct interface{}
 
-// cancelDrainError builds a descriptive error message for cancel-drain
-// failures, including the underlying cause when available.
-func cancelDrainError(phase string, drainCtx context.Context) string {
+// cancelDrainError builds a diagnostic error message for cancel-drain failures.
+func cancelDrainError(phase string, drainCtx context.Context, tokErr error) string {
 	msg := "did not get cancellation confirmation from the server"
-	if drainCtx.Err() != nil {
-		return fmt.Sprintf("%s (%s: %v)", msg, phase, drainCtx.Err())
+	cause := tokErr
+	if cause == nil {
+		cause = drainCtx.Err()
+	}
+	if cause != nil {
+		return fmt.Sprintf("%s (%s: %v)", msg, phase, cause)
 	}
 	return fmt.Sprintf("%s (%s)", msg, phase)
 }
@@ -1308,12 +1311,13 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 
 		// first lets finish reading current response and look
 		// for confirmation in it
-		switch readCancelConfirmation(drainCtx, t.tokChan) {
+		result, tokErr := readCancelConfirmation(drainCtx, t.tokChan)
+		switch result {
 		case cancelConfirmationReceived:
 			// we got confirmation in current response
 			return nil, t.ctx.Err()
 		case cancelConfirmationUnavailable:
-			return nil, ServerError{Error{Message: cancelDrainError("current response", drainCtx)}}
+			return nil, ServerError{Error{Message: cancelDrainError("current response", drainCtx, tokErr)}}
 		}
 		// we did not get cancellation confirmation in the current response
 		// read one more response, it must be there
@@ -1327,29 +1331,30 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		// time does not reduce the budget for the second response.
 		drainCtx2, drainCancel2 := context.WithTimeout(context.Background(), cancelDrainTimeout)
 		defer drainCancel2()
-		if readCancelConfirmation(drainCtx2, t.tokChan) == cancelConfirmationReceived {
+		result2, tokErr2 := readCancelConfirmation(drainCtx2, t.tokChan)
+		if result2 == cancelConfirmationReceived {
 			return nil, t.ctx.Err()
 		}
 		// we did not get cancellation confirmation, something is not
 		// right, this connection is not usable anymore
-		return nil, ServerError{Error{Message: cancelDrainError("second response", drainCtx2)}}
+		return nil, ServerError{Error{Message: cancelDrainError("second response", drainCtx2, tokErr2)}}
 	}
 }
 
-func readCancelConfirmation(ctx context.Context, tokChan chan tokenStruct) cancelConfirmationResult {
+func readCancelConfirmation(ctx context.Context, tokChan chan tokenStruct) (cancelConfirmationResult, error) {
 	for {
 		select {
 		case tok, ok := <-tokChan:
 			if !ok {
-				return cancelConfirmationChannelClosed
+				return cancelConfirmationChannelClosed, nil
 			}
-			switch done := tok.(type) {
+			switch tok := tok.(type) {
 			case doneStruct:
-				if done.Status&doneAttn != 0 {
-					return cancelConfirmationReceived
+				if tok.Status&doneAttn != 0 {
+					return cancelConfirmationReceived, nil
 				}
 			case error:
-				return cancelConfirmationUnavailable
+				return cancelConfirmationUnavailable, tok
 			}
 			continue
 		default:
@@ -1357,18 +1362,18 @@ func readCancelConfirmation(ctx context.Context, tokChan chan tokenStruct) cance
 
 		select {
 		case <-ctx.Done():
-			return cancelConfirmationUnavailable
+			return cancelConfirmationUnavailable, nil
 		case tok, ok := <-tokChan:
 			if !ok {
-				return cancelConfirmationChannelClosed
+				return cancelConfirmationChannelClosed, nil
 			}
-			switch done := tok.(type) {
+			switch tok := tok.(type) {
 			case doneStruct:
-				if done.Status&doneAttn != 0 {
-					return cancelConfirmationReceived
+				if tok.Status&doneAttn != 0 {
+					return cancelConfirmationReceived, nil
 				}
 			case error:
-				return cancelConfirmationUnavailable
+				return cancelConfirmationUnavailable, tok
 			}
 		}
 	}
