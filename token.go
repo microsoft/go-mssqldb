@@ -1360,6 +1360,8 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 
 func readCancelConfirmation(ctx context.Context, tokChan chan tokenStruct) (cancelConfirmationResult, error) {
 	for {
+		// Non-blocking: prefer a buffered token over ctx.Done so we
+		// don't miss a DONE_ATTN that arrived before the timeout.
 		select {
 		case tok, ok := <-tokChan:
 			if !ok {
@@ -1377,30 +1379,12 @@ func readCancelConfirmation(ctx context.Context, tokChan chan tokenStruct) (canc
 		default:
 		}
 
+		// Blocking: wait for a token or context cancellation.
+		// ctx.Done is checked every iteration so the timeout is
+		// enforced even if the server keeps streaming tokens.
 		select {
 		case <-ctx.Done():
-			// When ctx fires simultaneously with a token arrival, Go's
-			// select picks randomly. Do a non-blocking drain of tokChan
-			// so we don't spuriously miss a just-arrived DONE_ATTN.
-			for {
-				select {
-				case tok, ok := <-tokChan:
-					if !ok {
-						return cancelConfirmationChannelClosed, nil
-					}
-					switch tok := tok.(type) {
-					case doneStruct:
-						if tok.Status&doneAttn != 0 {
-							return cancelConfirmationReceived, nil
-						}
-					case error:
-						return cancelConfirmationUnavailable, tok
-					}
-					continue
-				default:
-					return cancelConfirmationUnavailable, nil
-				}
-			}
+			return cancelConfirmationUnavailable, nil
 		case tok, ok := <-tokChan:
 			if !ok {
 				return cancelConfirmationChannelClosed, nil
