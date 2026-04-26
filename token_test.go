@@ -8,7 +8,9 @@ import (
 	"io"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -468,46 +470,56 @@ func TestNextToken_CancelDrainClosedChannelStartsSecondResponse(t *testing.T) {
 	}
 }
 
+// blockingTransport blocks Read until unblock is closed, then returns EOF.
+type blockingTransport struct {
+	unblock chan struct{}
+}
+
+func (b *blockingTransport) Read([]byte) (int, error) {
+	<-b.unblock
+	return 0, io.EOF
+}
+
+func (b *blockingTransport) Write(p []byte) (int, error) { return len(p), nil }
+func (b *blockingTransport) Close() error                 { return nil }
+
 // TestStartResponseReaderSerializes verifies that startResponseReader waits for
 // the previous goroutine to finish before launching a new one.
 func TestStartResponseReaderSerializes(t *testing.T) {
-	// Build a minimal TDS reply with just a DONE(final) token.
-	buildDonePacket := func() []byte {
-		tokenStream := []byte{
-			byte(tokenDone), 0x00, 0x00, 0x00, 0x00,
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		}
-		totalSize := 8 + len(tokenStream)
-		packet := make([]byte, totalSize)
-		packet[0] = byte(packReply)
-		packet[1] = 0x01
-		binary.BigEndian.PutUint16(packet[2:4], uint16(totalSize))
-		packet[6] = 0x01
-		copy(packet[8:], tokenStream)
-		return packet
+	// First reader: transport blocks until we say so.
+	unblock := make(chan struct{})
+	sess := &tdsSession{
+		buf: newTdsBuffer(defaultPacketSize, &blockingTransport{unblock: unblock}),
 	}
 
-	// First call: launch a reader and let it finish.
-	pkt1 := buildDonePacket()
-	sess := &tdsSession{
-		buf: newTdsBuffer(defaultPacketSize, closableBuffer{bytes.NewBuffer(pkt1)}),
-	}
 	ch1 := make(chan tokenStruct, 10)
 	sess.startResponseReader(context.Background(), ch1, outputs{})
-	for range ch1 {
-	}
+	// First goroutine is now blocked inside processSingleResponse on Read.
 
-	// Second call: replace the transport and launch another reader.
-	// startResponseReader must wait for the first goroutine (already done)
-	// before starting the second. If it doesn't serialize, the second read
-	// would race on sess.buf.
-	pkt2 := buildDonePacket()
-	sess.buf = newTdsBuffer(defaultPacketSize, closableBuffer{bytes.NewBuffer(pkt2)})
+	// Launch second startResponseReader in a goroutine; it should block on
+	// <-sess.readDone until the first reader finishes.
+	var secondStarted atomic.Int32
 	ch2 := make(chan tokenStruct, 10)
-	sess.startResponseReader(context.Background(), ch2, outputs{})
-	for range ch2 {
+	go func() {
+		sess.startResponseReader(context.Background(), ch2, outputs{})
+		secondStarted.Store(1)
+	}()
+
+	// Give the goroutine time to reach the <-sess.readDone wait.
+	time.Sleep(50 * time.Millisecond)
+	if secondStarted.Load() != 0 {
+		t.Fatal("second startResponseReader returned before first completed")
 	}
 
-	// If we reach here without a panic or race, serialization is working.
-}
+	// Unblock the first reader. processSingleResponse will hit EOF, recover
+	// from the panic, and close ch1 + readDone.
+	close(unblock)
+
+	// Second call should now proceed.
+	select {
+	case <-time.After(5 * time.Second):
+		t.Fatal("second startResponseReader did not return after first completed")
+	case <-ch2:
+		// Expected: second reader started and wrote (or closed) ch2.
+	}
 }
