@@ -1253,7 +1253,9 @@ initiate_connection:
 	// the read could block indefinitely. Watch ctx.Done() and close the
 	// connection to unblock readPrelogin on cancellation.
 	cancelDone := make(chan struct{})
+	watcherDone := make(chan struct{})
 	go func() {
+		defer close(watcherDone)
 		select {
 		case <-ctx.Done():
 			toconn.Close()
@@ -1263,19 +1265,17 @@ initiate_connection:
 
 	fields, err = readPrelogin(outbuf)
 	close(cancelDone)
+	<-watcherDone // wait for goroutine to exit before touching toconn
 
-	// If the context was canceled, the watcher goroutine may have closed
-	// the connection. Return the context error regardless of whether the
-	// read itself succeeded to avoid using a potentially closed conn.
+	// If the context was canceled, the watcher goroutine closed the
+	// connection. Return the context error regardless of whether the
+	// read itself succeeded to avoid using a closed conn.
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
 
-	// Restore the original timeout for subsequent reads. This must happen
-	// after the ctx.Err() check: if the context was canceled, the watcher
-	// goroutine may still be calling toconn.Close() (value-receiver copies
-	// the struct, reading the timeout field). By returning above in that
-	// case, we avoid a data race on toconn.timeout.
+	// Restore the original timeout for subsequent reads. Safe because the
+	// watcher goroutine has exited (watcherDone is closed above).
 	toconn.timeout = origTimeout
 
 	if err != nil {
