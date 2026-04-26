@@ -1277,13 +1277,21 @@ initiate_connection:
 		return nil, ctxErr
 	}
 
+	// The socket timeout from preloginTimeout and the context deadline
+	// can fire at nearly the same instant. If the read timed out and
+	// the context deadline has since passed (even though ctx.Err() had
+	// not yet propagated above), return the context error instead of
+	// a raw "i/o timeout".
+	if err != nil {
+		if dl, ok := ctx.Deadline(); ok && !time.Now().Before(dl) {
+			return nil, context.DeadlineExceeded
+		}
+		return nil, err
+	}
+
 	// Restore the original timeout for subsequent reads. Safe because the
 	// watcher goroutine has exited (watcherDone is closed above).
 	toconn.timeout = origTimeout
-
-	if err != nil {
-		return nil, err
-	}
 
 	encrypt, err := interpretPreloginResponse(p, fedAuth, fields)
 	if err != nil {

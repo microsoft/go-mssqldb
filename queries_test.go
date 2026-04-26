@@ -2290,6 +2290,17 @@ func isAcceptableTimeoutErr(err error) bool {
 		(sqlErr.Number == 3980 || sqlErr.Message == "did not get cancellation confirmation from the server") {
 		return true
 	}
+	// StreamError wraps low-level errors without implementing Unwrap, so
+	// errors.As/errors.Is won't see through it. Check the inner error
+	// directly for a net timeout or timeout indicator string.
+	if se := (StreamError{}); errors.As(err, &se) {
+		if ne := (net.Error)(nil); errors.As(se.InnerError, &ne) && ne.Timeout() {
+			return true
+		}
+		if strings.Contains(se.InnerError.Error(), "timeout") {
+			return true
+		}
+	}
 	return false
 }
 
