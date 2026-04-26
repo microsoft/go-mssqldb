@@ -134,24 +134,39 @@ func TestPreloginRespectsContextDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
+	type connResult struct {
+		conn    *sql.Conn
+		err     error
+		elapsed time.Duration
+	}
+	resultCh := make(chan connResult, 1)
 	start := time.Now()
-	conn, err := db.Conn(ctx)
-	elapsed := time.Since(start)
+	go func() {
+		conn, err := db.Conn(ctx)
+		resultCh <- connResult{conn: conn, err: err, elapsed: time.Since(start)}
+	}()
 
-	if err == nil {
-		conn.Close()
+	var result connResult
+	select {
+	case result = <-resultCh:
+	case <-time.After(10 * time.Second):
+		t.Fatal("db.Conn(ctx) did not return before hard timeout; possible prelogin deadline regression")
+	}
+
+	if result.err == nil {
+		result.conn.Close()
 		t.Fatal("Expected connection to fail, but it succeeded")
 	}
 
 	// The connection should fail well before the full ConnTimeout (30s).
 	// We use a generous 5s bound to avoid flakes on slow CI; the real
 	// expectation is ~500ms from the context deadline.
-	if elapsed > 5*time.Second {
-		t.Errorf("Connection took %v, expected it to respect the 500ms context deadline", elapsed)
+	if result.elapsed > 5*time.Second {
+		t.Errorf("Connection took %v, expected it to respect the 500ms context deadline", result.elapsed)
 	}
 
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("expected context.DeadlineExceeded, got: %v", err)
+	if !errors.Is(result.err, context.DeadlineExceeded) {
+		t.Errorf("expected context.DeadlineExceeded, got: %v", result.err)
 	}
 }
 
@@ -200,20 +215,35 @@ func TestPreloginRespectsContextCancel(t *testing.T) {
 	timer := time.AfterFunc(500*time.Millisecond, cancel)
 	defer timer.Stop()
 
+	type connResult struct {
+		conn    *sql.Conn
+		err     error
+		elapsed time.Duration
+	}
+	resultCh := make(chan connResult, 1)
 	start := time.Now()
-	conn, err := db.Conn(ctx)
-	elapsed := time.Since(start)
+	go func() {
+		conn, err := db.Conn(ctx)
+		resultCh <- connResult{conn: conn, err: err, elapsed: time.Since(start)}
+	}()
 
-	if err == nil {
-		conn.Close()
+	var result connResult
+	select {
+	case result = <-resultCh:
+	case <-time.After(10 * time.Second):
+		t.Fatal("db.Conn(ctx) did not return before hard timeout; possible prelogin cancellation regression")
+	}
+
+	if result.err == nil {
+		result.conn.Close()
 		t.Fatal("Expected connection to fail, but it succeeded")
 	}
 
-	if elapsed > 5*time.Second {
-		t.Errorf("Connection took %v, expected it to respect context cancellation within ~500ms", elapsed)
+	if result.elapsed > 5*time.Second {
+		t.Errorf("Connection took %v, expected it to respect context cancellation within ~500ms", result.elapsed)
 	}
 
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("expected context.Canceled, got: %v", err)
+	if !errors.Is(result.err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got: %v", result.err)
 	}
 }
