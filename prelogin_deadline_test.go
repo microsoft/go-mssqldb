@@ -194,9 +194,11 @@ func TestPreloginRespectsContextCancel(t *testing.T) {
 	defer db.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Cancel after 500ms to simulate a caller-driven cancellation.
-	time.AfterFunc(500*time.Millisecond, cancel)
+	timer := time.AfterFunc(500*time.Millisecond, cancel)
+	defer timer.Stop()
 
 	start := time.Now()
 	conn, err := db.Conn(ctx)
