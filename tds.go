@@ -1192,6 +1192,15 @@ initiate_connection:
 	}
 
 	toconn := newTimeoutConn(conn, p.ConnTimeout)
+
+	// Ensure the connection is closed on any error path after dial.
+	// On success (or server-initiated reroute), we set toconn to nil
+	// before returning so the deferred close becomes a no-op.
+	defer func() {
+		if toconn != nil {
+			toconn.Close()
+		}
+	}()
 	outbuf := newTdsBuffer(packetSize, toconn)
 
 	if p.Encryption == msdsn.EncryptionStrict {
@@ -1236,7 +1245,6 @@ initiate_connection:
 	origTimeout := toconn.timeout
 	toconn.timeout, err = preloginTimeout(ctx, origTimeout)
 	if err != nil {
-		toconn.Close()
 		return nil, err
 	}
 
@@ -1262,12 +1270,10 @@ initiate_connection:
 	// the connection. Return the context error regardless of whether the
 	// read itself succeeded to avoid using a potentially closed conn.
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		toconn.Close()
 		return nil, ctxErr
 	}
 
 	if err != nil {
-		toconn.Close()
 		return nil, err
 	}
 
@@ -1436,7 +1442,6 @@ initiate_connection:
 				if token.isError() {
 					tokenErr := token.getError()
 					tokenErr.Message = "login error: " + tokenErr.Message
-					conn.Close()
 					return nil, tokenErr
 				}
 			case error:
@@ -1447,6 +1452,7 @@ initiate_connection:
 
 	if sess.routedServer != "" {
 		toconn.Close()
+		toconn = nil // prevent deferred double close
 		// Need to handle case when routedServer is in "host\instance" format.
 		routedParts := strings.SplitN(sess.routedServer, "\\", 2)
 		p.Host = routedParts[0]
@@ -1460,6 +1466,7 @@ initiate_connection:
 		}
 		goto initiate_connection
 	}
+	toconn = nil // success: prevent deferred close
 	return sess, nil
 }
 
