@@ -1297,15 +1297,19 @@ initiate_connection:
 	fields, err = readPrelogin(outbuf)
 	close(cancelDone)
 
-	// Restore the original timeout for subsequent reads.
-	toconn.timeout = origTimeout
-
 	// If the context was canceled, the watcher goroutine may have closed
 	// the connection. Return the context error regardless of whether the
 	// read itself succeeded to avoid using a potentially closed conn.
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
+
+	// Restore the original timeout for subsequent reads. This must happen
+	// after the ctx.Err() check: if the context was canceled, the watcher
+	// goroutine may still be calling toconn.Close() (value-receiver copies
+	// the struct, reading the timeout field). By returning above in that
+	// case, we avoid a data race on toconn.timeout.
+	toconn.timeout = origTimeout
 
 	if err != nil {
 		return nil, err
