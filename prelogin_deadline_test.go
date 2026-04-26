@@ -142,9 +142,67 @@ func TestPreloginRespectsContextDeadline(t *testing.T) {
 		t.Fatal("Expected connection to fail, but it succeeded")
 	}
 
-	// The connection should fail within ~2x the context deadline.
-	// If the fix is broken, it would take the full ConnTimeout (30s).
+	// The connection should fail well before the full ConnTimeout (30s).
+	// We use a generous 5s bound to avoid flakes on slow CI; the real
+	// expectation is ~500ms from the context deadline.
 	if elapsed > 5*time.Second {
 		t.Errorf("Connection took %v, expected it to respect the 500ms context deadline", elapsed)
+	}
+}
+
+// TestPreloginRespectsContextCancel verifies that readPrelogin unblocks
+// when the context is canceled even without a deadline set.
+func TestPreloginRespectsContextCancel(t *testing.T) {
+	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatal("Cannot start listener:", err)
+	}
+	defer listener.Close()
+	resolved := listener.Addr().(*net.TCPAddr)
+
+	done := make(chan struct{})
+	defer close(done)
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			buf := make([]byte, 4096)
+			_, _ = conn.Read(buf)
+			<-done
+			conn.Close()
+		}
+	}()
+
+	// connTimeout=30 and no context deadline: without the cancel watcher,
+	// this would block for the full 30s.
+	dsn := fmt.Sprintf("sqlserver://sa:unused@%s:%d?connection+timeout=30&dial+timeout=2&protocol=tcp&encrypt=disable",
+		resolved.IP.String(), resolved.Port)
+
+	db, err := sql.Open("sqlserver", dsn)
+	if err != nil {
+		t.Fatal("sql.Open failed:", err)
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Cancel after 500ms to simulate a caller-driven cancellation.
+	time.AfterFunc(500*time.Millisecond, cancel)
+
+	start := time.Now()
+	conn, err := db.Conn(ctx)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		conn.Close()
+		t.Fatal("Expected connection to fail, but it succeeded")
+	}
+
+	if elapsed > 5*time.Second {
+		t.Errorf("Connection took %v, expected it to respect context cancellation within ~500ms", elapsed)
 	}
 }

@@ -1240,10 +1240,31 @@ initiate_connection:
 		return nil, err
 	}
 
+	// If the context has no deadline but is cancelable and connTimeout is 0,
+	// the read could block indefinitely. Watch ctx.Done() and close the
+	// connection to unblock readPrelogin on cancellation.
+	cancelDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			toconn.Close()
+		case <-cancelDone:
+		}
+	}()
+
 	fields, err = readPrelogin(outbuf)
+	close(cancelDone)
 
 	// Restore the original timeout for subsequent reads.
 	toconn.timeout = origTimeout
+
+	// If the context was canceled, the watcher goroutine may have closed
+	// the connection. Return the context error regardless of whether the
+	// read itself succeeded to avoid using a potentially closed conn.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		toconn.Close()
+		return nil, ctxErr
+	}
 
 	if err != nil {
 		toconn.Close()
