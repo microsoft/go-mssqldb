@@ -84,4 +84,10 @@ jobs:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     - name: Show SQL Server logs on failure
       if: failure()
-      run: docker logs sqlserver
+      shell: bash
+      run: |
+        if docker ps -a --format '{{.Names}}' | grep -Fxq sqlserver; then
+          docker logs sqlserver || echo "Unable to read logs from sqlserver."
+        else
+          echo "SQL Server container 'sqlserver' was not found."
+        fi
