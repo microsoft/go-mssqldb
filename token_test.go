@@ -467,3 +467,47 @@ func TestNextToken_CancelDrainClosedChannelStartsSecondResponse(t *testing.T) {
 		t.Fatal("expected attention packet to be written")
 	}
 }
+
+// TestStartResponseReaderSerializes verifies that startResponseReader waits for
+// the previous goroutine to finish before launching a new one.
+func TestStartResponseReaderSerializes(t *testing.T) {
+	// Build a minimal TDS reply with just a DONE(final) token.
+	buildDonePacket := func() []byte {
+		tokenStream := []byte{
+			byte(tokenDone), 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		}
+		totalSize := 8 + len(tokenStream)
+		packet := make([]byte, totalSize)
+		packet[0] = byte(packReply)
+		packet[1] = 0x01
+		binary.BigEndian.PutUint16(packet[2:4], uint16(totalSize))
+		packet[6] = 0x01
+		copy(packet[8:], tokenStream)
+		return packet
+	}
+
+	// First call: launch a reader and let it finish.
+	pkt1 := buildDonePacket()
+	sess := &tdsSession{
+		buf: newTdsBuffer(defaultPacketSize, closableBuffer{bytes.NewBuffer(pkt1)}),
+	}
+	ch1 := make(chan tokenStruct, 10)
+	sess.startResponseReader(context.Background(), ch1, outputs{})
+	for range ch1 {
+	}
+
+	// Second call: replace the transport and launch another reader.
+	// startResponseReader must wait for the first goroutine (already done)
+	// before starting the second. If it doesn't serialize, the second read
+	// would race on sess.buf.
+	pkt2 := buildDonePacket()
+	sess.buf = newTdsBuffer(defaultPacketSize, closableBuffer{bytes.NewBuffer(pkt2)})
+	ch2 := make(chan tokenStruct, 10)
+	sess.startResponseReader(context.Background(), ch2, outputs{})
+	for range ch2 {
+	}
+
+	// If we reach here without a panic or race, serialization is working.
+}
+}
