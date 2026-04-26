@@ -453,6 +453,15 @@ func TestAllKeysAreAvailableInParametersMap(t *testing.T) {
 	}
 }
 
+func TestAuthenticationSynonymMapsFedauth(t *testing.T) {
+	params, err := Parse("server=localhost;authentication=ActiveDirectoryDefault")
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Equal(t, "ActiveDirectoryDefault", params.Parameters["fedauth"],
+		"ADO 'authentication' keyword should map to 'fedauth' parameter")
+}
+
 func TestReadCertificate(t *testing.T) {
 
 	//Setup dummy certificate
