@@ -10,55 +10,61 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/microsoft/go-mssqldb/aecmk"
 	"github.com/microsoft/go-mssqldb/internal/akvkeys"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestAllowedPathAndEndpointWithPort(t *testing.T) {
-	p := &Provider{
-		credentials:      make(map[string]azcore.TokenCredential),
-		AllowedLocations: []string{"myvault.vault.azure.net"},
-	}
-
 	tests := []struct {
 		name             string
+		allowedLocations []string
 		masterKeyPath    string
 		expectAllowed    bool
 		expectEndpoint   string
 		expectKeypath    []string
 	}{
 		{
-			name:           "URL without port",
-			masterKeyPath:  "https://myvault.vault.azure.net/keys/mykey/abc123",
-			expectAllowed:  true,
-			expectEndpoint: "https://myvault.vault.azure.net",
-			expectKeypath:  []string{"mykey", "abc123"},
+			name:             "URL without port",
+			allowedLocations: []string{"myvault.vault.azure.net"},
+			masterKeyPath:    "https://myvault.vault.azure.net/keys/mykey/abc123",
+			expectAllowed:    true,
+			expectEndpoint:   "https://myvault.vault.azure.net",
+			expectKeypath:    []string{"mykey", "abc123"},
 		},
 		{
-			name:           "URL with port 443",
-			masterKeyPath:  "https://myvault.vault.azure.net:443/keys/mykey/abc123",
-			expectAllowed:  true,
-			expectEndpoint: "https://myvault.vault.azure.net",
-			expectKeypath:  []string{"mykey", "abc123"},
+			name:             "URL with port 443",
+			allowedLocations: []string{"myvault.vault.azure.net"},
+			masterKeyPath:    "https://myvault.vault.azure.net:443/keys/mykey/abc123",
+			expectAllowed:    true,
+			expectEndpoint:   "https://myvault.vault.azure.net",
+			expectKeypath:    []string{"mykey", "abc123"},
 		},
 		{
-			name:           "URL with non-standard port",
-			masterKeyPath:  "https://myvault.vault.azure.net:8443/keys/mykey/abc123",
-			expectAllowed:  true,
-			expectEndpoint: "https://myvault.vault.azure.net:8443",
-			expectKeypath:  []string{"mykey", "abc123"},
+			name:             "URL with non-standard port",
+			allowedLocations: []string{"myvault.vault.azure.net"},
+			masterKeyPath:    "https://myvault.vault.azure.net:8443/keys/mykey/abc123",
+			expectAllowed:    true,
+			expectEndpoint:   "https://myvault.vault.azure.net:8443",
+			expectKeypath:    []string{"mykey", "abc123"},
 		},
 		{
-			name:          "URL with port not in allowed list",
-			masterKeyPath: "https://other.vault.azure.net:443/keys/mykey/abc123",
-			expectAllowed: false,
+			name:             "URL with port not in allowed list",
+			allowedLocations: []string{"myvault.vault.azure.net"},
+			masterKeyPath:    "https://other.vault.azure.net:443/keys/mykey/abc123",
+			expectAllowed:    false,
+		},
+		{
+			name:             "AllowedLocations entry with port does not match hostname",
+			allowedLocations: []string{"myvault.vault.azure.net:443"},
+			masterKeyPath:    "https://myvault.vault.azure.net/keys/mykey/abc123",
+			expectAllowed:    false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			p := &Provider{AllowedLocations: tt.allowedLocations}
 			endpoint, keypath, allowed := p.allowedPathAndEndpoint(tt.masterKeyPath)
 			assert.Equal(t, tt.expectAllowed, allowed, "allowed")
 			if tt.expectAllowed {
