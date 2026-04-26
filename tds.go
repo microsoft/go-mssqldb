@@ -1279,7 +1279,6 @@ initiate_connection:
 	origTimeout := toconn.timeout
 	toconn.timeout, err = preloginTimeout(ctx, origTimeout)
 	if err != nil {
-		toconn.Close()
 		return nil, err
 	}
 
@@ -1305,12 +1304,10 @@ initiate_connection:
 	// the connection. Return the context error regardless of whether the
 	// read itself succeeded to avoid using a potentially closed conn.
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		toconn.Close()
 		return nil, ctxErr
 	}
 
 	if err != nil {
-		toconn.Close()
 		return nil, err
 	}
 
@@ -1503,6 +1500,7 @@ initiate_connection:
 		}
 		goto initiate_connection
 	}
+	toconn = nil // success: prevent deferred close
 	return sess, nil
 }
 
