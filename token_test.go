@@ -471,11 +471,18 @@ func TestNextToken_CancelDrainClosedChannelStartsSecondResponse(t *testing.T) {
 }
 
 // blockingTransport blocks Read until unblock is closed, then returns EOF.
+// It signals readEntered when a Read call begins, allowing deterministic
+// synchronization without time.Sleep.
 type blockingTransport struct {
-	unblock chan struct{}
+	unblock     chan struct{}
+	readEntered chan struct{}
 }
 
 func (b *blockingTransport) Read([]byte) (int, error) {
+	select {
+	case b.readEntered <- struct{}{}:
+	default:
+	}
 	<-b.unblock
 	return 0, io.EOF
 }
@@ -487,14 +494,24 @@ func (b *blockingTransport) Close() error                 { return nil }
 // the previous goroutine to finish before launching a new one.
 func TestStartResponseReaderSerializes(t *testing.T) {
 	// First reader: transport blocks until we say so.
+	readEntered := make(chan struct{}, 1)
 	unblock := make(chan struct{})
 	sess := &tdsSession{
-		buf: newTdsBuffer(defaultPacketSize, &blockingTransport{unblock: unblock}),
+		buf: newTdsBuffer(defaultPacketSize, &blockingTransport{
+			unblock:     unblock,
+			readEntered: readEntered,
+		}),
 	}
 
 	ch1 := make(chan tokenStruct, 10)
 	sess.startResponseReader(context.Background(), ch1, outputs{})
-	// First goroutine is now blocked inside processSingleResponse on Read.
+
+	// Wait for the first goroutine to actually enter Read, proving it's blocked.
+	select {
+	case <-readEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first reader never entered Read")
+	}
 
 	// Launch second startResponseReader in a goroutine; it should block on
 	// <-sess.readDone until the first reader finishes.
@@ -505,14 +522,14 @@ func TestStartResponseReaderSerializes(t *testing.T) {
 		secondStarted.Store(1)
 	}()
 
-	// Give the goroutine time to reach the <-sess.readDone wait.
-	time.Sleep(50 * time.Millisecond)
+	// The second goroutine cannot proceed while the first reader is blocked,
+	// so secondStarted must still be 0.
 	if secondStarted.Load() != 0 {
 		t.Fatal("second startResponseReader returned before first completed")
 	}
 
-	// Unblock the first reader. processSingleResponse will hit EOF, recover
-	// from the panic, and close ch1 + readDone.
+	// Unblock the first reader. processSingleResponse will receive EOF from
+	// BeginRead as an error, send it to ch1, and return, closing readDone.
 	close(unblock)
 
 	// Second call should now proceed.
