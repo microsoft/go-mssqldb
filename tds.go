@@ -1249,9 +1249,12 @@ initiate_connection:
 		return nil, err
 	}
 
-	// If the context has no deadline but is cancelable and connTimeout is 0,
-	// the read could block indefinitely. Watch ctx.Done() and close the
-	// connection to unblock readPrelogin on cancellation.
+	// Watch ctx.Done() for every prelogin read and close the connection to
+	// unblock readPrelogin on any context cancellation or deadline expiry.
+	// This is needed even though preloginTimeout may reduce toconn.timeout,
+	// because ctx can be canceled after that timeout is computed but before
+	// or during the read, and because without a deadline and with
+	// connTimeout == 0 the read could otherwise block indefinitely.
 	cancelDone := make(chan struct{})
 	watcherDone := make(chan struct{})
 	go func() {
