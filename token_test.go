@@ -629,6 +629,9 @@ func TestStartResponseReaderSerializes(t *testing.T) {
 	// First reader: transport blocks until we say so.
 	readEntered := make(chan struct{}, 1)
 	unblock := make(chan struct{})
+	var closeOnce sync.Once
+	closeUnblock := func() { closeOnce.Do(func() { close(unblock) }) }
+	t.Cleanup(closeUnblock)
 	sess := &tdsSession{
 		buf: newTdsBuffer(defaultPacketSize, &blockingTransport{
 			unblock:     unblock,
@@ -663,7 +666,7 @@ func TestStartResponseReaderSerializes(t *testing.T) {
 
 	// Unblock the first reader. processSingleResponse will receive EOF from
 	// BeginRead as an error, send it to ch1, and return, closing readDone.
-	close(unblock)
+	closeUnblock()
 
 	// Second call should now proceed.
 	select {
