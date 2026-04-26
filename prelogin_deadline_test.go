@@ -166,7 +166,12 @@ func TestPreloginRespectsContextDeadline(t *testing.T) {
 	}
 
 	if !errors.Is(result.err, context.DeadlineExceeded) {
-		t.Errorf("expected context.DeadlineExceeded, got: %v", result.err)
+		// The socket timeout from preloginTimeout and the context deadline
+		// can race. Both prove the deadline was respected; the elapsed
+		// check above is the primary assertion.
+		if ne := (net.Error)(nil); !errors.As(result.err, &ne) || !ne.Timeout() {
+			t.Errorf("expected context.DeadlineExceeded or net timeout, got: %v", result.err)
+		}
 	}
 }
 
