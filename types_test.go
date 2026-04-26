@@ -151,6 +151,9 @@ func TestMakeGoLangTypeLength(t *testing.T) {
 		{"typeDecimalN not variable", typeInfo{TypeId: typeDecimalN}, 0, false},
 		{"typeGuid", typeInfo{TypeId: typeGuid}, 0, false},
 		{"typeVariant", typeInfo{TypeId: typeVariant}, 0, false},
+		{"typeUdt hierarchyid", typeInfo{TypeId: typeUdt, UdtInfo: udtInfo{TypeName: "hierarchyid"}}, 892, true},
+		{"typeUdt geography", typeInfo{TypeId: typeUdt, UdtInfo: udtInfo{TypeName: "geography"}}, 2147483647, true},
+		{"typeUdt geometry", typeInfo{TypeId: typeUdt, UdtInfo: udtInfo{TypeName: "geometry"}}, 2147483647, true},
 	}
 
 	for _, tt := range tests {

@@ -1578,8 +1578,7 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 		case "hierarchyid":
 			// https://learn.microsoft.com/en-us/sql/t-sql/data-types/hierarchyid-data-type-method-reference?view=sql-server-ver16
 			return 892, true
-		case "geography":
-		case "geometry":
+		case "geography", "geometry":
 			return 2147483647, true
 		default:
 			return 0, false
