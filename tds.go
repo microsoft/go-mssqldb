@@ -1120,13 +1120,13 @@ func wrapTLSError(err error) error {
 		return fmt.Errorf("TLS Handshake failed: %w. "+
 			"The server certificate has a negative serial number, "+
 			"which Go 1.23+ rejects per RFC 5280. "+
-			"Set GODEBUG=x509negativeserial=1 to allow it, "+
+			"Add x509negativeserial=1 to your GODEBUG environment variable to allow it, "+
 			"or use encrypt=disable for non-production servers", err)
 	case strings.Contains(msgLower, "sha-1") || strings.Contains(msgLower, "sha1"):
 		return fmt.Errorf("TLS Handshake failed: %w. "+
 			"The server uses SHA-1 signatures, which Go 1.25+ "+
 			"disallows per RFC 9155. "+
-			"Set GODEBUG=tlssha1=1 to allow it, "+
+			"Add tlssha1=1 to your GODEBUG environment variable to allow it, "+
 			"update the server certificate to SHA-256+, "+
 			"or use encrypt=disable for non-production servers", err)
 	default:

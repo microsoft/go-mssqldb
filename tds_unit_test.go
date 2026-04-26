@@ -369,7 +369,8 @@ func TestWrapTLSError(t *testing.T) {
 			wantContains: []string{
 				"TLS Handshake failed",
 				"negative serial number",
-				"GODEBUG=x509negativeserial=1",
+				"x509negativeserial=1",
+				"GODEBUG",
 			},
 		},
 		{
@@ -378,7 +379,8 @@ func TestWrapTLSError(t *testing.T) {
 			wantContains: []string{
 				"TLS Handshake failed",
 				"SHA-1",
-				"GODEBUG=tlssha1=1",
+				"tlssha1=1",
+				"GODEBUG",
 				"SHA-256",
 			},
 		},
@@ -387,7 +389,8 @@ func TestWrapTLSError(t *testing.T) {
 			err:  fmt.Errorf("tls: sha1 signature not supported"),
 			wantContains: []string{
 				"TLS Handshake failed",
-				"GODEBUG=tlssha1=1",
+				"tlssha1=1",
+				"GODEBUG",
 			},
 		},
 		{
