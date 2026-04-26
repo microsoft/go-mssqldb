@@ -1136,10 +1136,7 @@ func preloginTimeout(ctx context.Context, connTimeout time.Duration) (time.Durat
 
 	ctxTimeout := time.Until(deadline)
 	if ctxTimeout <= 0 {
-		if err := ctx.Err(); err != nil {
-			return connTimeout, err
-		}
-		return connTimeout, context.DeadlineExceeded
+		return 0, ctx.Err()
 	}
 
 	if connTimeout == 0 || ctxTimeout < connTimeout {
@@ -1235,6 +1232,7 @@ initiate_connection:
 	origTimeout := toconn.timeout
 	toconn.timeout, err = preloginTimeout(ctx, origTimeout)
 	if err != nil {
+		toconn.Close()
 		return nil, err
 	}
 
@@ -1244,6 +1242,7 @@ initiate_connection:
 	toconn.timeout = origTimeout
 
 	if err != nil {
+		toconn.Close()
 		return nil, err
 	}
 

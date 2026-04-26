@@ -2267,6 +2267,32 @@ func getLatency(t *testing.T) time.Duration {
 	return time.Since(now)
 }
 
+// isAcceptableTimeoutErr reports whether err is one of the expected outcomes
+// after a context deadline fires during query execution.
+//
+// After the context deadline, the driver sends ATTENTION to cancel.
+// Depending on timing, OS, and SQL Server version the surfaced error
+// can be any of:
+//   - context.DeadlineExceeded
+//   - a net.Error with Timeout() (i/o timeout on read/write)
+//   - SQL Server error 3980 ("batch aborted") when the server
+//     acknowledges ATTENTION before the client sees the timeout
+//   - the driver's explicit cancel-confirmation failure when ATTENTION
+//     was sent but the server never completed the cancellation handshake
+func isAcceptableTimeoutErr(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if ne := (net.Error)(nil); errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	if sqlErr := (Error{}); errors.As(err, &sqlErr) &&
+		(sqlErr.Number == 3980 || sqlErr.Message == "did not get cancellation confirmation from the server") {
+		return true
+	}
+	return false
+}
+
 func TestQueryTimeout(t *testing.T) {
 	conn, logger := open(t)
 	defer conn.Close()
@@ -2279,23 +2305,7 @@ func TestQueryTimeout(t *testing.T) {
 	if err == nil {
 		t.Fatal("ExecContext expected to fail but succeeded")
 	}
-	// After the context deadline, the driver sends ATTENTION to cancel.
-	// Depending on timing, OS, and SQL Server version the surfaced error
-	// can be any of:
-	//   - context.DeadlineExceeded
-	//   - a net.Error with Timeout() (i/o timeout on read/write)
-	//   - SQL Server error 3980 ("batch aborted") when the server
-	//     acknowledges ATTENTION before the client sees the timeout
-	//   - the driver's explicit cancel-confirmation failure when ATTENTION
-	//     was sent but the server never completed the cancellation handshake
-	if errors.Is(err, context.DeadlineExceeded) {
-		// ok
-	} else if ne := (net.Error)(nil); errors.As(err, &ne) && ne.Timeout() {
-		// ok: net-level timeout
-	} else if sqlErr := (Error{}); errors.As(err, &sqlErr) &&
-		(sqlErr.Number == 3980 || sqlErr.Message == "did not get cancellation confirmation from the server") {
-		// ok: server aborted the batch after receiving ATTENTION
-	} else {
+	if !isAcceptableTimeoutErr(err) {
 		t.Fatalf("wrong kind of error for query timeout: %T: %v", err, err)
 	}
 
@@ -2324,16 +2334,8 @@ func TestLoginTimeout(t *testing.T) {
 		t.Fatal("ExecContext expected to fail but succeeded")
 	}
 	// With very low latency, the login completes before the deadline and
-	// this degenerates into a query-timeout scenario.  The same set of
-	// acceptable errors applies as in TestQueryTimeout.
-	if errors.Is(err, context.DeadlineExceeded) {
-		// ok
-	} else if ne := (net.Error)(nil); errors.As(err, &ne) && ne.Timeout() {
-		// ok: net-level timeout
-	} else if sqlErr := (Error{}); errors.As(err, &sqlErr) &&
-		(sqlErr.Number == 3980 || sqlErr.Message == "did not get cancellation confirmation from the server") {
-		// ok: server aborted the batch after receiving ATTENTION
-	} else {
+	// this degenerates into a query-timeout scenario.
+	if !isAcceptableTimeoutErr(err) {
 		t.Fatalf("wrong kind of error for login or query timeout: %T: %v", err, err)
 	}
 
