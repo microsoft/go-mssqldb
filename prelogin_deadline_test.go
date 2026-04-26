@@ -46,6 +46,19 @@ func TestPreloginTimeout(t *testing.T) {
 		}
 	})
 
+	t.Run("zero connection timeout uses context deadline", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		defer cancel()
+
+		got, err := preloginTimeout(ctx, 0)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got <= 0 || got > 250*time.Millisecond {
+			t.Fatalf("timeout=%v, want a positive value no greater than %v", got, 250*time.Millisecond)
+		}
+	})
+
 	t.Run("expired deadline returns context error", func(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 		defer cancel()
