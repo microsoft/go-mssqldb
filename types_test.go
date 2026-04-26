@@ -313,4 +313,10 @@ func TestUnknownTypeDoesNotPanic(t *testing.T) {
 		assert.Equal(t, int64(0), scale)
 		assert.False(t, ok)
 	})
+	t.Run("UdtTypeLength", func(t *testing.T) {
+		udt := typeInfo{TypeId: typeUdt, UdtInfo: udtInfo{TypeName: "someunknown"}}
+		n, ok := makeGoLangTypeLength(udt)
+		assert.Equal(t, int64(0), n)
+		assert.False(t, ok)
+	})
 }
