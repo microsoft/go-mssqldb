@@ -1129,6 +1129,10 @@ func getTLSConn(conn *timeoutConn, p msdsn.Config, alpnSeq string) (tlsConn *tls
 }
 
 func preloginTimeout(ctx context.Context, connTimeout time.Duration) (time.Duration, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
 	deadline, ok := ctx.Deadline()
 	if !ok {
 		return connTimeout, nil
@@ -1136,7 +1140,7 @@ func preloginTimeout(ctx context.Context, connTimeout time.Duration) (time.Durat
 
 	ctxTimeout := time.Until(deadline)
 	if ctxTimeout <= 0 {
-		return 0, ctx.Err()
+		return 0, context.DeadlineExceeded
 	}
 
 	if connTimeout == 0 || ctxTimeout < connTimeout {

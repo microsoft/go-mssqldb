@@ -71,6 +71,19 @@ func TestPreloginTimeout(t *testing.T) {
 			t.Fatalf("error=%v, want %v", err, context.DeadlineExceeded)
 		}
 	})
+
+	t.Run("canceled context without deadline returns context error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := preloginTimeout(ctx, 30*time.Second)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if err != context.Canceled {
+			t.Fatalf("error=%v, want %v", err, context.Canceled)
+		}
+	})
 }
 
 // TestPreloginRespectsContextDeadline verifies that readPrelogin honors the
