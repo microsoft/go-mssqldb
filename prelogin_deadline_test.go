@@ -3,6 +3,7 @@ package mssql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"testing"
@@ -148,6 +149,10 @@ func TestPreloginRespectsContextDeadline(t *testing.T) {
 	if elapsed > 5*time.Second {
 		t.Errorf("Connection took %v, expected it to respect the 500ms context deadline", elapsed)
 	}
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("expected context.DeadlineExceeded, got: %v", err)
+	}
 }
 
 // TestPreloginRespectsContextCancel verifies that readPrelogin unblocks
@@ -204,5 +209,9 @@ func TestPreloginRespectsContextCancel(t *testing.T) {
 
 	if elapsed > 5*time.Second {
 		t.Errorf("Connection took %v, expected it to respect context cancellation within ~500ms", elapsed)
+	}
+
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got: %v", err)
 	}
 }
