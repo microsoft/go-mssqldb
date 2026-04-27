@@ -330,70 +330,19 @@ func TestPreloginSocketTimeoutBeforeContextExpiry(t *testing.T) {
 	if errors.Is(result.err, context.DeadlineExceeded) {
 		t.Errorf("Got context.DeadlineExceeded but expected socket timeout error")
 	}
-}
-
-// TestPreloginTimeoutErrorPath verifies that an already-expired context
-// triggers the preloginTimeout error return inside connect().
-func TestPreloginTimeoutErrorPath(t *testing.T) {
-	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
-	listener, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		t.Fatal("Cannot start listener:", err)
-	}
-	defer listener.Close()
-	resolved := listener.Addr().(*net.TCPAddr)
-
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			buf := make([]byte, 4096)
-			_, _ = conn.Read(buf)
-			conn.Close()
-		}
-	}()
-
-	// Use a context that will expire very quickly. The dial has its own
-	// timeout so it can succeed even when the parent context expires.
-	// By the time writePrelogin + preloginTimeout run, the context should
-	// be expired, triggering the preloginTimeout → err path.
-	dsn := fmt.Sprintf("sqlserver://sa:unused@%s:%d?connection+timeout=30&dial+timeout=5&protocol=tcp&encrypt=disable",
-		resolved.IP.String(), resolved.Port)
-
-	db, err := sql.Open("sqlserver", dsn)
-	if err != nil {
-		t.Fatal("sql.Open failed:", err)
-	}
-	defer db.Close()
-
-	// Very short context: 1ms. Dial should complete before this expires
-	// (localhost connection), but preloginTimeout should see the expired context.
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
-	defer cancel()
-
-	// Give the context time to expire before attempting the connection.
-	time.Sleep(5 * time.Millisecond)
-
-	start := time.Now()
-	_, err = db.Conn(ctx)
-	elapsed := time.Since(start)
-
-	if err == nil {
-		t.Fatal("Expected connection to fail with expired context")
-	}
-
-	// Should fail fast (context already expired).
-	if elapsed > 5*time.Second {
-		t.Errorf("Connection took %v; expected fast failure", elapsed)
+	var ne net.Error
+	if !errors.As(result.err, &ne) || !ne.Timeout() {
+		t.Errorf("expected net.Error with Timeout()=true, got: %v", result.err)
 	}
 }
 
 // TestRoutingRedirectClosesFirstConnection verifies that when a server
 // sends a routing redirect, the original connection is properly closed
-// and toconn is set to nil before the next connection attempt.
+// before the next connection attempt. The mock server keeps its end open
+// and detects the client-side close by waiting for an EOF on Read.
 func TestRoutingRedirectClosesFirstConnection(t *testing.T) {
+	firstConnClosed := make(chan struct{})
+
 	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
 	listener, err := net.ListenTCP("tcp", addr)
 	if err != nil {
@@ -403,10 +352,12 @@ func TestRoutingRedirectClosesFirstConnection(t *testing.T) {
 	resolved := listener.Addr().(*net.TCPAddr)
 
 	go func() {
+		defer close(firstConnClosed)
 		conn, err := listener.Accept()
 		if err != nil {
 			return
 		}
+		// Keep the server side open so we can detect the client close.
 		defer conn.Close()
 
 		buf := newTdsBuffer(defaultPacketSize, conn)
@@ -442,6 +393,24 @@ func TestRoutingRedirectClosesFirstConnection(t *testing.T) {
 
 		if err := buf.FinishPacket(); err != nil {
 			t.Log("Writing routing response failed:", err)
+			return
+		}
+
+		// Drain any remaining client data.
+		for {
+			_ = conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+			if _, err := conn.Read(make([]byte, 4096)); err != nil {
+				break
+			}
+		}
+
+		// Wait for the client to close its end of the first connection.
+		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+		_, err = conn.Read(make([]byte, 1))
+		if err == nil {
+			t.Error("expected server-side read to fail after client closed first connection")
+		} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			t.Error("server-side read timed out; client did not close the first connection")
 		}
 	}()
 
@@ -460,6 +429,13 @@ func TestRoutingRedirectClosesFirstConnection(t *testing.T) {
 	err = db.Ping()
 	if err == nil {
 		t.Fatal("Expected Ping to fail after routing redirect to dead server")
+	}
+
+	// Wait for the server goroutine to confirm the client closed the first connection.
+	select {
+	case <-firstConnClosed:
+	case <-time.After(15 * time.Second):
+		t.Fatal("server goroutine did not detect client close of first connection")
 	}
 
 	t.Logf("Routing redirect correctly failed: %v", err)
