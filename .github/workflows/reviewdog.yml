@@ -1,14 +1,24 @@
 name: reviewdog
 on: [pull_request]
+
+# Remove all default token permissions at the workflow level.
+# Individual jobs grant only the permissions they need.
+permissions: {}
+
 jobs:
   golangci-lint:
     name: runner / golangci-lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: Check out code into the Go module directory
-        uses: actions/checkout@v6
+        # actions/checkout v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: golangci-lint
-        uses: reviewdog/action-golangci-lint@v2
+        # reviewdog/action-golangci-lint v2
+        uses: reviewdog/action-golangci-lint@c76cceaaab89abe74e649d2e34c6c9adc26662d2 # v2
         with:
           level: warning
           reporter: github-pr-review

@@ -5,72 +5,89 @@ on:
     branches:
     - main
 
+# Remove all default token permissions at the workflow level.
+# Individual jobs grant only the permissions they need.
+permissions: {}
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         go: ['1.25.7']
         sqlImage: ['2017-latest','2019-latest','2022-latest','2025-latest']
     steps:
-    - uses: actions/checkout@v6
-    - name: Setup go
-      uses: actions/setup-go@v6
-      with:
-        go-version: '${{ matrix.go }}'
-    - name: Install sqlcmd
-      run: |
-        curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
-        curl -sSL https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
-        sudo apt-get update
-        sudo ACCEPT_EULA=Y apt-get install -y mssql-tools18
-        echo "/opt/mssql-tools18/bin" >> $GITHUB_PATH
-    - name: Run tests against Linux SQL
-      shell: bash
-      run: |
-        go version
-        export SQLCMDPASSWORD=$(date +%s|sha256sum|base64|head -c 32)
-        export SQLCMDUSER=sa
-        export SQLUSER=sa
-        export SQLPASSWORD=$SQLCMDPASSWORD
-        export DATABASE=master
-        export HOST=localhost
-        # Build connection string - SQL 2017 and 2025 Docker images use self-signed certificates
-        if [ "${{ matrix.sqlImage }}" = "2017-latest" ]; then
-          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
-          # SQL 2017's self-signed certificate has a negative serial number that Go 1.23+ rejects by default.
-          # This GODEBUG override is only for CI testing against SQL Server 2017 and MUST NOT be used in production.
-          export GODEBUG=x509negativeserial=1
-        elif [ "${{ matrix.sqlImage }}" = "2025-latest" ]; then
-          # SQL 2025 Docker image also uses a self-signed certificate
-          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
-        else
-          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}"
-        fi
-        docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver -p 1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD mcr.microsoft.com/mssql/server:${{ matrix.sqlImage }}
-        # Wait for SQL Server to be ready - retry up to 60 seconds (30 attempts x 2s)
-        READY=0
-        for i in {1..30}; do
-          if sqlcmd -S localhost -U sa -P "$SQLCMDPASSWORD" -C -Q "SELECT 1" > /dev/null 2>&1; then
-            echo "SQL Server is ready (attempt $i)"
-            READY=1
-            break
+      # actions/checkout v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Setup go
+        # actions/setup-go v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: '${{ matrix.go }}'
+      - name: Install sqlcmd
+        run: |
+          curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
+          curl -sSL https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y mssql-tools18
+          echo "/opt/mssql-tools18/bin" >> $GITHUB_PATH
+      - name: Run tests against Linux SQL
+        shell: bash
+        run: |
+          go version
+          export SQLCMDPASSWORD=$(date +%s|sha256sum|base64|head -c 32)
+          export SQLCMDUSER=sa
+          export SQLUSER=sa
+          export SQLPASSWORD=$SQLCMDPASSWORD
+          export DATABASE=master
+          export HOST=localhost
+          # Build connection string - SQL 2017 and 2025 Docker images use self-signed certificates
+          if [ "${{ matrix.sqlImage }}" = "2017-latest" ]; then
+            export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
+            # SQL 2017's self-signed certificate has a negative serial number that Go 1.23+ rejects by default.
+            # This GODEBUG override is only for CI testing against SQL Server 2017 and MUST NOT be used in production.
+            export GODEBUG=x509negativeserial=1
+          elif [ "${{ matrix.sqlImage }}" = "2025-latest" ]; then
+            # SQL 2025 Docker image also uses a self-signed certificate
+            export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
+          else
+            export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}"
           fi
-          echo "Waiting for SQL Server to start... (attempt $i/30)"
-          sleep 2
-        done
-        if [ "$READY" -eq 0 ]; then
-          echo "SQL Server did not become ready within 60 seconds; aborting tests."
-          exit 1
-        fi
-        go test -coverprofile=coverage.out -covermode=atomic -v ./...
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v6
-      with:
-        files: coverage.out
-        flags: unittests
-        name: go-${{ matrix.go }}-sql-${{ matrix.sqlImage }}
-        fail_ci_if_error: false
-      env:
-        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
+          docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver -p 1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD mcr.microsoft.com/mssql/server:${{ matrix.sqlImage }}
+          # Wait for SQL Server to be ready - retry up to 60 seconds (30 attempts x 2s)
+          READY=0
+          for i in {1..30}; do
+            if sqlcmd -S localhost -U sa -P "$SQLCMDPASSWORD" -C -Q "SELECT 1" > /dev/null 2>&1; then
+              echo "SQL Server is ready (attempt $i)"
+              READY=1
+              break
+            fi
+            echo "Waiting for SQL Server to start... (attempt $i/30)"
+            sleep 2
+          done
+          if [ "$READY" -eq 0 ]; then
+            echo "SQL Server did not become ready within 60 seconds; aborting tests."
+            exit 1
+          fi
+          go test -coverprofile=coverage.out -covermode=atomic -v ./...
+      - name: Upload coverage to Codecov
+        # codecov/codecov-action v6
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6
+        with:
+          files: coverage.out
+          flags: unittests
+          name: go-${{ matrix.go }}-sql-${{ matrix.sqlImage }}
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      - name: Show SQL Server logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          if docker ps -a --format '{{.Names}}' | grep -Fxq sqlserver; then
+            docker logs sqlserver || echo "Unable to read logs from sqlserver."
+          else
+            echo "SQL Server container 'sqlserver' was not found."
+          fi

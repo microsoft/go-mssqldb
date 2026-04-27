@@ -2,6 +2,7 @@ package mssql
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"testing"
 
@@ -140,4 +141,75 @@ func TestRWCBuffer_MultipleReads(t *testing.T) {
 	n3, err3 := rwc.Read(buf3)
 	assert.Equal(t, 0, n3, "Third Read() n")
 	assert.Equal(t, io.EOF, err3, "Third Read() error")
+}
+
+func TestReadCancelConfirmation_Success(t *testing.T) {
+	t.Parallel()
+	tokChan := make(chan tokenStruct, 1)
+	tokChan <- doneStruct{Status: doneAttn}
+	result, _ := readCancelConfirmation(context.Background(), tokChan)
+	if result != cancelConfirmationReceived {
+		t.Fatalf("expected cancelConfirmationReceived, got %v", result)
+	}
+}
+
+func TestReadCancelConfirmation_ChannelClosedWithoutConfirmation(t *testing.T) {
+	t.Parallel()
+	tokChan := make(chan tokenStruct)
+	close(tokChan)
+	result, _ := readCancelConfirmation(context.Background(), tokChan)
+	if result != cancelConfirmationChannelClosed {
+		t.Fatalf("expected cancelConfirmationChannelClosed, got %v", result)
+	}
+}
+
+func TestReadCancelConfirmation_ContextCancelled(t *testing.T) {
+	t.Parallel()
+	tokChan := make(chan tokenStruct) // never sends
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result, tokErr := readCancelConfirmation(ctx, tokChan)
+	if result != cancelConfirmationUnavailable {
+		t.Fatalf("expected cancelConfirmationUnavailable, got %v", result)
+	}
+	if tokErr != nil {
+		t.Fatalf("expected nil tokErr for context cancellation, got %v", tokErr)
+	}
+}
+
+func TestReadCancelConfirmation_SkipsNonAttnTokens(t *testing.T) {
+	t.Parallel()
+	tokChan := make(chan tokenStruct, 3)
+	tokChan <- orderStruct{}
+	tokChan <- doneStruct{Status: doneCount}
+	tokChan <- doneStruct{Status: doneAttn}
+	result, _ := readCancelConfirmation(context.Background(), tokChan)
+	if result != cancelConfirmationReceived {
+		t.Fatalf("expected cancelConfirmationReceived, got %v", result)
+	}
+}
+
+func TestReadCancelConfirmation_PrioritizesBufferedTokenOverCancelledContext(t *testing.T) {
+	t.Parallel()
+	tokChan := make(chan tokenStruct, 1)
+	tokChan <- doneStruct{Status: doneAttn}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result, _ := readCancelConfirmation(ctx, tokChan)
+	if result != cancelConfirmationReceived {
+		t.Fatalf("expected cancelConfirmationReceived, got %v", result)
+	}
+}
+
+func TestReadCancelConfirmation_ErrorTokenIsUnavailable(t *testing.T) {
+	t.Parallel()
+	tokChan := make(chan tokenStruct, 1)
+	tokChan <- io.EOF
+	result, tokErr := readCancelConfirmation(context.Background(), tokChan)
+	if result != cancelConfirmationUnavailable {
+		t.Fatalf("expected cancelConfirmationUnavailable, got %v", result)
+	}
+	if tokErr != io.EOF {
+		t.Fatalf("expected io.EOF, got %v", tokErr)
+	}
 }
