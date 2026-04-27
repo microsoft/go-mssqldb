@@ -151,6 +151,9 @@ func TestMakeGoLangTypeLength(t *testing.T) {
 		{"typeDecimalN not variable", typeInfo{TypeId: typeDecimalN}, 0, false},
 		{"typeGuid", typeInfo{TypeId: typeGuid}, 0, false},
 		{"typeVariant", typeInfo{TypeId: typeVariant}, 0, false},
+		{"typeUdt hierarchyid", typeInfo{TypeId: typeUdt, UdtInfo: udtInfo{TypeName: "hierarchyid"}}, 892, true},
+		{"typeUdt geography", typeInfo{TypeId: typeUdt, UdtInfo: udtInfo{TypeName: "geography"}}, 2147483647, true},
+		{"typeUdt geometry", typeInfo{TypeId: typeUdt, UdtInfo: udtInfo{TypeName: "geometry"}}, 2147483647, true},
 	}
 
 	for _, tt := range tests {
@@ -283,4 +286,40 @@ func handlePanic(t *testing.T) {
 	if r := recover(); r != nil {
 		assert.Fail(t, "recovered panic", "%v", r)
 	}
+}
+
+// TestUnknownTypeDoesNotPanic verifies that ColumnType methods return safe
+// defaults instead of panicking when encountering an unknown type ID. See #31.
+func TestUnknownTypeDoesNotPanic(t *testing.T) {
+	unknown := typeInfo{TypeId: 123}
+
+	t.Run("ScanType", func(t *testing.T) {
+		got := makeGoLangScanType(unknown)
+		assert.Equal(t, reflect.TypeOf((*interface{})(nil)).Elem(), got)
+	})
+	t.Run("TypeName", func(t *testing.T) {
+		got := makeGoLangTypeName(unknown)
+		assert.Equal(t, "", got)
+	})
+	t.Run("Decl", func(t *testing.T) {
+		got := makeDecl(unknown)
+		assert.Equal(t, "", got)
+	})
+	t.Run("TypeLength", func(t *testing.T) {
+		n, ok := makeGoLangTypeLength(unknown)
+		assert.Equal(t, int64(0), n)
+		assert.False(t, ok)
+	})
+	t.Run("PrecisionScale", func(t *testing.T) {
+		prec, scale, ok := makeGoLangTypePrecisionScale(unknown)
+		assert.Equal(t, int64(0), prec)
+		assert.Equal(t, int64(0), scale)
+		assert.False(t, ok)
+	})
+	t.Run("UdtTypeLength", func(t *testing.T) {
+		udt := typeInfo{TypeId: typeUdt, UdtInfo: udtInfo{TypeName: "someunknown"}}
+		n, ok := makeGoLangTypeLength(udt)
+		assert.Equal(t, int64(0), n)
+		assert.False(t, ok)
+	})
 }
