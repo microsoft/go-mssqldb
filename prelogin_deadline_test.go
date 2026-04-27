@@ -112,7 +112,7 @@ type pastDeadlineContext struct {
 
 func (c pastDeadlineContext) Deadline() (time.Time, bool) { return c.dl, true }
 func (c pastDeadlineContext) Err() error                  { return nil }
-func (c pastDeadlineContext) Done() <-chan struct{}        { return nil }
+func (c pastDeadlineContext) Done() <-chan struct{}       { return nil }
 
 // TestPreloginRespectsContextDeadline verifies that readPrelogin honors the
 // context deadline rather than hanging for the full ConnTimeout when the
@@ -441,11 +441,11 @@ func TestRoutingRedirectClosesFirstConnection(t *testing.T) {
 		// loginAck token so the login-response loop exits and
 		// processes the routing ENVCHANGE.
 		buf.WriteByte(byte(tokenLoginAck))
-		binary.Write(buf, binary.LittleEndian, uint16(10)) // payload size
-		buf.WriteByte(1)                                    // Interface = SQL_TSQL
+		binary.Write(buf, binary.LittleEndian, uint16(10))      // payload size
+		buf.WriteByte(1)                                        // Interface = SQL_TSQL
 		binary.Write(buf, binary.BigEndian, uint32(0x74000004)) // TDSVersion
-		buf.WriteByte(0)                                    // ProgNameLen = 0
-		binary.Write(buf, binary.BigEndian, uint32(0))      // ProgVer
+		buf.WriteByte(0)                                        // ProgNameLen = 0
+		binary.Write(buf, binary.BigEndian, uint32(0))          // ProgVer
 
 		buf.WriteByte(byte(tokenDone))
 		binary.Write(buf, binary.LittleEndian, uint16(0)) // status
@@ -540,7 +540,35 @@ func TestConnectSuccessfulPreloginAndLogin(t *testing.T) {
 		}
 		defer conn.Close()
 		buf := newTdsBuffer(defaultPacketSize, conn)
-		goodPreloginSequence(t, buf)
+
+		// Inline the prelogin/login handshake instead of calling
+		// goodPreloginSequence, which uses t.Fatal (unsafe from a goroutine).
+		packetType, err := buf.BeginRead()
+		if err != nil {
+			serverErr <- fmt.Errorf("read PRELOGIN request: %w", err)
+			return
+		}
+		if packetType != packPrelogin {
+			serverErr <- fmt.Errorf("expected PRELOGIN packet, got %d", packetType)
+			return
+		}
+		fields := map[uint8][]byte{
+			preloginENCRYPTION: {encryptNotSup},
+		}
+		if err := writePrelogin(packReply, buf, fields); err != nil {
+			serverErr <- fmt.Errorf("write PRELOGIN response: %w", err)
+			return
+		}
+		packetType, err = buf.BeginRead()
+		if err != nil {
+			serverErr <- fmt.Errorf("read LOGIN request: %w", err)
+			return
+		}
+		if packetType != packLogin7 {
+			serverErr <- fmt.Errorf("expected LOGIN packet, got %d", packetType)
+			return
+		}
+
 		serverErr <- sendLoginResponse(buf)
 	}()
 
