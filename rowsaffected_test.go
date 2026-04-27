@@ -70,6 +70,18 @@ func TestRowsAffectedWithTrigger(t *testing.T) {
 		t.Errorf("trigger without NOCOUNT: expected RowsAffected=1, got %d", rowsAffected)
 	}
 
+	// Scenario 2b: Bulk update all rows with no-NOCOUNT trigger active.
+	// With the old += bug, the trigger's DONEINPROC (3 rows) plus the
+	// outer DONE (3 rows) would yield 6 instead of 3.
+	result, err = conn.ExecContext(ctx, "update "+tbl+" set value = 'bulk'")
+	if err != nil {
+		t.Fatal("bulk update without NOCOUNT failed:", err)
+	}
+	rowsAffected, _ = result.RowsAffected()
+	if rowsAffected != 3 {
+		t.Errorf("bulk update without NOCOUNT: expected RowsAffected=3, got %d", rowsAffected)
+	}
+
 	// Scenario 3: Recreate trigger with NOCOUNT
 	conn.ExecContext(ctx, "drop trigger "+trg)
 	_, err = conn.ExecContext(ctx, "create trigger "+trg+" on "+tbl+" after update as begin set nocount on; insert into "+audit+" (action) select 'updated' from inserted end")
