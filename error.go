@@ -3,6 +3,7 @@ package mssql
 import (
 	"database/sql/driver"
 	"fmt"
+	"strings"
 )
 
 // Error represents an SQL Server error. This
@@ -24,7 +25,14 @@ type Error struct {
 }
 
 func (e Error) Error() string {
-	return "mssql: " + e.Message
+	var msg strings.Builder
+	for i, err := range e.All {
+		if i > 0 {
+			msg.WriteByte('\n')
+		}
+		msg.WriteString(fmt.Sprintf("mssql: %s (%d)", err.Message, err.Number))
+	}
+	return msg.String()
 }
 
 func (e Error) String() string {
