@@ -1238,7 +1238,11 @@ func (t *tokenProcessor) iterateResponse() error {
 					t.lastRow = token
 				case doneInProcStruct:
 					if token.Status&doneCount != 0 {
-						t.rowCount += int64(token.RowCount)
+						// Assignment (not +=) mirrors the doneStruct logic.
+						// For RPC/sp_executesql with triggers, both trigger
+						// and outer statement counts arrive as DONEINPROC;
+						// assignment ensures the last one wins (#204).
+						t.rowCount = int64(token.RowCount)
 					}
 				case doneStruct:
 					if token.Status&doneCount != 0 {

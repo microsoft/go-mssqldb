@@ -513,3 +513,28 @@ func TestRowCountMultiStatement(t *testing.T) {
 	assert.Equal(t, int64(2), tp.rowCount,
 		"rowCount should be 2 (last statement), not 5 (sum)")
 }
+
+// TestRowCountDoneInProcOnlyRPCPath verifies that the RPC/sp_executesql path
+// (DONEINPROC-only) does not double-count when triggers fire. In this path,
+// both trigger and outer statement counts arrive as DONEINPROC tokens, so
+// assignment (=) must be used instead of accumulation (+=).
+func TestRowCountDoneInProcOnlyRPCPath(t *testing.T) {
+	tokChan := make(chan tokenStruct, 10)
+	tp := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     context.Background(),
+		sess:    &tdsSession{},
+	}
+
+	// Simulate RPC with trigger: trigger's INSERT (1 row), outer UPDATE
+	// (1 row), then DONEPROC without doneCount (common for sp_executesql).
+	tokChan <- doneInProcStruct{Status: doneCount, RowCount: 1} // trigger
+	tokChan <- doneInProcStruct{Status: doneCount, RowCount: 1} // outer stmt
+	tokChan <- doneStruct{Status: doneFinal}                     // DONEPROC, no count
+	close(tokChan)
+
+	err := tp.iterateResponse()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), tp.rowCount,
+		"rowCount should be 1 (last DONEINPROC), not 2 (accumulated)")
+}
