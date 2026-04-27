@@ -170,7 +170,7 @@ func TestRoutingRedirectToDeadServer(t *testing.T) {
 			t.Errorf("write envPayloadLen failed: %v", err)
 			return
 		}
-		if err := buf.WriteByte(20); err != nil { // envRouting
+		if err := buf.WriteByte(envRouting); err != nil {
 			t.Errorf("write envRouting failed: %v", err)
 			return
 		}
