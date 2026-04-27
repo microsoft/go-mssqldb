@@ -103,8 +103,8 @@ func TestPreloginTimeout(t *testing.T) {
 
 // pastDeadlineContext simulates a context whose deadline has passed but whose
 // Err() method has not yet returned non-nil.  This transient state can occur
-// in real programs due to goroutine scheduling between the time.Until and
-// ctx.Err calls inside preloginTimeout.
+// in real programs due to goroutine scheduling between the ctx.Err() check
+// and the subsequent time.Until(deadline) call inside preloginTimeout.
 type pastDeadlineContext struct {
 	context.Context
 	dl time.Time
