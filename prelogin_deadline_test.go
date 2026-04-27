@@ -1,0 +1,659 @@
+package mssql
+
+import (
+	"context"
+	"database/sql"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"net"
+	"testing"
+	"time"
+)
+
+func TestPreloginTimeout(t *testing.T) {
+	t.Run("no deadline keeps connection timeout", func(t *testing.T) {
+		got, err := preloginTimeout(context.Background(), 30*time.Second)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != 30*time.Second {
+			t.Fatalf("timeout=%v, want %v", got, 30*time.Second)
+		}
+	})
+
+	t.Run("sooner deadline wins", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		defer cancel()
+
+		got, err := preloginTimeout(ctx, 30*time.Second)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got <= 0 || got > 250*time.Millisecond {
+			t.Fatalf("timeout=%v, want a positive value no greater than %v", got, 250*time.Millisecond)
+		}
+	})
+
+	t.Run("shorter connection timeout stays in effect", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		got, err := preloginTimeout(ctx, 250*time.Millisecond)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != 250*time.Millisecond {
+			t.Fatalf("timeout=%v, want %v", got, 250*time.Millisecond)
+		}
+	})
+
+	t.Run("zero connection timeout uses context deadline", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		defer cancel()
+
+		got, err := preloginTimeout(ctx, 0)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got <= 0 || got > 250*time.Millisecond {
+			t.Fatalf("timeout=%v, want a positive value no greater than %v", got, 250*time.Millisecond)
+		}
+	})
+
+	t.Run("expired deadline returns context error", func(t *testing.T) {
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+		defer cancel()
+
+		_, err := preloginTimeout(ctx, 30*time.Second)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if err != context.DeadlineExceeded {
+			t.Fatalf("error=%v, want %v", err, context.DeadlineExceeded)
+		}
+	})
+
+	t.Run("canceled context without deadline returns context error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := preloginTimeout(ctx, 30*time.Second)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if err != context.Canceled {
+			t.Fatalf("error=%v, want %v", err, context.Canceled)
+		}
+	})
+
+	t.Run("deadline passed but Err not yet propagated", func(t *testing.T) {
+		// Simulates the race where ctx.Err() returns nil but
+		// time.Until(deadline) is already <= 0.
+		ctx := pastDeadlineContext{
+			Context: context.Background(),
+			dl:      time.Now().Add(-time.Second),
+		}
+		_, err := preloginTimeout(ctx, 30*time.Second)
+		if err != context.DeadlineExceeded {
+			t.Fatalf("error=%v, want %v", err, context.DeadlineExceeded)
+		}
+	})
+}
+
+// pastDeadlineContext simulates a context whose deadline has passed but whose
+// Err() method has not yet returned non-nil.  This transient state can occur
+// in real programs due to goroutine scheduling between the ctx.Err() check
+// and the subsequent time.Until(deadline) call inside preloginTimeout.
+type pastDeadlineContext struct {
+	context.Context
+	dl time.Time
+}
+
+func (c pastDeadlineContext) Deadline() (time.Time, bool) { return c.dl, true }
+func (c pastDeadlineContext) Err() error                  { return nil }
+func (c pastDeadlineContext) Done() <-chan struct{}       { return nil }
+
+// TestPreloginRespectsContextDeadline verifies that readPrelogin honors the
+// context deadline rather than hanging for the full ConnTimeout when the
+// server never responds.
+func TestPreloginRespectsContextDeadline(t *testing.T) {
+	// Start a TCP listener that accepts connections but never sends data,
+	// simulating a server that hangs during prelogin.
+	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatal("Cannot start listener:", err)
+	}
+	defer listener.Close()
+	resolved := listener.Addr().(*net.TCPAddr)
+
+	done := make(chan struct{})
+	defer close(done)
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			// Read the prelogin request but never respond.
+			buf := make([]byte, 4096)
+			_, _ = conn.Read(buf)
+			// Hold connection open until the test finishes.
+			<-done
+			conn.Close()
+		}
+	}()
+
+	// Use a long ConnTimeout (30s) so if the context deadline is NOT
+	// respected, the test will hang noticeably.
+	dsn := fmt.Sprintf("sqlserver://sa:unused@%s:%d?connection+timeout=30&dial+timeout=2&protocol=tcp&encrypt=disable",
+		resolved.IP.String(), resolved.Port)
+
+	db, err := sql.Open("sqlserver", dsn)
+	if err != nil {
+		t.Fatal("sql.Open failed:", err)
+	}
+	defer db.Close()
+
+	// Context with a short deadline — this is the one that should win.
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	type connResult struct {
+		conn    *sql.Conn
+		err     error
+		elapsed time.Duration
+	}
+	resultCh := make(chan connResult, 1)
+	start := time.Now()
+	go func() {
+		conn, err := db.Conn(ctx)
+		resultCh <- connResult{conn: conn, err: err, elapsed: time.Since(start)}
+	}()
+
+	var result connResult
+	select {
+	case result = <-resultCh:
+	case <-time.After(10 * time.Second):
+		t.Fatal("db.Conn(ctx) did not return before hard timeout; possible prelogin deadline regression")
+	}
+
+	if result.err == nil {
+		result.conn.Close()
+		t.Fatal("Expected connection to fail, but it succeeded")
+	}
+
+	// The connection should fail well before the full ConnTimeout (30s).
+	// We use a generous 5s bound to avoid flakes on slow CI; the real
+	// expectation is ~500ms from the context deadline.
+	if result.elapsed > 5*time.Second {
+		t.Errorf("Connection took %v, expected it to respect the 500ms context deadline", result.elapsed)
+	}
+
+	if !errors.Is(result.err, context.DeadlineExceeded) {
+		// The socket timeout from preloginTimeout and the context deadline
+		// can race. Both prove the deadline was respected; the elapsed
+		// check above is the primary assertion.
+		if ne := (net.Error)(nil); !errors.As(result.err, &ne) || !ne.Timeout() {
+			t.Errorf("expected context.DeadlineExceeded or net timeout, got: %v", result.err)
+		}
+	}
+}
+
+// TestPreloginRespectsContextCancel verifies that readPrelogin unblocks
+// when the context is canceled even without a deadline set.
+func TestPreloginRespectsContextCancel(t *testing.T) {
+	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatal("Cannot start listener:", err)
+	}
+	defer listener.Close()
+	resolved := listener.Addr().(*net.TCPAddr)
+
+	done := make(chan struct{})
+	defer close(done)
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			buf := make([]byte, 4096)
+			_, _ = conn.Read(buf)
+			<-done
+			conn.Close()
+		}
+	}()
+
+	// connTimeout=30 and no context deadline: without the cancel watcher,
+	// this would block for the full 30s.
+	dsn := fmt.Sprintf("sqlserver://sa:unused@%s:%d?connection+timeout=30&dial+timeout=2&protocol=tcp&encrypt=disable",
+		resolved.IP.String(), resolved.Port)
+
+	db, err := sql.Open("sqlserver", dsn)
+	if err != nil {
+		t.Fatal("sql.Open failed:", err)
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Cancel after 500ms to simulate a caller-driven cancellation.
+	timer := time.AfterFunc(500*time.Millisecond, cancel)
+	defer timer.Stop()
+
+	type connResult struct {
+		conn    *sql.Conn
+		err     error
+		elapsed time.Duration
+	}
+	resultCh := make(chan connResult, 1)
+	start := time.Now()
+	go func() {
+		conn, err := db.Conn(ctx)
+		resultCh <- connResult{conn: conn, err: err, elapsed: time.Since(start)}
+	}()
+
+	var result connResult
+	select {
+	case result = <-resultCh:
+	case <-time.After(10 * time.Second):
+		t.Fatal("db.Conn(ctx) did not return before hard timeout; possible prelogin cancellation regression")
+	}
+
+	if result.err == nil {
+		result.conn.Close()
+		t.Fatal("Expected connection to fail, but it succeeded")
+	}
+
+	if result.elapsed > 5*time.Second {
+		t.Errorf("Connection took %v, expected it to respect context cancellation within ~500ms", result.elapsed)
+	}
+
+	if !errors.Is(result.err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got: %v", result.err)
+	}
+}
+
+// TestPreloginSocketTimeoutBeforeContextExpiry verifies that when the
+// connection timeout fires before the context deadline, readPrelogin
+// returns a socket timeout error (not a context error).
+func TestPreloginSocketTimeoutBeforeContextExpiry(t *testing.T) {
+	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatal("Cannot start listener:", err)
+	}
+	defer listener.Close()
+	resolved := listener.Addr().(*net.TCPAddr)
+
+	done := make(chan struct{})
+	defer close(done)
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			// Read prelogin but never respond.
+			buf := make([]byte, 4096)
+			_, _ = conn.Read(buf)
+			<-done
+			conn.Close()
+		}
+	}()
+
+	// Short connection timeout (1s) with a long context (30s).
+	// The socket timeout from preloginTimeout should fire, NOT the context.
+	dsn := fmt.Sprintf("sqlserver://sa:unused@%s:%d?connection+timeout=1&dial+timeout=2&protocol=tcp&encrypt=disable",
+		resolved.IP.String(), resolved.Port)
+
+	db, err := sql.Open("sqlserver", dsn)
+	if err != nil {
+		t.Fatal("sql.Open failed:", err)
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	type connResult struct {
+		conn    *sql.Conn
+		err     error
+		elapsed time.Duration
+	}
+	resultCh := make(chan connResult, 1)
+	start := time.Now()
+	go func() {
+		conn, err := db.Conn(ctx)
+		resultCh <- connResult{conn: conn, err: err, elapsed: time.Since(start)}
+	}()
+
+	var result connResult
+	select {
+	case result = <-resultCh:
+	case <-time.After(10 * time.Second):
+		t.Fatal("db.Conn(ctx) did not return; possible prelogin timeout regression")
+	}
+
+	if result.err == nil {
+		result.conn.Close()
+		t.Fatal("Expected connection to fail")
+	}
+
+	// Should fail from socket timeout (~1s), not context (30s).
+	if result.elapsed > 5*time.Second {
+		t.Errorf("Connection took %v; expected ~1s from socket timeout", result.elapsed)
+	}
+
+	// The error should be a net timeout, not context.DeadlineExceeded.
+	if errors.Is(result.err, context.DeadlineExceeded) {
+		t.Errorf("Got context.DeadlineExceeded but expected socket timeout error")
+	}
+	var ne net.Error
+	if !errors.As(result.err, &ne) || !ne.Timeout() {
+		t.Errorf("expected net.Error with Timeout()=true, got: %v", result.err)
+	}
+}
+
+// TestRoutingRedirectClosesFirstConnection verifies that when a server
+// sends a routing redirect, the original connection is properly closed
+// before the next connection attempt. The mock server keeps its end open
+// and detects the client-side close by waiting for an EOF on Read.
+func TestRoutingRedirectClosesFirstConnection(t *testing.T) {
+	firstConnClosed := make(chan struct{})
+
+	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatal("Cannot start listener:", err)
+	}
+	defer listener.Close()
+	resolved := listener.Addr().(*net.TCPAddr)
+
+	go func() {
+		defer close(firstConnClosed)
+		conn, err := listener.Accept()
+		if err != nil {
+			t.Errorf("listener.Accept failed: %v", err)
+			return
+		}
+		// Keep the server side open so we can detect the client close.
+		defer conn.Close()
+
+		buf := newTdsBuffer(defaultPacketSize, conn)
+
+		// Inline prelogin/login handshake (cannot use goodPreloginSequence
+		// because t.Fatal from a goroutine is unsupported by testing).
+		packetType, err := buf.BeginRead()
+		if err != nil {
+			t.Errorf("Failed to read PRELOGIN request: %v", err)
+			return
+		}
+		if packetType != packPrelogin {
+			t.Errorf("Client sent non PRELOGIN request packet type %d", packetType)
+			return
+		}
+		preloginFields := map[uint8][]byte{
+			preloginENCRYPTION: {encryptNotSup},
+		}
+		if err := writePrelogin(packReply, buf, preloginFields); err != nil {
+			t.Errorf("Writing PRELOGIN response failed: %v", err)
+			return
+		}
+		packetType, err = buf.BeginRead()
+		if err != nil {
+			t.Errorf("Failed to read LOGIN request: %v", err)
+			return
+		}
+		if packetType != packLogin7 {
+			t.Errorf("Client sent non LOGIN request packet type %d", packetType)
+			return
+		}
+
+		// Send a login response containing an ENVCHANGE routing token
+		// that redirects to 127.0.0.1:1 (a port nothing listens on).
+		buf.BeginPacket(packReply, false)
+
+		routingServer := "127.0.0.1"
+		serverUTF16Len := len(routingServer) * 2
+		valueLength := 1 + 2 + 2 + serverUTF16Len
+		envPayloadLen := 1 + 2 + valueLength + 2
+
+		buf.WriteByte(byte(tokenEnvChange))
+		binary.Write(buf, binary.LittleEndian, uint16(envPayloadLen))
+		buf.WriteByte(20) // envRouting
+		binary.Write(buf, binary.LittleEndian, uint16(valueLength))
+		buf.WriteByte(0)                                  // TCP
+		binary.Write(buf, binary.LittleEndian, uint16(1)) // port 1
+		binary.Write(buf, binary.LittleEndian, uint16(len(routingServer)))
+		for _, ch := range routingServer {
+			binary.Write(buf, binary.LittleEndian, uint16(ch))
+		}
+		binary.Write(buf, binary.LittleEndian, uint16(0)) // old value
+
+		// loginAck token so the login-response loop exits and
+		// processes the routing ENVCHANGE.
+		buf.WriteByte(byte(tokenLoginAck))
+		binary.Write(buf, binary.LittleEndian, uint16(10))      // payload size
+		buf.WriteByte(1)                                        // Interface = SQL_TSQL
+		binary.Write(buf, binary.BigEndian, uint32(0x74000004)) // TDSVersion
+		buf.WriteByte(0)                                        // ProgNameLen = 0
+		binary.Write(buf, binary.BigEndian, uint32(0))          // ProgVer
+
+		buf.WriteByte(byte(tokenDone))
+		binary.Write(buf, binary.LittleEndian, uint16(0)) // status
+		binary.Write(buf, binary.LittleEndian, uint16(0)) // curCmd
+		binary.Write(buf, binary.LittleEndian, uint64(0)) // rowCount
+
+		if err := buf.FinishPacket(); err != nil {
+			t.Errorf("Writing routing response failed: %v", err)
+			return
+		}
+
+		// Wait for the client to close its end of the first connection.
+		// After processing the routing redirect, connect() calls
+		// toconn.Close() and sets toconn = nil before dialing the new host.
+		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+		_, err = conn.Read(make([]byte, 1))
+		if err == nil {
+			t.Error("expected server-side read to fail after client closed first connection")
+		} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			t.Error("server-side read timed out; client did not close the first connection")
+		}
+	}()
+
+	tl := testLogger{t: t}
+	defer tl.StopLogging()
+	SetLogger(&tl)
+
+	dsn := fmt.Sprintf("sqlserver://sa:unused@%s:%d?protocol=tcp&encrypt=disable&connection+timeout=5&dial+timeout=2",
+		resolved.IP.String(), resolved.Port)
+	db, err := sql.Open("sqlserver", dsn)
+	if err != nil {
+		t.Fatal("sql.Open failed:", err)
+	}
+	defer db.Close()
+
+	pingCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = db.PingContext(pingCtx)
+	if err == nil {
+		t.Fatal("Expected Ping to fail after routing redirect to dead server")
+	}
+
+	// Wait for the server goroutine to confirm the client closed the first connection.
+	select {
+	case <-firstConnClosed:
+	case <-time.After(15 * time.Second):
+		t.Fatal("server goroutine did not detect client close of first connection")
+	}
+
+	t.Logf("Routing redirect correctly failed: %v", err)
+}
+
+// sendLoginResponse writes a minimal loginAck + done response to the TDS
+// buffer, completing the server side of a successful login handshake.
+func sendLoginResponse(buf *tdsBuffer) error {
+	buf.BeginPacket(packReply, false)
+	// loginAck token
+	buf.WriteByte(byte(tokenLoginAck))
+	binary.Write(buf, binary.LittleEndian, uint16(10))
+	buf.WriteByte(1)                                        // Interface = SQL_TSQL
+	binary.Write(buf, binary.BigEndian, uint32(0x74000004)) // TDSVersion
+	buf.WriteByte(0)                                        // ProgNameLen = 0
+	binary.Write(buf, binary.BigEndian, uint32(0))          // ProgVer
+	// done token
+	buf.WriteByte(byte(tokenDone))
+	binary.Write(buf, binary.LittleEndian, uint16(0)) // status
+	binary.Write(buf, binary.LittleEndian, uint16(0)) // curCmd
+	binary.Write(buf, binary.LittleEndian, uint64(0)) // rowCount
+	return buf.FinishPacket()
+}
+
+// TestConnectSuccessfulPreloginAndLogin exercises the full success path of
+// connect() through a mock server that handles prelogin and login without
+// requiring a real SQL Server instance. This covers the deferred-close
+// cleanup path (toconn = nil on success).
+func TestConnectSuccessfulPreloginAndLogin(t *testing.T) {
+	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatal("Cannot start listener:", err)
+	}
+	defer listener.Close()
+	resolved := listener.Addr().(*net.TCPAddr)
+
+	serverErr := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		defer conn.Close()
+		buf := newTdsBuffer(defaultPacketSize, conn)
+
+		// Inline the prelogin/login handshake instead of calling
+		// goodPreloginSequence, which uses t.Fatal (unsafe from a goroutine).
+		packetType, err := buf.BeginRead()
+		if err != nil {
+			serverErr <- fmt.Errorf("read PRELOGIN request: %w", err)
+			return
+		}
+		if packetType != packPrelogin {
+			serverErr <- fmt.Errorf("expected PRELOGIN packet, got %d", packetType)
+			return
+		}
+		fields := map[uint8][]byte{
+			preloginENCRYPTION: {encryptNotSup},
+		}
+		if err := writePrelogin(packReply, buf, fields); err != nil {
+			serverErr <- fmt.Errorf("write PRELOGIN response: %w", err)
+			return
+		}
+		packetType, err = buf.BeginRead()
+		if err != nil {
+			serverErr <- fmt.Errorf("read LOGIN request: %w", err)
+			return
+		}
+		if packetType != packLogin7 {
+			serverErr <- fmt.Errorf("expected LOGIN packet, got %d", packetType)
+			return
+		}
+
+		serverErr <- sendLoginResponse(buf)
+	}()
+
+	dsn := fmt.Sprintf("sqlserver://sa:unused@%s:%d?protocol=tcp&encrypt=disable&connection+timeout=5&dial+timeout=2",
+		resolved.IP.String(), resolved.Port)
+	db, err := sql.Open("sqlserver", dsn)
+	if err != nil {
+		t.Fatal("sql.Open failed:", err)
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("Expected successful connection, got: %v", err)
+	}
+	conn.Close()
+
+	if sErr := <-serverErr; sErr != nil {
+		t.Errorf("Mock server error: %v", sErr)
+	}
+}
+
+// TestPreloginDeadlineAndSocketTimeoutRace exercises the path where the
+// connection timeout and context deadline fire at nearly the same instant.
+// Using identical values for both maximizes the chance of exercising the
+// net.Error-to-DeadlineExceeded conversion path in connect().
+func TestPreloginDeadlineAndSocketTimeoutRace(t *testing.T) {
+	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatal("Cannot start listener:", err)
+	}
+	defer listener.Close()
+	resolved := listener.Addr().(*net.TCPAddr)
+
+	done := make(chan struct{})
+	defer close(done)
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			buf := make([]byte, 4096)
+			_, _ = conn.Read(buf)
+			<-done
+			conn.Close()
+		}
+	}()
+
+	// Use the same value for both timeouts so the socket timeout and context
+	// deadline fire at approximately the same instant.
+	const timeout = 300 * time.Millisecond
+	dsn := fmt.Sprintf("sqlserver://sa:unused@%s:%d?connection+timeout=0&dial+timeout=2&protocol=tcp&encrypt=disable",
+		resolved.IP.String(), resolved.Port)
+
+	db, err := sql.Open("sqlserver", dsn)
+	if err != nil {
+		t.Fatal("sql.Open failed:", err)
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	start := time.Now()
+	_, err = db.Conn(ctx)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("Expected connection to fail")
+	}
+	if elapsed > 5*time.Second {
+		t.Errorf("Connection took %v, expected ~%v", elapsed, timeout)
+	}
+
+	// Either error is acceptable; both prove the timeout was respected.
+	if !errors.Is(err, context.DeadlineExceeded) {
+		var ne net.Error
+		if !errors.As(err, &ne) || !ne.Timeout() {
+			t.Errorf("expected DeadlineExceeded or net timeout, got: %v", err)
+		}
+	}
+}

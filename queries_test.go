@@ -2268,6 +2268,40 @@ func getLatency(t *testing.T) time.Duration {
 	return time.Since(now)
 }
 
+// isAcceptableTimeoutErr reports whether err is one of the expected outcomes
+// after a context deadline fires during query execution.
+//
+// After the context deadline, the driver sends ATTENTION to cancel.
+// Depending on timing, OS, and SQL Server version the surfaced error
+// can be any of:
+//   - context.DeadlineExceeded
+//   - a net.Error with Timeout() (i/o timeout on read/write)
+//   - SQL Server error 3980 ("batch aborted") when the server
+//     acknowledges ATTENTION before the client sees the timeout
+//   - the driver's explicit cancel-confirmation failure when ATTENTION
+//     was sent but the server never completed the cancellation handshake
+func isAcceptableTimeoutErr(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if ne := (net.Error)(nil); errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	if sqlErr := (Error{}); errors.As(err, &sqlErr) &&
+		(sqlErr.Number == 3980 || sqlErr.Message == "did not get cancellation confirmation from the server") {
+		return true
+	}
+	// StreamError wraps low-level errors without implementing Unwrap, so
+	// errors.As/errors.Is won't see through it. Check the inner error
+	// directly for a net timeout.
+	if se := (StreamError{}); errors.As(err, &se) {
+		if ne := (net.Error)(nil); errors.As(se.InnerError, &ne) && ne.Timeout() {
+			return true
+		}
+	}
+	return false
+}
+
 func TestQueryTimeout(t *testing.T) {
 	conn, logger := open(t)
 	defer conn.Close()
@@ -2277,8 +2311,11 @@ func TestQueryTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), latency+2000*time.Millisecond)
 	defer cancel()
 	_, err := conn.ExecContext(ctx, "waitfor delay '00:00:20'")
-	if err != context.DeadlineExceeded {
-		t.Errorf("ExecContext expected to fail with DeadlineExceeded but it returned %v", err)
+	if err == nil {
+		t.Fatal("ExecContext expected to fail but succeeded")
+	}
+	if !isAcceptableTimeoutErr(err) {
+		t.Fatalf("wrong kind of error for query timeout: %T: %v", err, err)
 	}
 
 	// connection should be usable after timeout
@@ -2302,14 +2339,13 @@ func TestLoginTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), latency+200*time.Millisecond)
 	defer cancel()
 	_, err := conn.ExecContext(ctx, "waitfor delay '00:00:03'")
-	t.Logf("Got error type %v: %s ", reflect.TypeOf(err), err.Error())
-	if oe, ok := err.(*net.OpError); ok {
-		if !oe.Timeout() {
-			t.Fatalf("Got non-timeout error %s", oe.Error())
-		}
-		// The type of error is not guaranteed so just look for "timeout"
-	} else if err != context.DeadlineExceeded && !strings.Contains(err.Error(), "timeout") {
-		t.Fatalf("wrong kind of error for login or query timeout: %+v", err)
+	if err == nil {
+		t.Fatal("ExecContext expected to fail but succeeded")
+	}
+	// With very low latency, the login completes before the deadline and
+	// this degenerates into a query-timeout scenario.
+	if !isAcceptableTimeoutErr(err) {
+		t.Fatalf("wrong kind of error for login or query timeout: %T: %v", err, err)
 	}
 
 	// connection should be usable after timeout
