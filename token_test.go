@@ -520,10 +520,16 @@ func TestStartResponseReaderSerializes(t *testing.T) {
 	// <-sess.readDone until the first reader finishes.
 	var secondStarted atomic.Int32
 	ch2 := make(chan tokenStruct, 10)
+	goroutineStarted := make(chan struct{})
 	go func() {
+		close(goroutineStarted)
 		sess.startResponseReader(context.Background(), ch2, outputs{})
 		secondStarted.Store(1)
 	}()
+
+	// Wait for the goroutine to be scheduled and reach startResponseReader.
+	<-goroutineStarted
+	time.Sleep(100 * time.Millisecond)
 
 	// The second goroutine cannot proceed while the first reader is blocked,
 	// so secondStarted must still be 0.
