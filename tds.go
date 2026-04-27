@@ -1116,7 +1116,7 @@ func wrapTLSError(err error) error {
 	msg := err.Error()
 	msgLower := strings.ToLower(msg)
 	switch {
-	case strings.Contains(msg, "negative serial number"):
+	case strings.Contains(msgLower, "negative serial number"):
 		return fmt.Errorf("TLS Handshake failed: %w. "+
 			"The server certificate has a negative serial number, "+
 			"which Go 1.23+ rejects per RFC 5280. "+
