@@ -59,6 +59,8 @@ func TestConnectClosesOnError(t *testing.T) {
 		_, err = conn.Read(make([]byte, 1))
 		if err == nil {
 			t.Error("expected server-side read to fail after client close")
+		} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			t.Error("server-side read timed out; client did not close the connection")
 		}
 	}()
 
@@ -216,6 +218,8 @@ func TestRoutingRedirectToDeadServer(t *testing.T) {
 		_, err = conn.Read(make([]byte, 1))
 		if err == nil {
 			t.Error("expected server-side read to fail after client closed first connection")
+		} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			t.Error("server-side read timed out; client did not close the first connection")
 		}
 	}()
 

@@ -1393,7 +1393,7 @@ initiate_connection:
 
 	if sess.routedServer != "" {
 		toconn.Close()
-		toconn = nil // prevent defer from double-closing on subsequent error
+		toconn = nil // prevent deferred Close if dialConnection fails after goto
 		// Need to handle case when routedServer is in "host\instance" format.
 		routedParts := strings.SplitN(sess.routedServer, "\\", 2)
 		p.Host = routedParts[0]
