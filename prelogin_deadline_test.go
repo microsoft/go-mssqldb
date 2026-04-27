@@ -412,25 +412,28 @@ func TestRoutingRedirectClosesFirstConnection(t *testing.T) {
 		}
 		binary.Write(buf, binary.LittleEndian, uint16(0)) // old value
 
+		// loginAck token so the login-response loop exits and
+		// processes the routing ENVCHANGE.
+		buf.WriteByte(byte(tokenLoginAck))
+		binary.Write(buf, binary.LittleEndian, uint16(10)) // payload size
+		buf.WriteByte(1)                                    // Interface = SQL_TSQL
+		binary.Write(buf, binary.BigEndian, uint32(0x74000004)) // TDSVersion
+		buf.WriteByte(0)                                    // ProgNameLen = 0
+		binary.Write(buf, binary.BigEndian, uint32(0))      // ProgVer
+
 		buf.WriteByte(byte(tokenDone))
 		binary.Write(buf, binary.LittleEndian, uint16(0)) // status
 		binary.Write(buf, binary.LittleEndian, uint16(0)) // curCmd
 		binary.Write(buf, binary.LittleEndian, uint64(0)) // rowCount
 
 		if err := buf.FinishPacket(); err != nil {
-			t.Log("Writing routing response failed:", err)
+			t.Errorf("Writing routing response failed: %v", err)
 			return
 		}
 
-		// Drain any remaining client data.
-		for {
-			_ = conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-			if _, err := conn.Read(make([]byte, 4096)); err != nil {
-				break
-			}
-		}
-
 		// Wait for the client to close its end of the first connection.
+		// After processing the routing redirect, connect() calls
+		// toconn.Close() and sets toconn = nil before dialing the new host.
 		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 		_, err = conn.Read(make([]byte, 1))
 		if err == nil {
@@ -452,7 +455,10 @@ func TestRoutingRedirectClosesFirstConnection(t *testing.T) {
 	}
 	defer db.Close()
 
-	err = db.Ping()
+	pingCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = db.PingContext(pingCtx)
 	if err == nil {
 		t.Fatal("Expected Ping to fail after routing redirect to dead server")
 	}
