@@ -355,6 +355,7 @@ func TestRoutingRedirectClosesFirstConnection(t *testing.T) {
 		defer close(firstConnClosed)
 		conn, err := listener.Accept()
 		if err != nil {
+			t.Errorf("listener.Accept failed: %v", err)
 			return
 		}
 		// Keep the server side open so we can detect the client close.
@@ -362,8 +363,33 @@ func TestRoutingRedirectClosesFirstConnection(t *testing.T) {
 
 		buf := newTdsBuffer(defaultPacketSize, conn)
 
-		// Complete prelogin handshake.
-		goodPreloginSequence(t, buf)
+		// Inline prelogin/login handshake (cannot use goodPreloginSequence
+		// because t.Fatal from a goroutine is unsupported by testing).
+		packetType, err := buf.BeginRead()
+		if err != nil {
+			t.Errorf("Failed to read PRELOGIN request: %v", err)
+			return
+		}
+		if packetType != packPrelogin {
+			t.Errorf("Client sent non PRELOGIN request packet type %d", packetType)
+			return
+		}
+		preloginFields := map[uint8][]byte{
+			preloginENCRYPTION: {encryptNotSup},
+		}
+		if err := writePrelogin(packReply, buf, preloginFields); err != nil {
+			t.Errorf("Writing PRELOGIN response failed: %v", err)
+			return
+		}
+		packetType, err = buf.BeginRead()
+		if err != nil {
+			t.Errorf("Failed to read LOGIN request: %v", err)
+			return
+		}
+		if packetType != packLogin7 {
+			t.Errorf("Client sent non LOGIN request packet type %d", packetType)
+			return
+		}
 
 		// Send a login response containing an ENVCHANGE routing token
 		// that redirects to 127.0.0.1:1 (a port nothing listens on).
