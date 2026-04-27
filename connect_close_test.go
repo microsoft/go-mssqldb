@@ -296,10 +296,10 @@ func TestRoutingRedirectToDeadServer(t *testing.T) {
 	t.Logf("Routing redirect correctly failed: %v", err)
 }
 
-// TestRoutingRedirectClonesTLSConfig verifies that the routing redirect code
-// path exercises TLSConfig.Clone() when TLSConfig is non-nil. Using
-// encrypt=false (EncryptionOff) produces a non-nil TLSConfig without
-// requiring a real TLS handshake. The test asserts that the first connection
+// TestRoutingRedirectClonesTLSConfig exercises the routing redirect code path
+// when TLSConfig is non-nil, which triggers TLSConfig.Clone() internally.
+// Using encrypt=false (EncryptionOff) produces a non-nil TLSConfig without
+// requiring a real TLS handshake. The test confirms that the first connection
 // is closed after receiving the redirect and that Ping fails when the
 // redirected host is unreachable.
 func TestRoutingRedirectClonesTLSConfig(t *testing.T) {
