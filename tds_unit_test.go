@@ -1,9 +1,13 @@
 package mssql
 
 import (
+	"database/sql"
 	"encoding/binary"
 	"fmt"
+	"net"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/microsoft/go-mssqldb/msdsn"
 	"github.com/stretchr/testify/assert"
@@ -418,5 +422,100 @@ func TestWrapTLSError(t *testing.T) {
 			// Original error should be unwrappable
 			assert.ErrorIs(t, result, tt.err)
 		})
+	}
+}
+
+func TestGetTLSConnHandshakeError(t *testing.T) {
+	t.Parallel()
+
+	// Start a TCP server that immediately closes — TLS handshake will fail.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		conn.Close()
+	}()
+
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tc := newTimeoutConn(conn, 5*time.Second)
+	p := msdsn.Config{Host: "127.0.0.1"}
+
+	_, err = getTLSConn(tc, p, "")
+	if err == nil {
+		t.Fatal("expected TLS handshake error")
+	}
+	if !strings.Contains(err.Error(), "TLS Handshake failed") {
+		t.Fatalf("expected wrapped TLS error, got: %v", err)
+	}
+}
+
+func TestConnectNonStrictTLSHandshakeError(t *testing.T) {
+	t.Parallel()
+
+	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	resolved := listener.Addr().(*net.TCPAddr)
+
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		buf := newTdsBuffer(defaultPacketSize, conn)
+
+		// Read client prelogin
+		if _, err := buf.BeginRead(); err != nil {
+			return
+		}
+
+		// Respond with encryptOn to trigger non-strict TLS
+		fields := map[uint8][]byte{
+			preloginENCRYPTION: {encryptOn},
+		}
+		if err := writePrelogin(packReply, buf, fields); err != nil {
+			return
+		}
+
+		// Client will attempt TLS handshake inside TDS.
+		// Read the ClientHello then close to cause handshake failure.
+		_, _ = conn.Read(make([]byte, 4096))
+	}()
+
+	tl := testLogger{t: t}
+	defer tl.StopLogging()
+	SetLogger(&tl)
+
+	dsn := fmt.Sprintf(
+		"sqlserver://sa:unused@%s:%d?protocol=tcp&encrypt=true&TrustServerCertificate=true&connection+timeout=5&dial+timeout=2",
+		resolved.IP.String(), resolved.Port)
+	db, err := sql.Open("sqlserver", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	err = db.Ping()
+	if err == nil {
+		t.Fatal("Expected TLS handshake to fail")
+	}
+	if !strings.Contains(err.Error(), "TLS Handshake failed") {
+		t.Fatalf("expected wrapTLSError output, got: %v", err)
 	}
 }
