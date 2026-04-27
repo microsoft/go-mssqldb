@@ -66,6 +66,7 @@ const (
 	typeXml        = 0xf1
 	typeUdt        = 0xf0
 	typeTvp        = 0xf3
+	typeJson       = 0xf4
 
 	// long length types
 	typeText    = 0x23
@@ -245,6 +246,12 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodeParam
 				return
 			}
 		}
+	case typeJson:
+		// JSON TYPE_INFO has no USHORTMAXLEN field. Unlike nvarchar/varchar, and
+		// unlike XML as handled above in this driver, JSON does not write a 2-byte
+		// max-length prefix here. The type byte (0xF4) is followed directly by
+		// PLP data with no size indicator. Confirmed by SqlClient for JSON.
+		ti.Writer = writePLPType
 	case typeText, typeImage, typeNText, typeVariant:
 		// LONGLEN_TYPE
 		if err = binary.Write(w, binary.LittleEndian, uint32(ti.Size)); err != nil {
@@ -772,6 +779,10 @@ func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.E
 		return bytesToDecode
 	case typeNVarChar, typeNChar, typeNText:
 		return decodeNChar(bytesToDecode)
+	case typeJson:
+		// Server→client: SQL Server sends JSON result set data as UTF-16LE,
+		// consistent with XML and nvarchar. See encoding note on makeJsonParam.
+		return decodeUcs2(bytesToDecode)
 	case typeUdt:
 		return decodeUdt(*ti, bytesToDecode)
 	}
@@ -860,6 +871,8 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		ti.UdtInfo.AssemblyQualifiedName = r.UsVarChar()
 
 		ti.Buffer = make([]byte, ti.Size)
+		ti.Reader = readPLPType
+	case typeJson:
 		ti.Reader = readPLPType
 	case typeBigVarBin, typeBigVarChar, typeBigBinary, typeBigChar,
 		typeNVarChar, typeNChar:
@@ -1213,6 +1226,8 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 		return reflect.TypeOf((*interface{})(nil)).Elem()
 	case typeUdt:
 		return reflect.TypeOf([]byte{})
+	case typeJson:
+		return reflect.TypeOf("")
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangScanType for type %d", ti.TypeId))
 	}
@@ -1333,6 +1348,8 @@ func makeDecl(ti typeInfo) string {
 		return ti.UdtInfo.TypeName
 	case typeImage:
 		return "image"
+	case typeJson:
+		return "json"
 	case typeGuid:
 		return "uniqueidentifier"
 	case typeTvp:
@@ -1449,6 +1466,8 @@ func makeGoLangTypeName(ti typeInfo) string {
 		return "BINARY"
 	case typeUdt:
 		return strings.ToUpper(ti.UdtInfo.TypeName)
+	case typeJson:
+		return "JSON"
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypeName for type %d", ti.TypeId))
 	}
@@ -1573,6 +1592,10 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 		return 0, false
 	case typeBigBinary:
 		return int64(ti.Size), true
+	case typeJson:
+		// JSON stores UTF-8 text and should report the same maximum
+		// length metadata as other varchar(max)-style types.
+		return 2147483645, true
 	case typeUdt:
 		switch ti.UdtInfo.TypeName {
 		case "hierarchyid":
@@ -1699,6 +1722,8 @@ func makeGoLangTypePrecisionScale(ti typeInfo) (int64, int64, bool) {
 	case typeBigBinary:
 		return 0, 0, false
 	case typeUdt:
+		return 0, 0, false
+	case typeJson:
 		return 0, 0, false
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypePrecisionScale for type %d", ti.TypeId))

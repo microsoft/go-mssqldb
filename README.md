@@ -593,7 +593,7 @@ Constrain the provider to an allowed list of key vaults by appending vault host 
 
 ## Features
 
-* Can be used with SQL Server 2005 or newer
+* Can be used with all supported versions of Microsoft SQL Server
 * Can be used with Microsoft Azure SQL Database
 * Can be used on all go supported platforms (e.g. Linux, Mac OS X and Windows)
 * Supports new date/time types: date, time, datetime2, datetimeoffset
