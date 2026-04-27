@@ -296,10 +296,12 @@ func TestRoutingRedirectToDeadServer(t *testing.T) {
 	t.Logf("Routing redirect correctly failed: %v", err)
 }
 
-// TestRoutingRedirectClonesTLSConfig verifies that when a routing redirect
-// occurs with TLSConfig present (encrypt=false gives EncryptionOff with a
-// non-nil TLSConfig), the TLSConfig is cloned and the ServerName is updated
-// to the routed host before re-dialing.
+// TestRoutingRedirectClonesTLSConfig verifies that the routing redirect code
+// path exercises TLSConfig.Clone() when TLSConfig is non-nil. Using
+// encrypt=false (EncryptionOff) produces a non-nil TLSConfig without
+// requiring a real TLS handshake. The test asserts that the first connection
+// is closed after receiving the redirect and that Ping fails when the
+// redirected host is unreachable.
 func TestRoutingRedirectClonesTLSConfig(t *testing.T) {
 	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
 	listener, err := net.ListenTCP("tcp", addr)
@@ -359,11 +361,22 @@ func TestEncryptStrictClosesOnTLSError(t *testing.T) {
 		defer conn.Close()
 
 		// Read the TLS ClientHello that the client sends for encrypt=strict.
+		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 		buf := make([]byte, 1024)
-		conn.Read(buf)
+		if _, err := conn.Read(buf); err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				t.Error("server-side initial read timed out waiting for TLS ClientHello")
+			} else {
+				t.Errorf("server-side initial read failed: %v", err)
+			}
+			return
+		}
 
 		// Send non-TLS data to cause the TLS handshake to fail immediately.
-		conn.Write([]byte("NOT TLS"))
+		if _, err := conn.Write([]byte("NOT TLS")); err != nil {
+			t.Errorf("server-side write failed: %v", err)
+			return
+		}
 
 		// Wait for the client to close its end. The TLS client may send
 		// a TLS alert record before connect() returns and the defer closes
