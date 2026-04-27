@@ -472,7 +472,7 @@ func TestNextToken_CancelDrainClosedChannelStartsSecondResponse(t *testing.T) {
 
 // blockingTransport blocks Read until unblock is closed, then returns EOF.
 // It signals readEntered when a Read call begins, allowing deterministic
-// synchronization without time.Sleep.
+// synchronization of the start of Read.
 type blockingTransport struct {
 	unblock     chan struct{}
 	readEntered chan struct{}
