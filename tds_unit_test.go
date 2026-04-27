@@ -398,6 +398,16 @@ func TestWrapTLSError(t *testing.T) {
 			},
 		},
 		{
+			name: "Go 1.25 handshake EOF",
+			err:  fmt.Errorf("cannot read handshake packet: EOF"),
+			wantContains: []string{
+				"TLS Handshake failed",
+				"SHA-1",
+				"tlssha1=1",
+				"GODEBUG",
+			},
+		},
+		{
 			name: "unknown TLS error",
 			err:  fmt.Errorf("tls: some other error"),
 			wantContains: []string{
@@ -447,6 +457,7 @@ func TestGetTLSConnHandshakeError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer conn.Close()
 
 	tc := newTimeoutConn(conn, 5*time.Second)
 	p := msdsn.Config{Host: "127.0.0.1"}
@@ -497,10 +508,6 @@ func TestConnectNonStrictTLSHandshakeError(t *testing.T) {
 		// Read the ClientHello then close to cause handshake failure.
 		_, _ = conn.Read(make([]byte, 4096))
 	}()
-
-	tl := testLogger{t: t}
-	defer tl.StopLogging()
-	SetLogger(&tl)
 
 	dsn := fmt.Sprintf(
 		"sqlserver://sa:unused@%s:%d?protocol=tcp&encrypt=true&TrustServerCertificate=true&connection+timeout=5&dial+timeout=2",
