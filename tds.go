@@ -1110,6 +1110,39 @@ func prepareLogin(ctx context.Context, c *Connector, p msdsn.Config, logger Cont
 	return l, nil
 }
 
+// wrapTLSError wraps a TLS handshake error with actionable guidance when the
+// failure matches known Go crypto/tls policy changes.
+func wrapTLSError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	msgLower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(msgLower, "negative serial number"):
+		return fmt.Errorf("TLS Handshake failed: %w. "+
+			"The server certificate has a negative serial number, "+
+			"which Go 1.23+ rejects per RFC 5280. "+
+			"Add x509negativeserial=1 to your GODEBUG environment variable to allow it, "+
+			"or use encrypt=disable for non-production servers", err)
+	case strings.Contains(msgLower, "sha-1") || strings.Contains(msgLower, "sha1"):
+		return fmt.Errorf("TLS Handshake failed: %w. "+
+			"The server uses SHA-1 signatures, which Go 1.25+ "+
+			"disallows per RFC 9155. "+
+			"Add tlssha1=1 to your GODEBUG environment variable to allow it, "+
+			"update the server certificate to SHA-256+, "+
+			"or use encrypt=disable for non-production servers", err)
+	case strings.Contains(msgLower, "cannot read handshake") && strings.Contains(msgLower, "eof"):
+		return fmt.Errorf("TLS Handshake failed: %w. "+
+			"The server may be rejecting the connection due to SHA-1 signatures "+
+			"(Go 1.25+ disallows them per RFC 9155) or another TLS incompatibility. "+
+			"Add tlssha1=1 to your GODEBUG environment variable if the server uses SHA-1, "+
+			"or use encrypt=disable for non-production servers", err)
+	default:
+		return fmt.Errorf("TLS Handshake failed: %w", err)
+	}
+}
+
 func getTLSConn(conn *timeoutConn, p msdsn.Config, alpnSeq string) (tlsConn *tls.Conn, err error) {
 	var config *tls.Config
 	if pc := p.TLSConfig; pc != nil {
@@ -1126,7 +1159,7 @@ func getTLSConn(conn *timeoutConn, p msdsn.Config, alpnSeq string) (tlsConn *tls
 	tlsConn = tls.Client(conn.c, config)
 	err = tlsConn.Handshake()
 	if err != nil {
-		return nil, fmt.Errorf("TLS Handshake failed: %w", err)
+		return nil, wrapTLSError(err)
 	}
 	return tlsConn, nil
 }
@@ -1249,7 +1282,7 @@ initiate_connection:
 			tlsConn := tls.Client(&passthrough, config)
 			err = tlsConn.Handshake()
 			if err != nil {
-				return nil, fmt.Errorf("TLS Handshake failed: %v", err)
+				return nil, wrapTLSError(err)
 			}
 			// Flush any pending packet from the handshake
 			// The driver's Finished message is still in the buffer
