@@ -124,6 +124,15 @@ func TestRoutingRedirectToDeadServer(t *testing.T) {
 		// OldValue = 0x0000
 		binary.Write(buf, binary.LittleEndian, uint16(0))
 
+		// Write a minimal loginAck token so the login-response loop
+		// exits and the routing-redirect code path is reached.
+		buf.WriteByte(byte(tokenLoginAck))
+		binary.Write(buf, binary.LittleEndian, uint16(10)) // payload size
+		buf.WriteByte(1)                                    // Interface = SQL_TSQL
+		binary.Write(buf, binary.BigEndian, uint32(0x74000004)) // TDSVersion 7.4
+		buf.WriteByte(0)                                    // ProgNameLen = 0
+		binary.Write(buf, binary.BigEndian, uint32(0))      // ProgVer
+
 		// Write DONE token (0xFD) with status=0, curCmd=0, rowCount=0.
 		buf.WriteByte(byte(tokenDone))
 		binary.Write(buf, binary.LittleEndian, uint16(0)) // status
