@@ -1281,10 +1281,14 @@ initiate_connection:
 	// can fire at nearly the same instant. If the read timed out and
 	// the context deadline has since passed (even though ctx.Err() had
 	// not yet propagated above), return the context error instead of
-	// a raw "i/o timeout".
+	// a raw "i/o timeout". Only override when the error is actually a
+	// timeout to avoid masking unrelated failures (EOF, connection reset).
 	if err != nil {
-		if dl, ok := ctx.Deadline(); ok && !time.Now().Before(dl) {
-			return nil, context.DeadlineExceeded
+		var ne net.Error
+		if errors.As(err, &ne) && ne.Timeout() {
+			if dl, ok := ctx.Deadline(); ok && !time.Now().Before(dl) {
+				return nil, context.DeadlineExceeded
+			}
 		}
 		return nil, err
 	}
