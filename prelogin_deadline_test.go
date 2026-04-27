@@ -427,7 +427,7 @@ func TestRoutingRedirectClosesFirstConnection(t *testing.T) {
 		binary.Write(buf, binary.LittleEndian, uint16(envPayloadLen))
 		buf.WriteByte(20) // envRouting
 		binary.Write(buf, binary.LittleEndian, uint16(valueLength))
-		buf.WriteByte(0) // TCP
+		buf.WriteByte(0)                                  // TCP
 		binary.Write(buf, binary.LittleEndian, uint16(1)) // port 1
 		binary.Write(buf, binary.LittleEndian, uint16(len(routingServer)))
 		for _, ch := range routingServer {
