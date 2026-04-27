@@ -462,7 +462,7 @@ func TestGetTLSConnHandshakeError(t *testing.T) {
 	tc := newTimeoutConn(conn, 5*time.Second)
 	p := msdsn.Config{Host: "127.0.0.1"}
 
-	_, err = getTLSConn(tc, p, "")
+	_, err = getTLSConn(tc, p, "tds/8.0")
 	if err == nil {
 		t.Fatal("expected TLS handshake error")
 	}
