@@ -1129,7 +1129,7 @@ func wrapTLSError(err error) error {
 			"Add tlssha1=1 to your GODEBUG environment variable to allow it, "+
 			"update the server certificate to SHA-256+, "+
 			"or use encrypt=disable for non-production servers", err)
-	case strings.Contains(msgLower, "cannot read handshake") || strings.Contains(msgLower, "handshake packet: eof"):
+	case strings.Contains(msgLower, "cannot read handshake") && strings.Contains(msgLower, "eof"):
 		return fmt.Errorf("TLS Handshake failed: %w. "+
 			"The server may be rejecting the connection due to SHA-1 signatures "+
 			"(Go 1.25+ disallows them per RFC 9155) or another TLS incompatibility. "+

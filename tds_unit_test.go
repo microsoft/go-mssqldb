@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -357,10 +358,11 @@ func TestWrapTLSError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		err          error
-		wantNil      bool
-		wantContains []string
+		name            string
+		err             error
+		wantNil         bool
+		wantContains    []string
+		wantNotContains []string
 	}{
 		{
 			name:    "nil error",
@@ -408,6 +410,15 @@ func TestWrapTLSError(t *testing.T) {
 			},
 		},
 		{
+			name: "handshake error without EOF falls to default",
+			err:  fmt.Errorf("cannot read handshake packet: timeout"),
+			wantContains: []string{
+				"TLS Handshake failed",
+				"timeout",
+			},
+			wantNotContains: []string{"GODEBUG", "tlssha1"},
+		},
+		{
 			name: "unknown TLS error",
 			err:  fmt.Errorf("tls: some other error"),
 			wantContains: []string{
@@ -428,6 +439,9 @@ func TestWrapTLSError(t *testing.T) {
 			msg := result.Error()
 			for _, s := range tt.wantContains {
 				assert.Contains(t, msg, s)
+			}
+			for _, s := range tt.wantNotContains {
+				assert.NotContains(t, msg, s)
 			}
 			// Original error should be unwrappable
 			assert.ErrorIs(t, result, tt.err)
@@ -459,7 +473,7 @@ func TestGetTLSConnHandshakeError(t *testing.T) {
 	}
 	defer conn.Close()
 
-	tc := newTimeoutConn(conn, 5*time.Second)
+	tc := newTimeoutConn(conn, time.Second)
 	p := msdsn.Config{Host: "127.0.0.1"}
 
 	_, err = getTLSConn(tc, p, "tds/8.0")
@@ -488,6 +502,7 @@ func TestConnectNonStrictTLSHandshakeError(t *testing.T) {
 			return
 		}
 		defer conn.Close()
+		conn.SetDeadline(time.Now().Add(3 * time.Second))
 
 		buf := newTdsBuffer(defaultPacketSize, conn)
 
@@ -509,9 +524,18 @@ func TestConnectNonStrictTLSHandshakeError(t *testing.T) {
 		_, _ = conn.Read(make([]byte, 4096))
 	}()
 
-	dsn := fmt.Sprintf(
-		"sqlserver://sa:unused@%s:%d?protocol=tcp&encrypt=true&TrustServerCertificate=true&connection+timeout=5&dial+timeout=2",
-		resolved.IP.String(), resolved.Port)
+	q := url.Values{}
+	q.Set("protocol", "tcp")
+	q.Set("encrypt", "true")
+	q.Set("TrustServerCertificate", "true")
+	q.Set("connection timeout", "3")
+	q.Set("dial timeout", "2")
+	dsn := (&url.URL{
+		Scheme:   "sqlserver",
+		User:     url.UserPassword("sa", "unused"),
+		Host:     fmt.Sprintf("%s:%d", resolved.IP.String(), resolved.Port),
+		RawQuery: q.Encode(),
+	}).String()
 	db, err := sql.Open("sqlserver", dsn)
 	if err != nil {
 		t.Fatal(err)
