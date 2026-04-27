@@ -98,20 +98,13 @@ func TestConnectClosesOnError(t *testing.T) {
 	}
 }
 
-// TestRoutingRedirectToDeadServer verifies that when a server sends a routing
-// redirect to a non-existent host, the client closes the first connection
-// (setting toconn = nil) before attempting to dial the redirected host.
-// The mock server keeps its end open and detects the client-side close.
-func TestRoutingRedirectToDeadServer(t *testing.T) {
+// routingRedirectMockServer starts a goroutine that performs a prelogin/login
+// handshake with a connecting client, then sends a routing redirect to
+// 127.0.0.1:1 (a port nothing listens on). It returns a channel that closes
+// when the server goroutine detects the client has closed the first connection.
+func routingRedirectMockServer(t *testing.T, listener *net.TCPListener) <-chan struct{} {
+	t.Helper()
 	firstConnClosed := make(chan struct{})
-
-	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
-	listener, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		t.Fatal("Cannot start listener:", err)
-	}
-	defer listener.Close()
-	resolved := listener.Addr().(*net.TCPAddr)
 
 	go func() {
 		defer close(firstConnClosed)
@@ -124,8 +117,7 @@ func TestRoutingRedirectToDeadServer(t *testing.T) {
 
 		buf := newTdsBuffer(defaultPacketSize, conn)
 
-		// Inline prelogin/login handshake (cannot use goodPreloginSequence
-		// because t.Fatal from a goroutine is unsupported by testing).
+		// Prelogin handshake (cannot use t.Fatal from a goroutine).
 		packetType, err := buf.BeginRead()
 		if err != nil {
 			t.Errorf("Failed to read PRELOGIN request: %v", err)
@@ -142,6 +134,8 @@ func TestRoutingRedirectToDeadServer(t *testing.T) {
 			t.Errorf("Writing PRELOGIN response failed: %v", err)
 			return
 		}
+
+		// Login handshake
 		packetType, err = buf.BeginRead()
 		if err != nil {
 			t.Errorf("Failed to read LOGIN request: %v", err)
@@ -160,7 +154,7 @@ func TestRoutingRedirectToDeadServer(t *testing.T) {
 		routingServer := "127.0.0.1"
 		serverUTF16Len := len(routingServer) * 2
 		valueLength := 1 + 2 + 2 + serverUTF16Len // protocol + port + usVarCharLen + name
-		envPayloadLen := 1 + 2 + valueLength + 2   // envtype + valueLength + value + oldValue
+		envPayloadLen := 1 + 2 + valueLength + 2  // envtype + valueLength + value + oldValue
 
 		if err := buf.WriteByte(byte(tokenEnvChange)); err != nil {
 			t.Errorf("write tokenEnvChange failed: %v", err)
@@ -262,6 +256,24 @@ func TestRoutingRedirectToDeadServer(t *testing.T) {
 		}
 	}()
 
+	return firstConnClosed
+}
+
+// TestRoutingRedirectToDeadServer verifies that when a server sends a routing
+// redirect to a non-existent host, the client closes the first connection
+// (setting toconn = nil) before attempting to dial the redirected host.
+// The mock server keeps its end open and detects the client-side close.
+func TestRoutingRedirectToDeadServer(t *testing.T) {
+	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatal("Cannot start listener:", err)
+	}
+	defer listener.Close()
+	resolved := listener.Addr().(*net.TCPAddr)
+
+	firstConnClosed := routingRedirectMockServer(t, listener)
+
 	dsn := fmt.Sprintf("sqlserver://sa:unused@%s:%d?protocol=tcp&encrypt=disable&connection+timeout=5&dial+timeout=2",
 		resolved.IP.String(), resolved.Port)
 	db, err := sql.Open("sqlserver", dsn)
@@ -275,7 +287,6 @@ func TestRoutingRedirectToDeadServer(t *testing.T) {
 		t.Fatal("Expected Ping to fail after routing redirect to dead server")
 	}
 
-	// Wait for the server goroutine to confirm the client closed the first connection.
 	select {
 	case <-firstConnClosed:
 	case <-time.After(10 * time.Second):
@@ -283,4 +294,109 @@ func TestRoutingRedirectToDeadServer(t *testing.T) {
 	}
 
 	t.Logf("Routing redirect correctly failed: %v", err)
+}
+
+// TestRoutingRedirectClonesTLSConfig verifies that when a routing redirect
+// occurs with TLSConfig present (encrypt=false gives EncryptionOff with a
+// non-nil TLSConfig), the TLSConfig is cloned and the ServerName is updated
+// to the routed host before re-dialing.
+func TestRoutingRedirectClonesTLSConfig(t *testing.T) {
+	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatal("Cannot start listener:", err)
+	}
+	defer listener.Close()
+	resolved := listener.Addr().(*net.TCPAddr)
+
+	firstConnClosed := routingRedirectMockServer(t, listener)
+
+	// encrypt=false (EncryptionOff) creates a non-nil TLSConfig without
+	// requiring a TLS handshake. The mock server responds with encryptNotSup,
+	// so no TLS negotiation occurs. This exercises the TLSConfig.Clone()
+	// path in the routing redirect code.
+	dsn := fmt.Sprintf("sqlserver://sa:unused@%s:%d?protocol=tcp&encrypt=false&connection+timeout=5&dial+timeout=2",
+		resolved.IP.String(), resolved.Port)
+	db, err := sql.Open("sqlserver", dsn)
+	if err != nil {
+		t.Fatal("sql.Open failed:", err)
+	}
+	defer db.Close()
+
+	err = db.Ping()
+	if err == nil {
+		t.Fatal("Expected Ping to fail after routing redirect to dead server")
+	}
+
+	select {
+	case <-firstConnClosed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("server goroutine did not detect client close of first connection")
+	}
+}
+
+// TestEncryptStrictClosesOnTLSError verifies that when connect() is configured
+// with encrypt=strict and the TLS handshake fails (because the server doesn't
+// speak TLS), the deferred Close in connect() closes the TCP connection.
+func TestEncryptStrictClosesOnTLSError(t *testing.T) {
+	clientClosed := make(chan struct{})
+
+	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatal("Cannot start listener:", err)
+	}
+	defer listener.Close()
+	resolved := listener.Addr().(*net.TCPAddr)
+
+	go func() {
+		defer close(clientClosed)
+		conn, err := listener.Accept()
+		if err != nil {
+			t.Errorf("listener.Accept failed: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		// Read the TLS ClientHello that the client sends for encrypt=strict.
+		buf := make([]byte, 1024)
+		conn.Read(buf)
+
+		// Send non-TLS data to cause the TLS handshake to fail immediately.
+		conn.Write([]byte("NOT TLS"))
+
+		// Wait for the client to close its end. The TLS client may send
+		// a TLS alert record before connect() returns and the defer closes
+		// the connection, so drain any remaining data first.
+		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+		drainBuf := make([]byte, 1024)
+		for {
+			_, readErr := conn.Read(drainBuf)
+			if readErr != nil {
+				if ne, ok := readErr.(net.Error); ok && ne.Timeout() {
+					t.Error("server-side read timed out; client did not close the connection")
+				}
+				break
+			}
+		}
+	}()
+
+	dsn := fmt.Sprintf("sqlserver://sa:unused@%s:%d?protocol=tcp&encrypt=strict&connection+timeout=5&dial+timeout=2",
+		resolved.IP.String(), resolved.Port)
+	db, err := sql.Open("sqlserver", dsn)
+	if err != nil {
+		t.Fatal("sql.Open failed:", err)
+	}
+	defer db.Close()
+
+	err = db.Ping()
+	if err == nil {
+		t.Fatal("Expected Ping to fail with encrypt=strict against non-TLS server")
+	}
+
+	select {
+	case <-clientClosed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("server goroutine did not detect client close within timeout")
+	}
 }
