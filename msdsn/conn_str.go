@@ -759,8 +759,9 @@ func (p Config) URL() *url.URL {
 	return &res
 }
 
-// ADO connection string keywords at https://github.com/dotnet/SqlClient/blob/main/src/Microsoft.Data.SqlClient/src/Microsoft/Data/Common/DbConnectionStringCommon.cs
+// ADO connection string keywords at https://learn.microsoft.com/en-us/dotnet/api/microsoft.data.sqlclient.sqlconnection.connectionstring
 var adoSynonyms = map[string]string{
+	"app":                       AppName,
 	"application name":          AppName,
 	"data source":               Server,
 	"address":                   Server,
@@ -770,6 +771,17 @@ var adoSynonyms = map[string]string{
 	"uid":                       UserID,
 	"pwd":                       Password,
 	"initial catalog":           Database,
+	"connect timeout":           ConnectionTimeout,
+	"timeout":                   ConnectionTimeout,
+	"failover partner":          FailoverPartner,
+	"failover partner spn":      FailoverPartnerSpn,
+	"application intent":        ApplicationIntent,
+	"trust server certificate":  TrustServerCertificate,
+	"multi subnet failover":     MultiSubnetFailover,
+	"host name in certificate":  HostNameInCertificate,
+	"server spn":                ServerSpn,
+	"server certificate":        ServerCertificate,
+	"wsid":                      WorkstationID,
 	"column encryption setting": "columnencryption",
 }
 
