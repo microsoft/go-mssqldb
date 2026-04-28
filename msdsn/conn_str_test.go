@@ -202,13 +202,13 @@ func TestValidConnectionString(t *testing.T) {
 		{"Failover Partner=mirror", func(p Config) bool { return p.FailOverPartner == "mirror" }},
 		{"Failover Partner SPN=MSSQLSvc/mirror:1433", func(p Config) bool { return p.FailOverPartnerSPN == "MSSQLSvc/mirror:1433" }},
 		{"Application Intent=ReadOnly;database=mydb", func(p Config) bool { return p.ReadOnlyIntent }},
-		{"Trust Server Certificate=false;encrypt=true", func(p Config) bool { return !p.TrustServerCertificate }},
+		{"Trust Server Certificate=true;encrypt=true", func(p Config) bool { return p.TrustServerCertificate }},
 		{"Multi Subnet Failover=false", func(p Config) bool { return !p.MultiSubnetFailover }},
 		{"Host Name In Certificate=myhost", func(p Config) bool { return p.HostInCertificateProvided }},
 		{"Server SPN=MSSQLSvc/myhost:1433", func(p Config) bool { return p.ServerSPN == "MSSQLSvc/myhost:1433" }},
 		{"WSID=myworkstation", func(p Config) bool { return p.Workstation == "myworkstation" }},
 		{"Column Encryption Setting=true", func(p Config) bool { return p.ColumnEncryption }},
-		// Verify synonym + canonical key both work in same connection string
+		// Verify synonym keys work together in the same connection string
 		{"Data Source=somehost;Initial Catalog=mydb;Connect Timeout=30", func(p Config) bool {
 			return p.Host == "somehost" && p.Database == "mydb" && p.ConnTimeout == 30*time.Second
 		}},

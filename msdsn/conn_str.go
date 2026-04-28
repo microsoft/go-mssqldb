@@ -759,7 +759,8 @@ func (p Config) URL() *url.URL {
 	return &res
 }
 
-// ADO connection string keywords at https://learn.microsoft.com/en-us/dotnet/api/microsoft.data.sqlclient.sqlconnection.connectionstring
+// adoSynonyms maps ADO.Net alternate keyword forms to this driver's canonical keys.
+// See https://learn.microsoft.com/en-us/dotnet/api/microsoft.data.sqlclient.sqlconnection.connectionstring
 var adoSynonyms = map[string]string{
 	"app":                       AppName,
 	"application name":          AppName,

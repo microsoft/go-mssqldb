@@ -191,11 +191,23 @@ For further information on usage:
     * `server=localhost;user id=sa;database=master;app name=MyAppName;krb5-configfile=path/to/file;krb5-realm=domain.com;krb5-keytabfile=path/to/keytabfile;authenticator=krb5`
 
 
-    ADO strings support synonyms for database, app name, user id, and server
+    ADO strings support synonyms for common connection parameters:
     * server <= addr, address, network address, data source
     * user id <= user, uid
+    * password <= pwd
     * database <= initial catalog
-    * app name <= application name
+    * app name <= application name, app
+    * connection timeout <= connect timeout, timeout
+    * failoverpartner <= failover partner
+    * failoverpartnerspn <= failover partner spn
+    * applicationintent <= application intent
+    * trustservercertificate <= trust server certificate
+    * multisubnetfailover <= multi subnet failover
+    * hostnameincertificate <= host name in certificate
+    * serverspn <= server spn
+    * servercertificate <= server certificate
+    * workstation id <= wsid
+    * columnencryption <= column encryption setting
 
 3. ODBC: Prefix with `odbc`, `key=value` pairs separated by `;`. Allow `;` by wrapping
     values in `{}`. Examples:
