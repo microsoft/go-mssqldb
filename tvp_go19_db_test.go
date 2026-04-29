@@ -15,6 +15,304 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+func TestTVPGoSQLTypesWithStandardTypeNullsOnly(t *testing.T) {
+	checkConnStr(t)
+	tl := testLogger{t: t}
+	defer tl.StopLogging()
+	SetLogger(&tl)
+
+	c := makeConnStr(t).String()
+	db, err := sql.Open("sqlserver", c)
+	if err != nil {
+		t.Fatalf("failed to open driver sqlserver")
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sqltextcreatetable := `
+		CREATE TYPE tvpGoSQLTypesWithStandardType AS TABLE (
+			p_bit               BIT,
+			p_bitNull           BIT,	
+			s_bit               BIT,
+			s_bitNull           BIT,	
+			p_float64           FLOAT,
+			p_floatNull64       FLOAT,
+			s_float64           FLOAT,
+			s_floatNull64       FLOAT,
+			p_bigint            BIGINT,
+			p_bigintNull        BIGINT,
+			s_bigint            BIGINT,
+			s_bigintNull        BIGINT,
+			p_nvarchar 			NVARCHAR(100),
+			p_nvarcharNull 		NVARCHAR(100),
+			s_nvarchar 			NVARCHAR(100),
+			s_nvarcharNull 		NVARCHAR(100),
+			p_decimal           DECIMAL(18, 4),
+			p_decimalNull       DECIMAL(18, 4),
+			s_decimal           DECIMAL(18, 4),
+			s_decimalNull       DECIMAL(18, 4),
+			p_money             MONEY,
+			p_moneyNull         MONEY,
+			s_money             MONEY,
+			s_moneyNull         MONEY,
+			p_date              DATE,
+			p_dateNull          DATE,
+			s_date              DATE,
+			s_dateNull          DATE,
+			p_datetime          DATETIME,
+			p_datetimeNull      DATETIME,
+			s_datetime          DATETIME,
+			s_datetimeNull      DATETIME,
+			p_datetime2         DATETIME2,
+			p_datetime2Null     DATETIME2,
+			s_datetime2         DATETIME2,
+			s_datetime2Null     DATETIME2,
+			p_datetimeoffset    DATETIMEOFFSET,
+			p_datetimeoffsetNull DATETIMEOFFSET,
+			s_datetimeoffset    DATETIMEOFFSET,
+			s_datetimeoffsetNull DATETIMEOFFSET,
+			p_time              TIME,
+			p_timeNull          TIME,
+			s_time              TIME,
+			s_timeNull          TIME
+		); `
+
+	sqltextdroptable := `DROP TYPE tvpGoSQLTypesWithStandardType;`
+
+	sqltextcreatesp := `
+	CREATE PROCEDURE spwithtvpGoSQLTypesWithStandardType
+		@param1 tvpGoSQLTypesWithStandardType READONLY,
+		@param2 tvpGoSQLTypesWithStandardType READONLY,
+		@param3 NVARCHAR(10)
+	AS   
+	BEGIN
+		SET NOCOUNT ON; 
+		SELECT * FROM @param1;
+		SELECT * FROM @param2;
+		SELECT @param3;
+	END;`
+
+	type TvpGoSQLTypes struct {
+		PBool               sql.NullBool
+		PBoolNull           sql.NullBool
+		SBool               bool
+		SBoolNull           *bool
+		PFloat64            sql.NullFloat64
+		PFloat64Null        sql.NullFloat64
+		SFloat64            float64
+		SFloat64Null        *float64
+		PInt64              sql.NullInt64
+		PInt64Null          sql.NullInt64
+		SInt64              int64
+		SInt64Null          *int64
+		PString             sql.NullString
+		PStringNull         sql.NullString
+		SString             string
+		SStringNull         *string
+		PDecimal            decimal.NullDecimal
+		PDecimalNull        decimal.NullDecimal
+		SDecimal            decimal.Decimal
+		SDecimalNull        *decimal.Decimal
+		PMoney              Money[decimal.NullDecimal]
+		PMoneyNull          Money[decimal.NullDecimal]
+		SMoney              Money[decimal.Decimal]
+		SMoneyNull          *Money[decimal.Decimal]
+		PDate               Date
+		PDateNull           NullDate
+		SDate               Date
+		SDateNull           *Date
+		PDateTime           DateTime
+		PDateTimeNull       NullDateTime
+		SDateTime           DateTime
+		SDateTimeNull       *DateTime
+		PDateTime2          DateTime2
+		PDateTime2Null      NullDateTime2
+		SDateTime2          DateTime2
+		SDateTime2Null      *DateTime2
+		PDateTimeOffset     DateTimeOffset
+		PDateTimeOffsetNull NullDateTimeOffset
+		SDateTimeOffset     DateTimeOffset
+		SDateTimeOffsetNull *DateTimeOffset
+		PTime               Time
+		PTimeNull           NullTime
+		STime               Time
+		STimeNull           *Time
+	}
+
+	sqltextdropsp := `DROP PROCEDURE spwithtvpGoSQLTypesWithStandardType;`
+
+	_, err = db.ExecContext(ctx, sqltextcreatetable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.ExecContext(ctx, sqltextdroptable)
+
+	_, err = db.ExecContext(ctx, sqltextcreatesp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.ExecContext(ctx, sqltextdropsp)
+
+	param1 := []TvpGoSQLTypes{
+		{
+			PBool:               sql.NullBool{},
+			PBoolNull:           sql.NullBool{},
+			SBool:               true,
+			SBoolNull:           nil,
+			PFloat64:            sql.NullFloat64{},
+			PFloat64Null:        sql.NullFloat64{},
+			SFloat64:            1.1,
+			SFloat64Null:        nil,
+			PInt64:              sql.NullInt64{},
+			PInt64Null:          sql.NullInt64{},
+			SInt64:              1,
+			SInt64Null:          nil,
+			PString:             sql.NullString{},
+			PStringNull:         sql.NullString{},
+			SString:             "any",
+			SStringNull:         nil,
+			PDecimal:            decimal.NullDecimal{},
+			PDecimalNull:        decimal.NullDecimal{},
+			SDecimal:            decimal.New(20012, 2),
+			SDecimalNull:        nil,
+			PMoney:              Money[decimal.NullDecimal]{decimal.NullDecimal{}},
+			PMoneyNull:          Money[decimal.NullDecimal]{decimal.NullDecimal{}},
+			SMoney:              Money[decimal.Decimal]{decimal.New(20012, 2)},
+			SMoneyNull:          nil,
+			PDate:               Date{Year: 1, Month: 1, Day: 1}, // date can't be earlier the Jan 1, 1
+			PDateNull:           NullDate{},
+			SDate:               Date{Year: 2001, Month: 11, Day: 16},
+			SDateNull:           nil,
+			PDateTime:           DateTime{Date: civil.Date{Year: 1753, Month: 1, Day: 1}}, // datetime can't be earlier the Jan 1, 1753
+			PDateTimeNull:       NullDateTime{},
+			SDateTime:           DateTime{Date: civil.Date{Year: 2001, Month: 11, Day: 16}, Time: civil.Time{Hour: 23, Minute: 59, Second: 39}},
+			SDateTimeNull:       nil,
+			PDateTime2:          DateTime2{Date: civil.Date{Year: 1, Month: 1, Day: 1}}, // datetime2 can't be earlier the Jan 1, 1
+			PDateTime2Null:      NullDateTime2{},
+			SDateTime2:          DateTime2{Date: civil.Date{Year: 2001, Month: 11, Day: 16}, Time: civil.Time{Hour: 23, Minute: 59, Second: 39}},
+			SDateTime2Null:      nil,
+			PDateTimeOffset:     DateTimeOffset{},
+			PDateTimeOffsetNull: NullDateTimeOffset{},
+			SDateTimeOffset:     DateTimeOffset(time.Date(2001, 11, 16, 23, 59, 39, 0, time.UTC)),
+			SDateTimeOffsetNull: nil,
+			PTime:               Time{},
+			PTimeNull:           NullTime{},
+			STime:               Time{Hour: 12, Minute: 30, Second: 45},
+			STimeNull:           nil,
+		},
+	}
+
+	tvpType := TVP{
+		TypeName: "tvpGoSQLTypesWithStandardType",
+		Value:    param1,
+	}
+	tvpTypeEmpty := TVP{
+		TypeName: "tvpGoSQLTypesWithStandardType",
+		Value:    []TvpGoSQLTypes{},
+	}
+
+	rows, err := db.QueryContext(ctx,
+		"exec spwithtvpGoSQLTypesWithStandardType @param1, @param2, @param3",
+		sql.Named("param1", tvpType),
+		sql.Named("param2", tvpTypeEmpty),
+		sql.Named("param3", "test"),
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var result1 []TvpGoSQLTypes
+	for rows.Next() {
+		var val TvpGoSQLTypes
+		err := rows.Scan(
+			&val.PBool,
+			&val.PBoolNull,
+			&val.SBool,
+			&val.SBoolNull,
+
+			&val.PFloat64,
+			&val.PFloat64Null,
+			&val.SFloat64,
+			&val.SFloat64Null,
+			&val.PInt64,
+			&val.PInt64Null,
+			&val.SInt64,
+			&val.SInt64Null,
+			&val.PString,
+			&val.PStringNull,
+			&val.SString,
+			&val.SStringNull,
+			&val.PDecimal,
+			&val.PDecimalNull,
+			&val.SDecimal,
+			&val.SDecimalNull,
+			&val.PMoney,
+			&val.PMoneyNull,
+			&val.SMoney,
+			&val.SMoneyNull,
+			&val.PDate,
+			&val.PDateNull,
+			&val.SDate,
+			&val.SDateNull,
+			&val.PDateTime,
+			&val.PDateTimeNull,
+			&val.SDateTime,
+			&val.SDateTimeNull,
+			&val.PDateTime2,
+			&val.PDateTime2Null,
+			&val.SDateTime2,
+			&val.SDateTime2Null,
+			&val.PDateTimeOffset,
+			&val.PDateTimeOffsetNull,
+			&val.SDateTimeOffset,
+			&val.SDateTimeOffsetNull,
+			&val.PTime,
+			&val.PTimeNull,
+			&val.STime,
+			&val.STimeNull,
+		)
+		if err != nil {
+			t.Fatalf("scan failed with error: %s", err)
+		}
+
+		result1 = append(result1, val)
+	}
+
+	if !compare(param1, result1) {
+		t.Logf("expected: %+v", param1)
+		t.Logf("actual: %+v", result1)
+		t.Errorf("first resultset did not match param1")
+	}
+
+	if !rows.NextResultSet() {
+		t.Errorf("second resultset did not exist")
+	}
+
+	if rows.Next() {
+		t.Errorf("second resultset was not empty")
+	}
+
+	if !rows.NextResultSet() {
+		t.Errorf("third resultset did not exist")
+	}
+
+	if !rows.Next() {
+		t.Errorf("third resultset was empty")
+	}
+
+	var result3 string
+	if err := rows.Scan(&result3); err != nil {
+		t.Errorf("error scanning third result set: %s", err)
+	}
+	if result3 != "test" {
+		t.Errorf("third result set had wrong value expected: %s actual: %s", "test", result3)
+	}
+}
+
+
 func TestTVPGoSQLTypesWithStandardType(t *testing.T) {
 	checkConnStr(t)
 	tl := testLogger{t: t}
