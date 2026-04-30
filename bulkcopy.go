@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
@@ -83,18 +84,7 @@ func (b *Bulk) sendBulkCommand(ctx context.Context) (err error) {
 			}
 		}
 		if bulkCol != nil {
-			// Note that for INSERT BULK operations, XMLTYPE is to be sent as NVARCHAR(N) or NVARCHAR(MAX) data type.
-			// An error is produced if XMLTYPE is specified.
-			//
-			// https://learn.microsoft.com/openspecs/windows_protocols/ms-tds/ab4a7d62-cd1f-4db1-b67d-ecae58f493e3
-			if bulkCol.ti.TypeId == typeXml {
-				bulkCol.ti.TypeId = typeNVarChar
-			}
-
-			if bulkCol.ti.TypeId == typeUdt {
-				//send udt as binary
-				bulkCol.ti.TypeId = typeBigVarBin
-			}
+			remapBulkColumnType(&bulkCol.ti)
 			b.bulkColumns = append(b.bulkColumns, *bulkCol)
 			b.dlogf(ctx, "Adding column %s %s %#x", colname, bulkCol.ColName, bulkCol.ti.TypeId)
 		} else {
@@ -349,6 +339,21 @@ func (b *Bulk) getMetadata(ctx context.Context) (err error) {
 	return rows.Close()
 }
 
+// remapBulkColumnType adjusts column types that cannot be sent directly in INSERT BULK.
+// XML and JSON are remapped to NVARCHAR; UDT is remapped to VARBINARY.
+// https://learn.microsoft.com/openspecs/windows_protocols/ms-tds/ab4a7d62-cd1f-4db1-b67d-ecae58f493e3
+func remapBulkColumnType(ti *typeInfo) {
+	switch ti.TypeId {
+	case typeXml:
+		ti.TypeId = typeNVarChar
+	case typeJson:
+		ti.TypeId = typeNVarChar
+		ti.Size = 0 // nvarchar(max)
+	case typeUdt:
+		ti.TypeId = typeBigVarBin
+	}
+}
+
 func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error) {
 	res.ti.Size = col.ti.Size
 	res.ti.TypeId = col.ti.TypeId
@@ -436,6 +441,14 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 		switch val := val.(type) {
 		case string:
 			res.buffer = str2ucs2(val)
+		case JSON:
+			if val != nil {
+				res.buffer = str2ucs2(string(val))
+			}
+		case json.RawMessage:
+			if val != nil {
+				res.buffer = str2ucs2(string(val))
+			}
 		case int64:
 			res.buffer = []byte(strconv.FormatInt(val, 10))
 		case int:
