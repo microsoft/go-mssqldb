@@ -186,6 +186,33 @@ func TestValidConnectionString(t *testing.T) {
 		{"password=\"测试\"\"密码\"\"\"", func(p Config) bool { return p.Password == "测试\"密码\"" }},                                       // Chinese chars with escaped quotes
 		{"password=\"café;naïve;résumé\"", func(p Config) bool { return p.Password == "café;naïve;résumé" }},                         // Accented characters
 
+		// ADO.Net synonym tests
+		{"App=myapp", func(p Config) bool { return p.AppName == "myapp" }},
+		{"Application Name=myapp", func(p Config) bool { return p.AppName == "myapp" }},
+		{"Data Source=somehost", func(p Config) bool { return p.Host == "somehost" }},
+		{"Address=somehost", func(p Config) bool { return p.Host == "somehost" }},
+		{"Network Address=somehost", func(p Config) bool { return p.Host == "somehost" }},
+		{"Addr=somehost", func(p Config) bool { return p.Host == "somehost" }},
+		{"User=someuser", func(p Config) bool { return p.User == "someuser" }},
+		{"UID=someuser", func(p Config) bool { return p.User == "someuser" }},
+		{"PWD=somepass", func(p Config) bool { return p.Password == "somepass" }},
+		{"Initial Catalog=mydb", func(p Config) bool { return p.Database == "mydb" }},
+		{"Connect Timeout=60", func(p Config) bool { return p.ConnTimeout == 60*time.Second }},
+		{"Timeout=45", func(p Config) bool { return p.ConnTimeout == 45*time.Second }},
+		{"Failover Partner=mirror", func(p Config) bool { return p.FailOverPartner == "mirror" }},
+		{"Failover Partner SPN=MSSQLSvc/mirror:1433", func(p Config) bool { return p.FailOverPartnerSPN == "MSSQLSvc/mirror:1433" }},
+		{"Application Intent=ReadOnly;database=mydb", func(p Config) bool { return p.ReadOnlyIntent }},
+		{"Trust Server Certificate=true;encrypt=true", func(p Config) bool { return p.TrustServerCertificate }},
+		{"Multi Subnet Failover=false", func(p Config) bool { return !p.MultiSubnetFailover }},
+		{"Host Name In Certificate=myhost", func(p Config) bool { return p.HostInCertificateProvided }},
+		{"Server SPN=MSSQLSvc/myhost:1433", func(p Config) bool { return p.ServerSPN == "MSSQLSvc/myhost:1433" }},
+		{"WSID=myworkstation", func(p Config) bool { return p.Workstation == "myworkstation" }},
+		{"Column Encryption Setting=true", func(p Config) bool { return p.ColumnEncryption }},
+		// Verify synonym keys work together in the same connection string
+		{"Data Source=somehost;Initial Catalog=mydb;Connect Timeout=30", func(p Config) bool {
+			return p.Host == "somehost" && p.Database == "mydb" && p.ConnTimeout == 30*time.Second
+		}},
+
 		// those are supported currently, but maybe should not be
 		{"someparam", func(p Config) bool { return true }},
 		{";;=;", func(p Config) bool { return true }},
@@ -296,6 +323,16 @@ func TestValidConnectionString(t *testing.T) {
 		t.Logf("Connection string was parsed successfully %s", ts.connStr)
 
 		assert.True(t, ts.check(p), "Check failed on conn str %s", ts.connStr)
+	}
+}
+
+func TestAdoSynonymServerCertificate(t *testing.T) {
+	// Server Certificate can't be tested through Parse() because parseTLS
+	// tries to read the cert file. Verify the synonym mapping at the
+	// splitConnectionString level instead.
+	params := splitConnectionString("Server Certificate=myfile.pem")
+	if v := params[ServerCertificate]; v != "myfile.pem" {
+		t.Fatalf("expected %s=myfile.pem, got %q", ServerCertificate, v)
 	}
 }
 
