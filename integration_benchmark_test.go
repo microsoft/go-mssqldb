@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/golang-sql/sqlexp"
 )
 
 // Integration benchmarks exercise full end-to-end paths through the driver.
@@ -345,5 +347,48 @@ func BenchmarkRoundTrip_PreparedStmt(b *testing.B) {
 		if err := stmt.QueryRowContext(ctx, 1, 2).Scan(&n); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// BenchmarkRoundTrip_MessageQuery exercises the sqlexp message-based query loop,
+// which is a distinct code path from the standard Rows iteration. The query
+// produces a mix of result sets, print messages, and errors so all message
+// types are dispatched.
+func BenchmarkRoundTrip_MessageQuery(b *testing.B) {
+	db := benchmarkDB(b)
+	ctx := context.Background()
+	const query = `select top 5 name from sys.system_columns
+select getdate()
+PRINT N'This is a message'
+select 199
+RAISERROR (N'Testing!' , 11, 1)
+declare @d int = 300
+select @d
+`
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		retmsg := &sqlexp.ReturnMessage{}
+		rows, err := db.QueryContext(ctx, query, retmsg)
+		if err != nil {
+			b.Fatal(err)
+		}
+		active := true
+		for active {
+			switch m := retmsg.Message(ctx).(type) {
+			case sqlexp.MsgNext:
+				for rows.Next() {
+					var d interface{}
+					if err := rows.Scan(&d); err != nil {
+						b.Fatal(err)
+					}
+				}
+			case sqlexp.MsgNextResultSet:
+				active = rows.NextResultSet()
+			case sqlexp.MsgError:
+				_ = m.Error
+			case sqlexp.MsgNotice, sqlexp.MsgRowsAffected:
+			}
+		}
+		rows.Close()
 	}
 }
