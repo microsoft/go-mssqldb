@@ -260,6 +260,9 @@ func TestValidConnectionString(t *testing.T) {
 		{"sqlserver://someuser:@somehost?connection+timeout=30", func(p Config) bool {
 			return p.Host == "somehost" && p.Port == 0 && p.Instance == "" && p.User == "someuser" && p.Password == "" && p.ConnTimeout == 30*time.Second
 		}},
+		{"sqlserver://DOMAIN%5Cuser:pass@somehost?connection+timeout=30", func(p Config) bool {
+			return p.Host == "somehost" && p.Port == 0 && p.Instance == "" && p.User == "DOMAIN\\user" && p.Password == "pass" && p.ConnTimeout == 30*time.Second
+		}},
 		{"sqlserver://someuser:foo%3A%2F%5C%21~%40;bar@somehost?connection+timeout=30", func(p Config) bool {
 			return p.Host == "somehost" && p.Port == 0 && p.Instance == "" && p.User == "someuser" && p.Password == "foo:/\\!~@;bar" && p.ConnTimeout == 30*time.Second
 		}},

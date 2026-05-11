@@ -180,6 +180,8 @@ For further information on usage:
 * `sqlserver://username@host/instance?krb5-configfile=path/to/file&krb5-credcachefile=/path/to/cache`
     * `sqlserver://username@host/instance?krb5-configfile=path/to/file&krb5-realm=domain.com&krb5-keytabfile=/path/to/keytabfile`
 
+  For URL connection strings, percent-encode special characters in the username or password. Windows authentication usernames use `%5C` for the domain separator, for example `sqlserver://DOMAIN%5Cusername:password@host`. In ADO and ODBC connection strings, use the literal `DOMAIN\username` form.
+
 2. ADO: `key=value` pairs separated by `;`. Values can contain `;` and other special characters by enclosing them in double quotes. Leading and trailing whitespace is ignored.
      Examples:
 
