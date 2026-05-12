@@ -1,10 +1,13 @@
 package mssql
 
 import (
+	"encoding/binary"
+	"math"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/microsoft/go-mssqldb/msdsn"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -283,4 +286,28 @@ func handlePanic(t *testing.T) {
 	if r := recover(); r != nil {
 		assert.Fail(t, "recovered panic", "%v", r)
 	}
+}
+
+// TestReadFixedType_Flt4_ReturnsFloat64 verifies that REAL (typeFlt4) values
+// returned by readFixedType are widened to float64, matching the scan type
+// advertised by ColumnTypeScanType and the database/sql contract. Returning
+// float32 here previously caused downstream scan failures for *float64 destinations.
+func TestReadFixedType_Flt4_ReturnsFloat64(t *testing.T) {
+	const want = float32(3.14)
+
+	ti := typeInfo{TypeId: typeFlt4, Size: 4, Buffer: make([]byte, 4)}
+	binary.LittleEndian.PutUint32(ti.Buffer, math.Float32bits(want))
+
+	buf := newTdsBuffer(512, nil)
+	copy(buf.rbuf[:4], ti.Buffer)
+	buf.rpos = 0
+	buf.rsize = 4
+
+	got := readFixedType(&ti, buf, nil, msdsn.EncodeParameters{Timezone: time.UTC})
+
+	gotF64, ok := got.(float64)
+	if !ok {
+		t.Fatalf("readFixedType returned %T, want float64", got)
+	}
+	assert.Equal(t, float64(want), gotF64)
 }
