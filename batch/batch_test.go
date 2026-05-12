@@ -119,6 +119,18 @@ func TestHasPrefixFold(t *testing.T) {
 		{"h", "H", true},
 		{"h", "K", false},
 		{"go 5\n", "go", true},
+		// Word-boundary checks: separator must not be followed by another letter.
+		{"GOTO foo", "GO", false},
+		{"gotoflag", "go", false},
+		{"GO1\n", "GO", true},
+		{"GO_FOO\n", "GO", true},
+		// Multi-byte UTF-8 follower. Hebrew aleph (U+05D0) is encoded as
+		// 0xD7 0x90; a bare rune(s[i]) cast would see 0xD7 (× MULTIPLICATION
+		// SIGN, not a letter) and incorrectly allow the match. Decoding the
+		// rune correctly sees U+05D0 (a letter) and rejects.
+		{"GO\u05D0test", "GO", false},
+		// Latin-1 letter follower (single-byte path).
+		{"GOé", "GO", false},
 	}
 	for _, item := range list {
 		is := hasPrefixFold(item.s, item.pre)
