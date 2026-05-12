@@ -3,6 +3,7 @@ package mssql
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -66,7 +67,7 @@ func TestLogger(t *testing.T) {
 	// Set up a retryable error and the test cases that will exercise it
 	errMsg := "Retryable Test Error"
 	retryPrefix := "RETRY: "
-	inErr := StreamError{InnerError: fmt.Errorf(errMsg)}
+	inErr := StreamError{InnerError: errors.New(errMsg)}
 
 	testcases := [...]struct {
 		name        string

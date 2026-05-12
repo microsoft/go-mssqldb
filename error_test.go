@@ -2,9 +2,12 @@ package mssql
 
 import (
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestServerError(t *testing.T) {
@@ -52,7 +55,7 @@ func TestRetryableError(t *testing.T) {
 func TestBadStreamPanic(t *testing.T) {
 
 	errMsg := "test error XYZ"
-	err := fmt.Errorf(errMsg)
+	err := errors.New(errMsg)
 
 	defer func() {
 		r := recover()
@@ -84,4 +87,45 @@ func TestBadStreamPanicf(t *testing.T) {
 	badStreamPanicf(errfmt, errMsg)
 
 	t.Fatalf("badStreamPanicf did not panic as expected when passed %s", expectedMsg)
+}
+
+func TestError_Methods(t *testing.T) {
+	err := Error{
+		Number:     12345,
+		State:      1,
+		Class:      16,
+		Message:    "Test error message",
+		ServerName: "TestServer",
+		ProcName:   "TestProc",
+		LineNo:     42,
+	}
+
+	// Test Error() method
+	errorStr := err.Error()
+	assert.Contains(t, errorStr, "mssql:", "Error() should contain 'mssql:'")
+	assert.Contains(t, errorStr, err.Message, "Error() should contain message")
+
+	// Test String() method
+	assert.Equal(t, err.Message, err.String(), "String()")
+
+	// Test SQLErrorNumber()
+	assert.Equal(t, err.Number, err.SQLErrorNumber(), "SQLErrorNumber()")
+
+	// Test SQLErrorState()
+	assert.Equal(t, err.State, err.SQLErrorState(), "SQLErrorState()")
+
+	// Test SQLErrorClass()
+	assert.Equal(t, err.Class, err.SQLErrorClass(), "SQLErrorClass()")
+
+	// Test SQLErrorMessage()
+	assert.Equal(t, err.Message, err.SQLErrorMessage(), "SQLErrorMessage()")
+
+	// Test SQLErrorServerName()
+	assert.Equal(t, err.ServerName, err.SQLErrorServerName(), "SQLErrorServerName()")
+
+	// Test SQLErrorProcName()
+	assert.Equal(t, err.ProcName, err.SQLErrorProcName(), "SQLErrorProcName()")
+
+	// Test SQLErrorLineNo()
+	assert.Equal(t, err.LineNo, err.SQLErrorLineNo(), "SQLErrorLineNo()")
 }

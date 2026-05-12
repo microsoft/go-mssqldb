@@ -76,6 +76,29 @@ Bookmark:
 GO`,
 			Expect: []string{"PRINT 1\nGOTO Bookmark\n", "\nPRINT 2\nBookmark:\n"},
 		},
+		testItem{
+			Sql: `
+create table t (
+    id      int,
+    gone_ts datetime
+)
+go
+select
+    gone_ts
+from test_table
+go`,
+			Expect: []string{`
+create table t (
+    id      int,
+    gone_ts datetime
+)
+`, `
+select
+    gone_ts
+from test_table
+`,
+			},
+		},
 		testItem{Sql: `"0'"`, Expect: []string{`"0'"`}},
 		testItem{Sql: "0'", Expect: []string{"0'"}},
 		testItem{Sql: "--", Expect: []string{"--"}},
@@ -87,6 +110,7 @@ GO`,
 		testItem{Sql: "select 'hi\\\r\n-hello';", Expect: []string{"select 'hi-hello';"}},
 		testItem{Sql: "select 'hi\\\r-hello';", Expect: []string{"select 'hi-hello';"}},
 		testItem{Sql: "select 'hi\\\n\nhello';", Expect: []string{"select 'hi\nhello';"}},
+		testItem{Sql: "select\ngone_ts\nfrom t;", Expect: []string{"select\ngone_ts\nfrom t;"}},
 	}
 
 	index := -1

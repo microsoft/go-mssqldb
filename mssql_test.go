@@ -51,6 +51,8 @@ func TestIsProc(t *testing.T) {
 		{"RECONFIGURE", false},
 		{"SHUTDOWN", false},
 		{"CHECKPOINT", false},
+		{"COMMIT", false},
+		{"ROLLBACK", false},
 	}
 
 	for _, item := range list {
@@ -89,6 +91,99 @@ func TestConvertIsolationLevel(t *testing.T) {
 	_, err = convertIsolationLevel(sql.IsolationLevel(1000))
 	if err == nil {
 		t.Fatal("must fail but it didn't")
+	}
+}
+
+func TestFailoverPartnerParamsReturnsNilWhenNoPartner(t *testing.T) {
+	params := msdsn.Config{
+		Host:      "primary",
+		Port:      1433,
+		ServerSPN: "MSSQLSvc/primary:1433",
+	}
+
+	result := failoverPartnerParams(params)
+	if result != nil {
+		t.Fatal("expected nil when no failover partner is set, got non-nil result")
+	}
+}
+
+func TestFailoverPartnerParams(t *testing.T) {
+	tests := []struct {
+		name         string
+		params       msdsn.Config
+		expectedHost string
+		expectedPort uint64
+		expectedSPN  string
+	}{
+		{
+			name: "FailoverPartnerSPN overrides ServerSPN",
+			params: msdsn.Config{
+				Host:               "primary",
+				Port:               1033,
+				FailOverPartner:    "mirror",
+				ServerSPN:          "MSSQLSvc/primary",
+				FailOverPartnerSPN: "MSSQLSvc/mirror",
+			},
+			expectedHost: "mirror",
+			expectedPort: 1033,
+			expectedSPN:  "MSSQLSvc/mirror",
+		},
+		{
+			name: "ServerSPN preserved when FailoverPartnerSPN not set",
+			params: msdsn.Config{
+				Host:            "primary",
+				Port:            1033,
+				FailOverPartner: "mirror",
+				ServerSPN:       "MSSQLSvc/unique-spn",
+			},
+			expectedHost: "mirror",
+			expectedPort: 1033,
+			expectedSPN:  "MSSQLSvc/unique-spn",
+		},
+		{
+			name: "FailOverPort overrides Port",
+			params: msdsn.Config{
+				Host:               "primary",
+				Port:               1033,
+				FailOverPartner:    "mirror",
+				FailOverPort:       2033,
+				ServerSPN:          "MSSQLSvc/unique-spn",
+			},
+			expectedHost: "mirror",
+			expectedPort: 2033,
+			expectedSPN:  "MSSQLSvc/unique-spn",
+		},
+		{
+			name: "Port preserved when FailOverPort not set",
+			params: msdsn.Config{
+				Host:               "primary",
+				Port:               1033,
+				FailOverPartner:    "mirror",
+				ServerSPN:          "MSSQLSvc/unique-spn",
+			},
+			expectedHost: "mirror",
+			expectedPort: 1033,
+			expectedSPN:  "MSSQLSvc/unique-spn",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := failoverPartnerParams(tt.params)
+
+			if result == nil {
+				t.Fatal("expected non-nil result, got nil")
+			}
+			if result.Host != tt.expectedHost {
+				t.Errorf("Host = %q, want %q", result.Host, tt.expectedHost)
+			}
+			if result.Port != tt.expectedPort {
+				t.Errorf("Port = %d, want %d", result.Port, tt.expectedPort)
+			}
+			if result.ServerSPN != tt.expectedSPN {
+				t.Errorf("ServerSPN = %q, want %q", result.ServerSPN, tt.expectedSPN)
+			}
+		})
 	}
 }
 

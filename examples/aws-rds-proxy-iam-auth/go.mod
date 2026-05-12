@@ -1,6 +1,6 @@
 module github.com/microsoft/go-mssqldb/examples/aws-rds-proxy-iam-auth
 
-go 1.19
+go 1.24.0
 
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.18.11
@@ -22,5 +22,5 @@ require (
 	github.com/aws/smithy-go v1.13.5 // indirect
 	github.com/golang-sql/civil v0.0.0-20190719163853-cb61b32ac6fe // indirect
 	github.com/golang-sql/sqlexp v0.1.0 // indirect
-	golang.org/x/crypto v0.0.0-20220622213112-05595931fe9d // indirect
+	golang.org/x/crypto v0.45.0 // indirect
 )

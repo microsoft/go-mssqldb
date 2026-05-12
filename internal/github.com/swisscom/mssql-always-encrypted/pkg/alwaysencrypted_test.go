@@ -7,7 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"testing"
 
@@ -22,7 +22,7 @@ func TestLoadCEKV(t *testing.T) {
 	certFile, err := os.Open("../test/always-encrypted_pub.pem")
 	assert.NoError(t, err)
 
-	certBytes, err := ioutil.ReadAll(certFile)
+	certBytes, err := io.ReadAll(certFile)
 	assert.NoError(t, err)
 	pemB, _ := pem.Decode(certBytes)
 	cert, err := x509.ParseCertificate(pemB.Bytes)
@@ -30,7 +30,7 @@ func TestLoadCEKV(t *testing.T) {
 
 	cekvFile, err := os.Open("../test/cekv.key")
 	assert.NoError(t, err)
-	cekvBytes, err := ioutil.ReadAll(cekvFile)
+	cekvBytes, err := io.ReadAll(cekvFile)
 	assert.NoError(t, err)
 	cekv := LoadCEKV(cekvBytes)
 	assert.Equal(t, 1, cekv.Version)
@@ -40,7 +40,7 @@ func TestDecrypt(t *testing.T) {
 	certFile, err := os.Open("../test/always-encrypted.pem")
 	assert.NoError(t, err)
 
-	certBytes, err := ioutil.ReadAll(certFile)
+	certBytes, err := io.ReadAll(certFile)
 	assert.NoError(t, err)
 	pemB, _ := pem.Decode(certBytes)
 	privKey, err := x509.ParsePKCS8PrivateKey(pemB.Bytes)
@@ -50,7 +50,7 @@ func TestDecrypt(t *testing.T) {
 
 	cekvFile, err := os.Open("../test/cekv.key")
 	assert.NoError(t, err)
-	cekvBytes, err := ioutil.ReadAll(cekvFile)
+	cekvBytes, err := io.ReadAll(cekvFile)
 	assert.NoError(t, err)
 	cekv := LoadCEKV(cekvBytes)
 	rootKey, err := cekv.Decrypt(rsaPrivKey)
@@ -62,7 +62,7 @@ func TestDecrypt(t *testing.T) {
 	columnBytesFile, err := os.Open("../test/column_value.enc")
 	assert.NoError(t, err)
 
-	columnBytes, err := ioutil.ReadAll(columnBytesFile)
+	columnBytes, err := io.ReadAll(columnBytesFile)
 	assert.NoError(t, err)
 
 	key := keys.NewAeadAes256CbcHmac256(rootKey)
@@ -81,7 +81,7 @@ func TestDecryptCEK(t *testing.T) {
 	certFile, err := os.Open("../test/always-encrypted.pem")
 	assert.NoError(t, err)
 
-	certFileBytes, err := ioutil.ReadAll(certFile)
+	certFileBytes, err := io.ReadAll(certFile)
 	assert.NoError(t, err)
 
 	pemBlock, _ := pem.Decode(certFileBytes)
@@ -91,7 +91,7 @@ func TestDecryptCEK(t *testing.T) {
 	cekvFile, err := os.Open("../test/cekv.key")
 	assert.NoError(t, err)
 
-	cekvBytes, err := ioutil.ReadAll(cekvFile)
+	cekvBytes, err := io.ReadAll(cekvFile)
 	assert.NoError(t, err)
 
 	cekv := LoadCEKV(cekvBytes)

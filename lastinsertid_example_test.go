@@ -9,7 +9,7 @@ import (
 )
 
 // This example shows the usage of Connector type
-func ExampleLastInsertId() {
+func ExampleResult_LastInsertId() {
 
 	connString := makeConnURL().String()
 

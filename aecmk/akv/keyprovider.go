@@ -221,8 +221,7 @@ func (p *Provider) getKeyData(ctx context.Context, masterKeyPath string, op aecm
 	r, err := client.GetKey(ctx, k.name, k.version, nil)
 	if err != nil {
 		err = aecmk.NewError(op, "Unable to get key from AKV. Name:"+masterKeyPath, err)
-	}
-	if r.Key.Kty == nil || (*r.Key.Kty != azkeys.KeyTypeRSA && *r.Key.Kty != azkeys.KeyTypeRSAHSM) {
+	} else if r.Key.Kty == nil || (*r.Key.Kty != azkeys.KeyTypeRSA && *r.Key.Kty != azkeys.KeyTypeRSAHSM) {
 		err = aecmk.NewError(op, "Key type not supported for Always Encrypted", nil)
 	}
 	if err == nil {

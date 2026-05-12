@@ -4,7 +4,23 @@ updates:
     directory: /
     schedule:
       interval: daily
+    groups:
+      actions:
+        patterns: ["*"]
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: daily
+    groups:
+      azure-sdk:
+        patterns: ["github.com/Azure/*"]
+      golang-x:
+        patterns: ["golang.org/x/*"]
+      auth:
+        patterns:
+          - "github.com/AzureAD/*"
+          - "github.com/golang-jwt/*"
+          - "github.com/jcmturner/*"
+      testing:
+        patterns:
+          - "github.com/stretchr/*"

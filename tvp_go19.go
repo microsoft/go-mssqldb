@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-sql/civil"
 	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
@@ -134,7 +135,7 @@ func (tvp TVP) encode(schema, name string, columnStr []columnStruct, tvpFieldInd
 			if err != nil {
 				return nil, fmt.Errorf("failed to make tvp parameter row col: %s", err)
 			}
-			columnStr[columnStrIdx].ti.Writer(buf, param.ti, param.buffer)
+			columnStr[columnStrIdx].ti.Writer(buf, param.ti, param.buffer, encoding)
 		}
 	}
 	buf.WriteByte(_TVP_END_TOKEN)
@@ -279,6 +280,12 @@ func (tvp TVP) createZeroType(fieldVal interface{}) interface{} {
 		return defaultInt64
 	case sql.NullString:
 		return defaultString
+	case NullDate:
+		return civil.Date{}
+	case NullDateTime:
+		return civil.DateTime{}
+	case NullTime:
+		return civil.Time{}
 	}
 	return fieldVal
 }
@@ -308,6 +315,21 @@ func (tvp TVP) verifyStandardTypeOnNull(buf *bytes.Buffer, tvpVal interface{}) b
 	case sql.NullString:
 		if !val.Valid {
 			binary.Write(buf, binary.LittleEndian, uint64(_PLP_NULL))
+			return true
+		}
+	case NullDate:
+		if !val.Valid {
+			binary.Write(buf, binary.LittleEndian, defaultNull)
+			return true
+		}
+	case NullDateTime:
+		if !val.Valid {
+			binary.Write(buf, binary.LittleEndian, defaultNull)
+			return true
+		}
+	case NullTime:
+		if !val.Valid {
+			binary.Write(buf, binary.LittleEndian, defaultNull)
 			return true
 		}
 	}

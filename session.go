@@ -34,7 +34,7 @@ func (s *tdsSession) preparePreloginFields(ctx context.Context, p msdsn.Config, 
 	var encrypt byte
 	switch p.Encryption {
 	default:
-		panic(fmt.Errorf("Unsupported Encryption Config %v", p.Encryption))
+		panic(fmt.Errorf("unsupported encryption config %v", p.Encryption))
 	case msdsn.EncryptionDisabled:
 		encrypt = encryptNotSup
 	case msdsn.EncryptionRequired:

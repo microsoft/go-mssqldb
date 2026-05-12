@@ -7,6 +7,7 @@ import (
 
 	"github.com/jcmturner/gokrb5/v8/config"
 	"github.com/microsoft/go-mssqldb/msdsn"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestReadKrb5ConfigHappyPath(t *testing.T) {
@@ -50,12 +51,8 @@ func TestReadKrb5ConfigHappyPath(t *testing.T) {
 				},
 			},
 			validate: func(t testing.TB, cfg msdsn.Config, actual *krb5Login) {
-				if actual.Realm != "realm.com" {
-					t.Errorf("Realm should have been copied from user name. Got: %s", actual.Realm)
-				}
-				if actual.UserName != "username" {
-					t.Errorf("UserName shouldn't include the realm. Got: %s", actual.UserName)
-				}
+				assert.Equal(t, "realm.com", actual.Realm, "Realm should have been copied from user name")
+				assert.Equal(t, "username", actual.UserName, "UserName shouldn't include the realm")
 			},
 		},
 		{
@@ -71,12 +68,8 @@ func TestReadKrb5ConfigHappyPath(t *testing.T) {
 				},
 			},
 			validate: func(t testing.TB, cfg msdsn.Config, actual *krb5Login) {
-				if actual.Krb5ConfigFile != `/etc/krb5.conf` {
-					t.Errorf("Expected default conf file path. Got: %s", actual.Krb5ConfigFile)
-				}
-				if actual.KeytabFile != `/etc/krb5.keytab` {
-					t.Errorf("Expecte keytab path from libdefaults. Got %s", actual.KeytabFile)
-				}
+				assert.Equal(t, `/etc/krb5.conf`, actual.Krb5ConfigFile, "Expected default conf file path")
+				assert.Equal(t, `/etc/krb5.keytab`, actual.KeytabFile, "Expected keytab path from libdefaults")
 			},
 		},
 		{
@@ -95,15 +88,9 @@ func TestReadKrb5ConfigHappyPath(t *testing.T) {
 				},
 			},
 			validate: func(t testing.TB, cfg msdsn.Config, actual *krb5Login) {
-				if actual.Krb5ConfigFile != `/etc/my.config` {
-					t.Errorf("Expected conf file path from env var. Got: %s", actual.Krb5ConfigFile)
-				}
-				if actual.KeytabFile != `/tmp/mytab` {
-					t.Errorf("Expected tab file from env var. Got: %s", actual.KeytabFile)
-				}
-				if actual.CredCacheFile != `/tmp/mycache` {
-					t.Errorf("Expected cache file from env var. Got: %s", actual.CredCacheFile)
-				}
+				assert.Equal(t, `/etc/my.config`, actual.Krb5ConfigFile, "Expected conf file path from env var")
+				assert.Equal(t, `/tmp/mytab`, actual.KeytabFile, "Expected tab file from env var")
+				assert.Equal(t, `/tmp/mycache`, actual.CredCacheFile, "Expected cache file from env var")
 			},
 		},
 		{
@@ -122,15 +109,9 @@ func TestReadKrb5ConfigHappyPath(t *testing.T) {
 				},
 			},
 			validate: func(t testing.TB, cfg msdsn.Config, actual *krb5Login) {
-				if actual.Krb5ConfigFile != `/etc/my.config` {
-					t.Errorf("Expected conf file path from env var. Got: %s", actual.Krb5ConfigFile)
-				}
-				if actual.KeytabFile != "" {
-					t.Errorf("Expected no tab file. Got: %s", actual.KeytabFile)
-				}
-				if actual.CredCacheFile != `/tmp/mycache` {
-					t.Errorf("Expected cache file from env var. Got: %s", actual.CredCacheFile)
-				}
+				assert.Equal(t, `/etc/my.config`, actual.Krb5ConfigFile, "Expected conf file path from env var")
+				assert.Empty(t, actual.KeytabFile, "Expected no tab file")
+				assert.Equal(t, `/tmp/mycache`, actual.CredCacheFile, "Expected cache file from env var")
 			},
 		},
 	}
@@ -160,9 +141,7 @@ func TestReadKrb5ConfigHappyPath(t *testing.T) {
 
 			actual, err := readKrb5Config(test.cfg)
 
-			if err != nil {
-				t.Errorf("Unexpected error %v", err)
-			}
+			assert.NoError(t, err, "Unexpected error")
 			test.validate(t, test.cfg, actual)
 		})
 
@@ -170,41 +149,15 @@ func TestReadKrb5ConfigHappyPath(t *testing.T) {
 }
 
 func basicConfigMatch(t testing.TB, config msdsn.Config, actual *krb5Login) {
-	if actual.Krb5ConfigFile != config.Parameters[keytabConfigFile] {
-		t.Errorf("Expected Krb5ConfigFile %v, found %v", config.Parameters[keytabConfigFile], actual.Krb5ConfigFile)
-	}
-
-	if actual.KeytabFile != config.Parameters[keytabFile] {
-		t.Errorf("Expected KeytabFile %v, found %v", config.Parameters[keytabFile], actual.KeytabFile)
-	}
-
-	if actual.CredCacheFile != config.Parameters[credCacheFile] {
-		t.Errorf("Expected CredCacheFile %v, found %v", config.Parameters[credCacheFile], actual.CredCacheFile)
-	}
-
-	if actual.Realm != config.Parameters[realm] {
-		t.Errorf("Expected Realm %v, found %v", config.Parameters[realm], actual.Realm)
-	}
-
-	if actual.UserName != config.User {
-		t.Errorf("Expected username %v, found %v", config.User, actual.UserName)
-	}
-
-	if actual.Password != config.Password {
-		t.Errorf("Expected password %v, found %v", config.Password, actual.Password)
-	}
-
-	if actual.ServerSPN != config.ServerSPN {
-		t.Errorf("Expected serverSpn %v, found %v", config.ServerSPN, actual.ServerSPN)
-	}
-
-	if actual.DNSLookupKDC != false {
-		t.Errorf("Expected DNSLookupKDC %v, found %v", false, actual.DNSLookupKDC)
-	}
-
-	if actual.UDPPreferenceLimit != 1234 {
-		t.Errorf("Expected UDPPreferenceLimit %v, found %v", 1234, actual.UDPPreferenceLimit)
-	}
+	assert.Equal(t, config.Parameters[keytabConfigFile], actual.Krb5ConfigFile, "Krb5ConfigFile mismatch")
+	assert.Equal(t, config.Parameters[keytabFile], actual.KeytabFile, "KeytabFile mismatch")
+	assert.Equal(t, config.Parameters[credCacheFile], actual.CredCacheFile, "CredCacheFile mismatch")
+	assert.Equal(t, config.Parameters[realm], actual.Realm, "Realm mismatch")
+	assert.Equal(t, config.User, actual.UserName, "UserName mismatch")
+	assert.Equal(t, config.Password, actual.Password, "Password mismatch")
+	assert.Equal(t, config.ServerSPN, actual.ServerSPN, "ServerSPN mismatch")
+	assert.False(t, actual.DNSLookupKDC, "DNSLookupKDC should be false")
+	assert.Equal(t, 1234, actual.UDPPreferenceLimit, "UDPPreferenceLimit mismatch")
 }
 func TestReadKrb5ConfigErrorCases(t *testing.T) {
 
@@ -242,19 +195,9 @@ func TestReadKrb5ConfigErrorCases(t *testing.T) {
 
 		actual, err := readKrb5Config(config)
 
-		if actual != nil {
-			t.Errorf("Unexpected return value expected nil, found %v", actual)
-			continue
-		}
-
-		if err == nil {
-			t.Errorf("Expected error '%v', found nil", tt.expectedError)
-			continue
-		}
-
-		if err.Error() != tt.expectedError {
-			t.Errorf("Expected error %v, found %v", tt.expectedError, err)
-		}
+		assert.Nil(t, actual, "Expected nil return value")
+		assert.Error(t, err, "Expected error")
+		assert.Equal(t, tt.expectedError, err.Error(), "Error message mismatch")
 	}
 }
 
@@ -283,15 +226,9 @@ func TestReadKrb5ConfigGetsDefaultsFromConfFile(t *testing.T) {
 		},
 	}
 	login, err := readKrb5Config(cfg)
-	if err != nil {
-		t.Errorf("Unexpected error from readKrb5Config %s", err.Error())
-	}
-	if login.Realm != "myrealm" {
-		t.Errorf("Unexpected realm. Got %s", login.Realm)
-	}
-	if login.KeytabFile != "mykeytabexists" {
-		t.Errorf("Unexpected keytab file. Got: %s", login.KeytabFile)
-	}
+	assert.NoError(t, err, "Unexpected error from readKrb5Config")
+	assert.Equal(t, "myrealm", login.Realm, "Unexpected realm")
+	assert.Equal(t, "mykeytabexists", login.KeytabFile, "Unexpected keytab file")
 
 }
 func TestValidateKrb5LoginParams(t *testing.T) {
@@ -465,21 +402,13 @@ func TestValidateKrb5LoginParams(t *testing.T) {
 			tt.input.loginMethod = none
 			err := validateKrb5LoginParams(tt.input)
 
-			if err != nil && tt.expectedError == nil {
-				t.Errorf("Unexpected error %v, expected nil", err)
+			if tt.expectedError == nil {
+				assert.NoError(t, err, "Expected no error")
+			} else {
+				assert.Equal(t, tt.expectedError, err, "Error mismatch")
 			}
 
-			if err == nil && tt.expectedError != nil {
-				t.Errorf("Expected error %v, found nil", tt.expectedError)
-			}
-
-			if err != tt.expectedError {
-				t.Errorf("Expected error %v, found %v", tt.expectedError, err)
-			}
-
-			if tt.input.loginMethod != tt.expectedLoginMethod {
-				t.Errorf("Expected loginMethod %v, found %v", tt.expectedLoginMethod, tt.input.loginMethod)
-			}
+			assert.Equal(t, tt.expectedLoginMethod, tt.input.loginMethod, "loginMethod mismatch")
 		})
 	}
 }
@@ -526,45 +455,93 @@ func TestGetAuth(t *testing.T) {
 	defer revertConfig()
 
 	a, err := getAuth(config)
-	if err != nil {
-		t.Errorf("Unexpected error %v", err)
-	}
+	assert.NoError(t, err, "Unexpected error")
 
 	actual := a.(*krbAuth)
 
-	if actual.krb5Config.Krb5ConfigFile != config.Parameters[keytabConfigFile] {
-		t.Errorf("Expected Krb5ConfigFile %v, found %v", config.Parameters[keytabConfigFile], actual.krb5Config.Krb5ConfigFile)
+	assert.Equal(t, config.Parameters[keytabConfigFile], actual.krb5Config.Krb5ConfigFile, "Krb5ConfigFile mismatch")
+	assert.Equal(t, config.Parameters[keytabFile], actual.krb5Config.KeytabFile, "KeytabFile mismatch")
+	assert.Equal(t, config.Parameters[credCacheFile], actual.krb5Config.CredCacheFile, "CredCacheFile mismatch")
+	assert.Equal(t, config.Parameters[realm], actual.krb5Config.Realm, "Realm mismatch")
+	assert.Equal(t, config.User, actual.krb5Config.UserName, "UserName mismatch")
+	assert.Equal(t, config.Password, actual.krb5Config.Password, "Password mismatch")
+	assert.Equal(t, config.ServerSPN, actual.krb5Config.ServerSPN, "ServerSPN mismatch")
+	assert.False(t, actual.krb5Config.DNSLookupKDC, "DNSLookupKDC should be false")
+	assert.Equal(t, 1234, actual.krb5Config.UDPPreferenceLimit, "UDPPreferenceLimit mismatch")
+}
+
+func TestCanonicalize(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "no slash",
+			input:    "MSSQLSvc",
+			expected: "MSSQLSvc", // unchanged - no slash
+		},
+		{
+			name:     "invalid host:port format",
+			input:    "MSSQLSvc/invalidhost",
+			expected: "MSSQLSvc/invalidhost", // unchanged - no port
+		},
+		{
+			name:     "localhost with port",
+			input:    "MSSQLSvc/localhost:1433",
+			expected: "MSSQLSvc/localhost:1433", // localhost doesn't need canonicalization
+		},
+		{
+			name:     "ipv4 with port",
+			input:    "MSSQLSvc/127.0.0.1:1433",
+			expected: "MSSQLSvc/127.0.0.1:1433", // IP addresses don't need canonicalization
+		},
 	}
 
-	if actual.krb5Config.KeytabFile != config.Parameters[keytabFile] {
-		t.Errorf("Expected KeytabFile %v, found %v", config.Parameters[keytabFile], actual.krb5Config.KeytabFile)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := canonicalize(tt.input)
+			// DNS lookups may or may not work depending on environment
+			// Just verify function doesn't panic and returns something
+			assert.NotEmpty(t, result, "canonicalize returned empty string")
+		})
+	}
+}
+
+func TestKrbAuthFree(t *testing.T) {
+	// Test Free with nil krb5Client
+	auth := &krbAuth{
+		krb5Config:   &krb5Login{},
+		spnegoClient: nil,
+		krb5Client:   nil,
 	}
 
-	if actual.krb5Config.CredCacheFile != config.Parameters[credCacheFile] {
-		t.Errorf("Expected CredCacheFile %v, found %v", config.Parameters[credCacheFile], actual.krb5Config.CredCacheFile)
+	// Should not panic
+	auth.Free()
+
+	assert.Nil(t, auth.krb5Client, "krb5Client should remain nil after Free")
+}
+
+func TestFileExistsOS(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		wantErr  error
+		wantOk   bool
+	}{
+		{
+			name:     "non-existent file",
+			filename: "/this/path/does/not/exist/file.txt",
+			wantErr:  ErrKrb5ConfigFileDoesNotExist,
+			wantOk:   false,
+		},
 	}
 
-	if actual.krb5Config.Realm != config.Parameters[realm] {
-		t.Errorf("Expected Realm %v, found %v", config.Parameters[realm], actual.krb5Config.Realm)
-	}
-
-	if actual.krb5Config.UserName != config.User {
-		t.Errorf("Expected username %v, found %v", config.User, actual.krb5Config.UserName)
-	}
-
-	if actual.krb5Config.Password != config.Password {
-		t.Errorf("Expected password %v, found %v", config.Password, actual.krb5Config.Password)
-	}
-
-	if actual.krb5Config.ServerSPN != config.ServerSPN {
-		t.Errorf("Expected serverSpn %v, found %v", config.ServerSPN, actual.krb5Config.ServerSPN)
-	}
-
-	if actual.krb5Config.DNSLookupKDC != false {
-		t.Errorf("Expected DNSLookupKDC %v, found %v", false, actual.krb5Config.DNSLookupKDC)
-	}
-
-	if actual.krb5Config.UDPPreferenceLimit != 1234 {
-		t.Errorf("Expected UDPPreferenceLimit %v, found %v", 1234, actual.krb5Config.UDPPreferenceLimit)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ok, err := fileExistsOS(tt.filename, tt.wantErr)
+			assert.Equal(t, tt.wantOk, ok, "fileExistsOS() ok mismatch")
+			assert.Equal(t, tt.wantErr, err, "fileExistsOS() error mismatch")
+		})
 	}
 }
