@@ -561,6 +561,7 @@ func TestParams(t *testing.T) {
 		"",
 		[]byte{1, 2, 3},
 		[]byte{},
+		float32(1.12313),
 		float64(1.12313554),
 		true,
 		false,
@@ -604,6 +605,15 @@ func TestParams(t *testing.T) {
 					same = decodedval == int64(intVal)
 				case int:
 					same = decodedval == int64(intVal)
+				default:
+					same = retval == val
+				}
+			case float64:
+				// REAL (float32) params are widened to float64 on the read path
+				// per the database/sql/driver.Value contract.
+				switch fVal := val.(type) {
+				case float32:
+					same = decodedval == float64(fVal)
 				default:
 					same = retval == val
 				}
