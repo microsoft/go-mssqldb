@@ -91,3 +91,161 @@ jobs:
           else
             echo "SQL Server container 'sqlserver' was not found."
           fi
+
+  benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+      - name: Setup go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: '1.25.7'
+      - name: Install sqlcmd
+        run: |
+          curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
+          curl -sSL https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y mssql-tools18
+          echo "/opt/mssql-tools18/bin" >> $GITHUB_PATH
+      - name: Start SQL Server container
+        shell: bash
+        run: |
+          export SQLCMDPASSWORD=$(date +%s|sha256sum|base64|head -c 32)
+          echo "SQLCMDPASSWORD=$SQLCMDPASSWORD" >> $GITHUB_ENV
+          docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver \
+            -p 1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD \
+            mcr.microsoft.com/mssql/server:2025-latest
+          # Wait for SQL Server to be ready
+          for i in {1..30}; do
+            if sqlcmd -S localhost -U sa -P "$SQLCMDPASSWORD" -C -Q "SELECT 1" > /dev/null 2>&1; then
+              echo "SQL Server is ready (attempt $i)"
+              break
+            fi
+            echo "Waiting for SQL Server... (attempt $i/30)"
+            sleep 2
+          done
+      - name: Warmup run (stabilize CPU/caches)
+        shell: bash
+        run: |
+          export SQLUSER=sa
+          export SQLPASSWORD=$SQLCMDPASSWORD
+          export DATABASE=master
+          export HOST=localhost
+          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
+          BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
+          # Throwaway run to warm CPU caches, prime the Go runtime, and settle
+          # the OS scheduler. Results are discarded — ensures both measurement
+          # runs start from the same steady-state conditions.
+          go test -run='^$' -bench="$BENCH_PATTERN" \
+            -benchtime=100ms -count=1 -timeout=10m . ./msdsn > /dev/null 2>&1
+      - name: Run baseline benchmarks (main)
+        shell: bash
+        run: |
+          export SQLUSER=sa
+          export SQLPASSWORD=$SQLCMDPASSWORD
+          export DATABASE=master
+          export HOST=localhost
+          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
+          BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
+          git worktree add ../main-bench origin/main
+          cp -v *_benchmark_test.go ../main-bench/ 2>/dev/null || true
+          cp -v msdsn/*_benchmark_test.go ../main-bench/msdsn/ 2>/dev/null || true
+          cd ../main-bench
+          go test -run='^$' -bench="$BENCH_PATTERN" \
+            -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn 2>&1 | \
+            tee "$GITHUB_WORKSPACE/bench_old_full.log"
+          grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' "$GITHUB_WORKSPACE/bench_old_full.log" > "$GITHUB_WORKSPACE/bench_old.txt"
+          cd "$GITHUB_WORKSPACE"
+          git worktree remove ../main-bench --force
+      - name: Run PR benchmarks
+        shell: bash
+        run: |
+          export SQLUSER=sa
+          export SQLPASSWORD=$SQLCMDPASSWORD
+          export DATABASE=master
+          export HOST=localhost
+          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
+          BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
+          go test -run='^$' -bench="$BENCH_PATTERN" \
+            -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn 2>&1 | \
+            tee bench_new_full.log
+          grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' bench_new_full.log > bench_new.txt
+      - name: Compare benchmarks
+        shell: bash
+        run: |
+          go install golang.org/x/perf/cmd/benchstat@latest
+          echo "## Benchmark Comparison (main vs PR)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          benchstat -alpha=0.01 bench_old.txt bench_new.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          benchstat -alpha=0.01 bench_old.txt bench_new.txt > bench_diff.txt
+      - name: Check for regressions
+        shell: bash
+        run: |
+          if [ ! -f bench_diff.txt ]; then
+            echo "No comparison available, skipping regression check."
+            exit 0
+          fi
+          # Report statistically significant improvements (real %, not ~)
+          if grep -v '~' bench_diff.txt | grep -E '^\S+\s+.+\s+-[0-9]+\.[0-9]+%'; then
+            echo ""
+            echo "::notice::Performance improvements detected (see above)"
+          fi
+          # Fail on statistically significant regressions exceeding 15%
+          # Sequential CI runs produce systematic drift up to ~12%, so we require
+          # both statistical significance (no ~ marker) AND >15% magnitude.
+          # Exclude TdsBuffer_Write_Large: ~120ns operation with multi-flush path
+          # shows 30-46% swings between sequential CI runs due to cache sensitivity.
+          REGRESSED=$(grep -v '~' bench_diff.txt | grep -v 'TdsBuffer_Write_Large' | grep -E '^\S+\s+.+\s+\+[0-9]+\.[0-9]+%' | awk -F'+' '{split($2,a,"%"); if (a[1]+0 >= 15) print}')
+          if [ -n "$REGRESSED" ]; then
+            echo "$REGRESSED"
+            echo "::error::Statistically significant regression detected (>15%, p<0.01)"
+            exit 1
+          fi
+          echo "No significant regressions detected."
+      - name: Post benchmark results to PR
+        # Fork PRs get read-only tokens; comment will be skipped gracefully.
+        continue-on-error: true
+        if: always() && github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f bench_diff.txt ]; then
+            echo "No benchmark comparison to post."
+            exit 0
+          fi
+          BODY="## Benchmark Results (main vs PR)
+
+          <details>
+          <summary>Click to expand benchstat output</summary>
+
+          \`\`\`
+          $(cat bench_diff.txt)
+          \`\`\`
+
+          </details>
+
+          *Generated by CI — commit $(git rev-parse --short HEAD)*"
+
+          # Remove leading whitespace from heredoc-style indentation
+          BODY=$(echo "$BODY" | sed 's/^          //')
+
+          # Find and update existing benchmark comment, or create a new one
+          COMMENT_ID=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --jq '.[] | select(.body | startswith("## Benchmark Results")) | .id' | head -1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            gh api "repos/${{ github.repository }}/issues/comments/$COMMENT_ID" \
+              -X PATCH -f body="$BODY"
+            echo "Updated existing benchmark comment."
+          else
+            gh pr comment "${{ github.event.pull_request.number }}" --body "$BODY"
+            echo "Posted new benchmark comment."
+          fi

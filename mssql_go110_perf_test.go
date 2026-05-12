@@ -36,12 +36,12 @@ func BenchmarkSelectWithTypeMismatch(b *testing.B) {
 			if err != nil {
 				b.Fatal("Query failed:", err.Error())
 			}
-			defer rows.Close()
 			for rows.Next() {
 			}
 			if rows.Err() != nil {
 				b.Fatal("Rows error:", rows.Err())
 			}
+			rows.Close()
 		}
 	})
 	b.Run("NoIntPromotion", func(b *testing.B) {
@@ -50,12 +50,12 @@ func BenchmarkSelectWithTypeMismatch(b *testing.B) {
 			if err != nil {
 				b.Fatal("Query failed:", err.Error())
 			}
-			defer rows.Close()
 			for rows.Next() {
 			}
 			if rows.Err() != nil {
 				b.Fatal("Rows error:", rows.Err())
 			}
+			rows.Close()
 		}
 	})
 
