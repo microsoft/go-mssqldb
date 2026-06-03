@@ -29,7 +29,7 @@ jobs:
       contents: read
     steps:
       # actions/checkout v6
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Verify Dockerfile Go version satisfies go.mod
         run: |
@@ -71,11 +71,11 @@ jobs:
       contents: read
     steps:
       # actions/checkout v6
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Build devcontainer image
         # devcontainers/ci v0.3
-        uses: devcontainers/ci@b63b30de439b47a52267f241112c5b453b673db5 # v0.3
+        uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3
         with:
           imageName: go-mssqldb-devcontainer
           push: never
