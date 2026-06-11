@@ -440,7 +440,7 @@ func Parse(dsn string) (Config, error) {
 		}
 	}
 
-	// https://docs.microsoft.com/en-us/sql/database-engine/configure-windows/configure-the-network-packet-size-server-configuration-option\
+	// https://docs.microsoft.com/sql/database-engine/configure-windows/configure-the-network-packet-size-server-configuration-option
 	strpsize, ok := params[PacketSize]
 	if ok {
 		var err error
