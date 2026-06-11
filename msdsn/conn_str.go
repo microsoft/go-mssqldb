@@ -462,7 +462,7 @@ func Parse(dsn string) (Config, error) {
 		}
 	}
 
-	// https://msdn.microsoft.com/en-us/library/dd341108.aspx
+	// https://msdn.microsoft.com/library/dd341108.aspx
 	//
 	// Do not set a connection timeout. Use Context to manage such things.
 	// Default to zero, but still allow it to be set.
@@ -476,7 +476,7 @@ func Parse(dsn string) (Config, error) {
 	}
 
 	// default keep alive should be 30 seconds according to spec:
-	// https://msdn.microsoft.com/en-us/library/dd341108.aspx
+	// https://msdn.microsoft.com/library/dd341108.aspx
 	p.KeepAlive = 30 * time.Second
 	if keepAlive, ok := params[KeepAlive]; ok {
 		timeout, err := strconv.ParseUint(keepAlive, 10, 64)
@@ -760,7 +760,7 @@ func (p Config) URL() *url.URL {
 }
 
 // adoSynonyms maps ADO.Net alternate keyword forms to this driver's canonical keys.
-// See https://learn.microsoft.com/en-us/dotnet/api/microsoft.data.sqlclient.sqlconnection.connectionstring
+// See https://learn.microsoft.com/dotnet/api/microsoft.data.sqlclient.sqlconnection.connectionstring
 var adoSynonyms = map[string]string{
 	"app":                       AppName,
 	"application name":          AppName,
