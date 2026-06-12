@@ -240,11 +240,13 @@ func (p *Provider) allowedPathAndEndpoint(masterKeyPath string) (endpoint string
 		allowed = false
 		return
 	}
+	// Use Hostname() to strip port for case-insensitive suffix comparison
+	hostname := url.Hostname()
 	if !allowed {
 
 	loop:
 		for _, l := range p.AllowedLocations {
-			if strings.HasSuffix(strings.ToLower(url.Host), strings.ToLower(l)) {
+			if strings.HasSuffix(strings.ToLower(hostname), strings.ToLower(l)) {
 				allowed = true
 				break loop
 			}
@@ -257,6 +259,12 @@ func (p *Provider) allowedPathAndEndpoint(masterKeyPath string) (endpoint string
 			return
 		}
 		keypath = pathParts[1:]
+		// Strip default HTTPS port (:443) to avoid Azure SDK challenge
+		// verification issues, but preserve non-standard ports.
+		port := url.Port()
+		if port == "" || port == "443" {
+			url.Host = hostname
+		}
 		url.Path = ""
 		url.RawQuery = ""
 		url.Fragment = ""
