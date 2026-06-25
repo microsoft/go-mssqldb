@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Split the provided SQL into multiple sql scripts based on a given
@@ -46,6 +47,18 @@ func hasPrefixFold(s, sep string) bool {
 	if len(s) < len(sep) {
 		return false
 	}
+
+	// Reject matches where the separator is followed by another letter,
+	// so e.g. "GO" does not match the start of "GOTO". Use DecodeRuneInString
+	// to handle multi-byte runes correctly; a bare rune(s[i]) cast would
+	// misclassify the leading byte of a multi-byte sequence.
+	if len(s) > len(sep) {
+		r, _ := utf8.DecodeRuneInString(s[len(sep):])
+		if unicode.IsLetter(r) {
+			return false
+		}
+	}
+
 	return strings.EqualFold(s[:len(sep)], sep)
 }
 
