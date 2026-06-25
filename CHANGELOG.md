@@ -1,4 +1,24 @@
 # Changelog
+## [1.11.0](https://github.com/microsoft/go-mssqldb/compare/v1.10.0...v1.11.0) (2026-06-25)
+
+
+### Features
+
+* add ADO.Net connection string synonyms ([#374](https://github.com/microsoft/go-mssqldb/issues/374)) ([d72f750](https://github.com/microsoft/go-mssqldb/commit/d72f750358c4370852fc73cdda9f7f83b53903ff))
+
+
+### Bug Fixes
+
+* clarify NTLM URL encoding for URL DSNs ([#378](https://github.com/microsoft/go-mssqldb/issues/378)) ([551d622](https://github.com/microsoft/go-mssqldb/commit/551d62231613700aca651cb5b778cdc1db584893))
+* **isProc:** add `REVERT` builtin command ([#393](https://github.com/microsoft/go-mssqldb/issues/393)) ([31a9659](https://github.com/microsoft/go-mssqldb/commit/31a9659ac4763e622fc9fbae6fcff44f30760164))
+* return float64 for REAL columns in readFixedType ([#381](https://github.com/microsoft/go-mssqldb/issues/381)) ([abddba8](https://github.com/microsoft/go-mssqldb/commit/abddba82884f2b672b88088a1849cb547194a27d))
+* strip port from AKV URLs for AllowedLocations and endpoint ([#369](https://github.com/microsoft/go-mssqldb/issues/369)) ([7fab98a](https://github.com/microsoft/go-mssqldb/commit/7fab98a2b5b3d57b933a554b6abe15114b5857b3))
+
+
+### Performance Improvements
+
+* add comprehensive benchmark suite with CI regression detection ([#376](https://github.com/microsoft/go-mssqldb/issues/376)) ([b935441](https://github.com/microsoft/go-mssqldb/commit/b9354415013929850e1a48856661d1109be661a9))
+
 ## [1.10.0](https://github.com/microsoft/go-mssqldb/compare/v1.9.8...v1.10.0) (2026-04-25)
 
 
