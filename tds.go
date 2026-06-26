@@ -1131,6 +1131,28 @@ func getTLSConn(conn *timeoutConn, p msdsn.Config, alpnSeq string) (tlsConn *tls
 	return tlsConn, nil
 }
 
+func preloginTimeout(ctx context.Context, connTimeout time.Duration) (time.Duration, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return connTimeout, nil
+	}
+
+	ctxTimeout := time.Until(deadline)
+	if ctxTimeout <= 0 {
+		return 0, context.DeadlineExceeded
+	}
+
+	if connTimeout == 0 || ctxTimeout < connTimeout {
+		return ctxTimeout, nil
+	}
+
+	return connTimeout, nil
+}
+
 func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Config) (res *tdsSession, err error) {
 	var cbt *integratedauth.ChannelBindings
 	isTransportEncrypted := false
@@ -1173,6 +1195,16 @@ initiate_connection:
 	}
 
 	toconn := newTimeoutConn(conn, p.ConnTimeout)
+
+	// Ensure the connection is closed on any error path after dial.
+	// On success (or server-initiated reroute), we set toconn to nil
+	// before returning so the deferred close becomes a no-op.
+	defer func() {
+		if toconn != nil {
+			toconn.Close()
+			toconn = nil
+		}
+	}()
 	outbuf := newTdsBuffer(packetSize, toconn)
 
 	if p.Encryption == msdsn.EncryptionStrict {
@@ -1209,10 +1241,64 @@ initiate_connection:
 		return nil, err
 	}
 
-	fields, err = readPrelogin(outbuf)
+	// Ensure the prelogin read respects the context deadline so connect()
+	// does not hang indefinitely when the server never responds.
+	// We temporarily reduce toconn.timeout rather than using SetReadDeadline
+	// because timeoutConn.Read() calls SetDeadline(now+timeout) on every
+	// read, which would overwrite a SetReadDeadline value.
+	origTimeout := toconn.timeout
+	toconn.timeout, err = preloginTimeout(ctx, origTimeout)
 	if err != nil {
 		return nil, err
 	}
+
+	// Watch ctx.Done() for every prelogin read and close the connection to
+	// unblock readPrelogin on any context cancellation or deadline expiry.
+	// This is needed even though preloginTimeout may reduce toconn.timeout,
+	// because ctx can be canceled after that timeout is computed but before
+	// or during the read, and because without a deadline and with
+	// connTimeout == 0 the read could otherwise block indefinitely.
+	cancelDone := make(chan struct{})
+	watcherDone := make(chan struct{})
+	go func() {
+		defer close(watcherDone)
+		select {
+		case <-ctx.Done():
+			toconn.Close()
+		case <-cancelDone:
+		}
+	}()
+
+	fields, err = readPrelogin(outbuf)
+	close(cancelDone)
+	<-watcherDone // wait for goroutine to exit before touching toconn
+
+	// If the context was canceled, the watcher goroutine closed the
+	// connection. Return the context error regardless of whether the
+	// read itself succeeded to avoid using a closed conn.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+
+	// The socket timeout from preloginTimeout and the context deadline
+	// can fire at nearly the same instant. If the read timed out and
+	// the context deadline has since passed (even though ctx.Err() had
+	// not yet propagated above), return the context error instead of
+	// a raw "i/o timeout". Only override when the error is actually a
+	// timeout to avoid masking unrelated failures (EOF, connection reset).
+	if err != nil {
+		var ne net.Error
+		if errors.As(err, &ne) && ne.Timeout() {
+			if dl, ok := ctx.Deadline(); ok && !time.Now().Before(dl) {
+				return nil, context.DeadlineExceeded
+			}
+		}
+		return nil, err
+	}
+
+	// Restore the original timeout for subsequent reads. Safe because the
+	// watcher goroutine has exited (watcherDone is closed above).
+	toconn.timeout = origTimeout
 
 	encrypt, err := interpretPreloginResponse(p, fedAuth, fields)
 	if err != nil {
@@ -1379,7 +1465,6 @@ initiate_connection:
 				if token.isError() {
 					tokenErr := token.getError()
 					tokenErr.Message = "login error: " + tokenErr.Message
-					conn.Close()
 					return nil, tokenErr
 				}
 			case error:
@@ -1390,6 +1475,7 @@ initiate_connection:
 
 	if sess.routedServer != "" {
 		toconn.Close()
+		toconn = nil // prevent deferred double close
 		// Need to handle case when routedServer is in "host\instance" format.
 		routedParts := strings.SplitN(sess.routedServer, "\\", 2)
 		p.Host = routedParts[0]
@@ -1403,6 +1489,7 @@ initiate_connection:
 		}
 		goto initiate_connection
 	}
+	toconn = nil // success: prevent deferred close
 	return sess, nil
 }
 
