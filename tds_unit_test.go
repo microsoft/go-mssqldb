@@ -1,8 +1,14 @@
 package mssql
 
 import (
+	"database/sql"
 	"encoding/binary"
+	"fmt"
+	"net"
+	"net/url"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/microsoft/go-mssqldb/msdsn"
 	"github.com/stretchr/testify/assert"
@@ -346,4 +352,201 @@ func TestBrowserDataType(t *testing.T) {
 
 	assert.Len(t, data, 1, "BrowserData length")
 	assert.Equal(t, "1433", data["INSTANCE1"]["tcp"], "BrowserData[INSTANCE1][tcp]")
+}
+
+func TestWrapTLSError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		err             error
+		wantNil         bool
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{
+			name:    "nil error",
+			err:     nil,
+			wantNil: true,
+		},
+		{
+			name: "negative serial number",
+			err:  fmt.Errorf("x509: negative serial number"),
+			wantContains: []string{
+				"TLS Handshake failed",
+				"negative serial number",
+				"x509negativeserial=1",
+				"GODEBUG",
+			},
+		},
+		{
+			name: "SHA-1 uppercase",
+			err:  fmt.Errorf("tls: peer certificate uses SHA-1 based signature"),
+			wantContains: []string{
+				"TLS Handshake failed",
+				"SHA-1",
+				"tlssha1=1",
+				"GODEBUG",
+				"SHA-256",
+			},
+		},
+		{
+			name: "sha1 lowercase",
+			err:  fmt.Errorf("tls: sha1 signature not supported"),
+			wantContains: []string{
+				"TLS Handshake failed",
+				"tlssha1=1",
+				"GODEBUG",
+			},
+		},
+		{
+			name: "Go 1.25 handshake EOF",
+			err:  fmt.Errorf("cannot read handshake packet: EOF"),
+			wantContains: []string{
+				"TLS Handshake failed",
+				"SHA-1",
+				"tlssha1=1",
+				"GODEBUG",
+			},
+		},
+		{
+			name: "handshake error without EOF falls to default",
+			err:  fmt.Errorf("cannot read handshake packet: timeout"),
+			wantContains: []string{
+				"TLS Handshake failed",
+				"timeout",
+			},
+			wantNotContains: []string{"GODEBUG", "tlssha1"},
+		},
+		{
+			name: "unknown TLS error",
+			err:  fmt.Errorf("tls: some other error"),
+			wantContains: []string{
+				"TLS Handshake failed",
+				"some other error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := wrapTLSError(tt.err)
+			if tt.wantNil {
+				assert.Nil(t, result)
+				return
+			}
+			assert.NotNil(t, result)
+			msg := result.Error()
+			for _, s := range tt.wantContains {
+				assert.Contains(t, msg, s)
+			}
+			for _, s := range tt.wantNotContains {
+				assert.NotContains(t, msg, s)
+			}
+			// Original error should be unwrappable
+			assert.ErrorIs(t, result, tt.err)
+		})
+	}
+}
+
+func TestGetTLSConnHandshakeError(t *testing.T) {
+	t.Parallel()
+
+	// Start a TCP server that immediately closes — TLS handshake will fail.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		conn.Close()
+	}()
+
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	tc := newTimeoutConn(conn, time.Second)
+	p := msdsn.Config{Host: "127.0.0.1"}
+
+	_, err = getTLSConn(tc, p, "tds/8.0")
+	if err == nil {
+		t.Fatal("expected TLS handshake error")
+	}
+	if !strings.Contains(err.Error(), "TLS Handshake failed") {
+		t.Fatalf("expected wrapped TLS error, got: %v", err)
+	}
+}
+
+func TestConnectNonStrictTLSHandshakeError(t *testing.T) {
+	t.Parallel()
+
+	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	resolved := listener.Addr().(*net.TCPAddr)
+
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		conn.SetDeadline(time.Now().Add(3 * time.Second))
+
+		buf := newTdsBuffer(defaultPacketSize, conn)
+
+		// Read client prelogin
+		if _, err := buf.BeginRead(); err != nil {
+			return
+		}
+
+		// Respond with encryptOn to trigger non-strict TLS
+		fields := map[uint8][]byte{
+			preloginENCRYPTION: {encryptOn},
+		}
+		if err := writePrelogin(packReply, buf, fields); err != nil {
+			return
+		}
+
+		// Client will attempt TLS handshake inside TDS.
+		// Read the ClientHello then close to cause handshake failure.
+		_, _ = conn.Read(make([]byte, 4096))
+	}()
+
+	q := url.Values{}
+	q.Set("protocol", "tcp")
+	q.Set("encrypt", "true")
+	q.Set("TrustServerCertificate", "true")
+	q.Set("connection timeout", "3")
+	q.Set("dial timeout", "2")
+	dsn := (&url.URL{
+		Scheme:   "sqlserver",
+		User:     url.UserPassword("sa", "unused"),
+		Host:     fmt.Sprintf("%s:%d", resolved.IP.String(), resolved.Port),
+		RawQuery: q.Encode(),
+	}).String()
+	db, err := sql.Open("sqlserver", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	err = db.Ping()
+	if err == nil {
+		t.Fatal("Expected TLS handshake to fail")
+	}
+	if !strings.Contains(err.Error(), "TLS Handshake failed") {
+		t.Fatalf("expected wrapTLSError output, got: %v", err)
+	}
 }
