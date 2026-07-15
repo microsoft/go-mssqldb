@@ -1,6 +1,8 @@
 module github.com/microsoft/go-mssqldb
 
-go 1.25.7
+go 1.25.0
+
+toolchain go1.25.7
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0
