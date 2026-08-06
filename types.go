@@ -77,6 +77,10 @@ const _PLP_NULL = 0xFFFFFFFFFFFFFFFF
 const _UNKNOWN_PLP_LEN = 0xFFFFFFFFFFFFFFFE
 const _PLP_TERMINATOR = 0x00000000
 
+// _PLP_INITIAL_ALLOC caps the initial buffer capacity for a PLP value, whose
+// advertised length is an untrusted uint64. 32 KiB matches io.Copy's buffer.
+const _PLP_INITIAL_ALLOC = 32 * 1024
+
 // TVP COLUMN FLAGS
 const _TVP_END_TOKEN = 0x00
 const _TVP_ROW_TOKEN = 0x01
@@ -746,9 +750,11 @@ func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.E
 			return nil
 		case _UNKNOWN_PLP_LEN:
 			// size unknown
-			buf = bytes.NewBuffer(make([]byte, 0, 1000))
+			buf = bytes.NewBuffer(make([]byte, 0, _PLP_INITIAL_ALLOC))
 		default:
-			buf = bytes.NewBuffer(make([]byte, 0, size))
+			// Cap the initial allocation at the same 32 KiB io.Copy uses so an
+			// untrusted size can't trigger an OOM; the buffer grows as chunks arrive.
+			buf = bytes.NewBuffer(make([]byte, 0, min(size, _PLP_INITIAL_ALLOC)))
 		}
 		for {
 			chunksize := r.uint32()

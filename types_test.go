@@ -311,3 +311,69 @@ func TestReadFixedType_Flt4_ReturnsFloat64(t *testing.T) {
 	}
 	assert.Equal(t, float64(want), gotF64)
 }
+
+// plpStream builds a PLP byte stream carrying payload but advertising
+// advertisedSize as its total length, which a server may set larger than the
+// data that follows.
+func plpStream(advertisedSize uint64, payload []byte) []byte {
+	out := make([]byte, 0, 8+4+len(payload)+4)
+	var sz [8]byte
+	binary.LittleEndian.PutUint64(sz[:], advertisedSize)
+	out = append(out, sz[:]...)
+
+	var chunk [4]byte
+	binary.LittleEndian.PutUint32(chunk[:], uint32(len(payload)))
+	out = append(out, chunk[:]...)
+	out = append(out, payload...)
+
+	// PLP terminator: a zero-length chunk.
+	out = append(out, 0, 0, 0, 0)
+	return out
+}
+
+// TestReadPLPType_HugeAdvertisedSizeDoesNotAllocate is a regression test for
+// issue #218: readPLPType used the untrusted advertised length as the initial
+// buffer capacity. The ~72 PB size below aborts the unpatched code with an OOM;
+// with the fix the allocation is capped and the small payload decodes correctly.
+func TestReadPLPType_HugeAdvertisedSizeDoesNotAllocate(t *testing.T) {
+	const hugeSize = uint64(0x00FFFFFFFFFFFFFF) // ~72 petabytes
+	payload := []byte("actual payload is tiny")
+	stream := plpStream(hugeSize, payload)
+
+	buf := newTdsBuffer(uint16(len(stream)), nil)
+	copy(buf.rbuf[:len(stream)], stream)
+	buf.rpos = 0
+	buf.rsize = len(stream)
+	buf.final = true
+
+	ti := typeInfo{TypeId: typeBigVarBin}
+	got := readPLPType(&ti, buf, nil, msdsn.EncodeParameters{})
+
+	gotBytes, ok := got.([]byte)
+	if !ok {
+		t.Fatalf("readPLPType returned %T, want []byte", got)
+	}
+	assert.Equal(t, payload, gotBytes)
+}
+
+// TestReadPLPType_UnknownLength verifies the _UNKNOWN_PLP_LEN path still decodes
+// correctly.
+func TestReadPLPType_UnknownLength(t *testing.T) {
+	payload := []byte("streamed without a known length")
+	stream := plpStream(_UNKNOWN_PLP_LEN, payload)
+
+	buf := newTdsBuffer(uint16(len(stream)), nil)
+	copy(buf.rbuf[:len(stream)], stream)
+	buf.rpos = 0
+	buf.rsize = len(stream)
+	buf.final = true
+
+	ti := typeInfo{TypeId: typeBigVarBin}
+	got := readPLPType(&ti, buf, nil, msdsn.EncodeParameters{})
+
+	gotBytes, ok := got.([]byte)
+	if !ok {
+		t.Fatalf("readPLPType returned %T, want []byte", got)
+	}
+	assert.Equal(t, payload, gotBytes)
+}
