@@ -817,9 +817,18 @@ loop:
 					break loop
 				case doneStruct:
 					if token.isError() {
-						// need to cleanup cancellable context
+						// A statement-scoped server error (e.g. a lock
+						// timeout) does not necessarily abort the rest of
+						// the batch, so the server may still be streaming
+						// additional result sets. Drain them before
+						// returning so the background reader goroutine can
+						// exit and close sess.readDone; otherwise the next
+						// query on this session hangs in
+						// startResponseReader. See issue #407.
+						serverErr := s.c.checkBadConn(ctx, token.getError(), false)
 						cancel()
-						return nil, s.c.checkBadConn(ctx, token.getError(), false)
+						reader.drain()
+						return nil, serverErr
 					}
 				case ReturnStatus:
 					if reader.outs.returnStatus != nil {
