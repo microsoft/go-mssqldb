@@ -77,9 +77,10 @@ const _PLP_NULL = 0xFFFFFFFFFFFFFFFF
 const _UNKNOWN_PLP_LEN = 0xFFFFFFFFFFFFFFFE
 const _PLP_TERMINATOR = 0x00000000
 
-// _PLP_INITIAL_ALLOC caps the initial buffer capacity for a PLP value, whose
-// advertised length is an untrusted uint64. 32 KiB matches io.Copy's buffer.
-const _PLP_INITIAL_ALLOC = 32 * 1024
+// _MAX_PLP_LEN is the largest length a PLP value can legitimately advertise.
+// The (max) LOB types top out at 2 GB - 1 byte, so any larger size is a
+// malformed stream rather than a value we should try to read.
+const _MAX_PLP_LEN = 0x7FFFFFFF
 
 // TVP COLUMN FLAGS
 const _TVP_END_TOKEN = 0x00
@@ -750,11 +751,14 @@ func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.E
 			return nil
 		case _UNKNOWN_PLP_LEN:
 			// size unknown
-			buf = bytes.NewBuffer(make([]byte, 0, _PLP_INITIAL_ALLOC))
+			buf = bytes.NewBuffer(make([]byte, 0, 1000))
 		default:
-			// Cap the initial allocation at the same 32 KiB io.Copy uses so an
-			// untrusted size can't trigger an OOM; the buffer grows as chunks arrive.
-			buf = bytes.NewBuffer(make([]byte, 0, min(size, _PLP_INITIAL_ALLOC)))
+			// The advertised size is untrusted, so reject anything a real server
+			// cannot produce before using it as an allocation size.
+			if size > _MAX_PLP_LEN {
+				badStreamPanicf("PLP length %d exceeds the maximum LOB size of %d bytes", size, uint64(_MAX_PLP_LEN))
+			}
+			buf = bytes.NewBuffer(make([]byte, 0, size))
 		}
 		for {
 			chunksize := r.uint32()

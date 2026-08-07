@@ -331,15 +331,8 @@ func plpStream(advertisedSize uint64, payload []byte) []byte {
 	return out
 }
 
-// TestReadPLPType_HugeAdvertisedSizeDoesNotAllocate is a regression test for
-// issue #218: readPLPType used the untrusted advertised length as the initial
-// buffer capacity. The ~72 PB size below aborts the unpatched code with an OOM;
-// with the fix the allocation is capped and the small payload decodes correctly.
-func TestReadPLPType_HugeAdvertisedSizeDoesNotAllocate(t *testing.T) {
-	const hugeSize = uint64(0x00FFFFFFFFFFFFFF) // ~72 petabytes
-	payload := []byte("actual payload is tiny")
-	stream := plpStream(hugeSize, payload)
-
+// readPLPStream feeds a prebuilt PLP stream through readPLPType.
+func readPLPStream(stream []byte) interface{} {
 	buf := newTdsBuffer(uint16(len(stream)), nil)
 	copy(buf.rbuf[:len(stream)], stream)
 	buf.rpos = 0
@@ -347,7 +340,46 @@ func TestReadPLPType_HugeAdvertisedSizeDoesNotAllocate(t *testing.T) {
 	buf.final = true
 
 	ti := typeInfo{TypeId: typeBigVarBin}
-	got := readPLPType(&ti, buf, nil, msdsn.EncodeParameters{})
+	return readPLPType(&ti, buf, nil, msdsn.EncodeParameters{})
+}
+
+// TestReadPLPType_OversizedLengthPanics is a regression test for issue #218:
+// readPLPType used the untrusted advertised length as the initial buffer
+// capacity, so a crafted size aborted the process with an OOM. A (max) LOB tops
+// out at 2 GB - 1 byte, so anything larger is a malformed stream and must be
+// rejected before it reaches make().
+func TestReadPLPType_OversizedLengthPanics(t *testing.T) {
+	sizes := map[string]uint64{
+		"72 petabytes":     0x00FFFFFFFFFFFFFF,
+		"one over the max": _MAX_PLP_LEN + 1,
+	}
+
+	for name, size := range sizes {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				v := recover()
+				if v == nil {
+					t.Fatalf("expected panic for PLP length %d", size)
+				}
+				err, ok := v.(error)
+				if !ok {
+					t.Fatalf("recovered %T, want error", v)
+				}
+				assert.Contains(t, err.Error(), "exceeds the maximum LOB size")
+			}()
+
+			readPLPStream(plpStream(size, []byte("actual payload is tiny")))
+		})
+	}
+}
+
+// TestReadPLPType_OverAdvertisedLengthAccepted verifies a size within the limit
+// is still read normally even when it overstates the payload that follows,
+// which a legitimate server is allowed to do. The size stays well below
+// _MAX_PLP_LEN so the test does not preallocate 2 GB.
+func TestReadPLPType_OverAdvertisedLengthAccepted(t *testing.T) {
+	payload := []byte("short payload, large advertised size")
+	got := readPLPStream(plpStream(1<<20, payload))
 
 	gotBytes, ok := got.([]byte)
 	if !ok {
