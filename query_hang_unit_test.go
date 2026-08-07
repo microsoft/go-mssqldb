@@ -26,10 +26,18 @@ func appendDoneToken(stream []byte, tok token, status uint16) []byte {
 
 // wrapReplyPacket wraps a token stream in a single final TDS reply packet.
 func wrapReplyPacket(tokenStream []byte) []byte {
+	return wrapReplyPacketStatus(tokenStream, 0x01 /* final */)
+}
+
+// wrapReplyPacketStatus wraps a token stream in a TDS reply packet with the
+// given status byte. Status 0x01 marks the packet as the final one; 0x00 tells
+// the reader more packets follow, so it will attempt another read after
+// consuming this packet.
+func wrapReplyPacketStatus(tokenStream []byte, status byte) []byte {
 	totalSize := 8 + len(tokenStream)
 	packet := make([]byte, totalSize)
 	packet[0] = byte(packReply)
-	packet[1] = 0x01 // Status = final
+	packet[1] = status
 	binary.BigEndian.PutUint16(packet[2:4], uint16(totalSize))
 	packet[6] = 0x01 // PacketNo
 	copy(packet[8:], tokenStream)
@@ -110,4 +118,62 @@ func TestProcessQueryResponse_ErrorTokenDoesNotLeakReader(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("reader goroutine leaked: readDone never closed (issue #407)")
 	}
+}
+
+// TestProcessQueryResponse_DrainFailureEvictsConnection covers the follow-up to
+// issue #407: if draining the abandoned response itself fails (for example the
+// server never confirms cancellation, or a read/attention error occurs while
+// draining), the connection may still be unusable. In that case the drain error
+// must be routed through checkBadConn so connectionGood is cleared and the pool
+// evicts the connection, instead of the original plain server error leaving
+// connectionGood == true and the pool reusing a broken connection.
+//
+// The crafted response starts with an error DONE (so processQueryResponse
+// returns early) followed by a non-final packet whose continuation never
+// arrives, so the drain hits a read error rather than a clean end-of-response.
+func TestProcessQueryResponse_DrainFailureEvictsConnection(t *testing.T) {
+	// Error DONE with doneMore, then a couple of DONE-IN-PROC tokens, all in a
+	// packet marked "not final" (status 0x00). After the consumer returns on
+	// the error DONE, the drain reads the remaining tokens and then the reader
+	// tries to read the next packet, which never comes (EOF), producing an
+	// error the drain reports.
+	var stream []byte
+	stream = appendDoneToken(stream, tokenDone, doneError|doneMore)
+	stream = appendDoneToken(stream, tokenDoneInProc, doneMore)
+	stream = appendDoneToken(stream, tokenDoneInProc, doneMore)
+	packet := wrapReplyPacketStatus(stream, 0x00 /* not final: more packets expected */)
+
+	transport := &countingTransport{reader: bytes.NewReader(packet)}
+	sess := &tdsSession{
+		buf:    newTdsBuffer(defaultPacketSize, transport),
+		logger: optionalLogger{},
+	}
+	conn := &Conn{
+		sess:           sess,
+		connectionGood: true,
+		connector:      &Connector{params: msdsn.Config{}},
+	}
+	stmt := &Stmt{c: conn}
+
+	type result struct {
+		rows driver.Rows
+		err  error
+	}
+	resCh := make(chan result, 1)
+	go func() {
+		rows, err := stmt.processQueryResponse(context.Background())
+		resCh <- result{rows, err}
+	}()
+
+	var res result
+	select {
+	case res = <-resCh:
+	case <-time.After(10 * time.Second):
+		t.Fatal("processQueryResponse hung (issue #407)")
+	}
+
+	assert.Error(t, res.err, "processQueryResponse should return the server error")
+	assert.Nil(t, res.rows, "no rows should be returned on error")
+	assert.False(t, conn.connectionGood,
+		"a failed drain must mark the connection bad so the pool evicts it (issue #407)")
 }
