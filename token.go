@@ -1263,6 +1263,29 @@ func (t *tokenProcessor) iterateResponse() error {
 	}
 }
 
+// drain discards any tokens the background processSingleResponse goroutine is
+// still producing after the caller has decided to stop reading the response
+// early (for example after an error DONE token that precedes additional result
+// sets). The token channel is only lightly buffered, so a producer that is not
+// drained blocks forever on a channel send, its deferred close never runs, and
+// the next query on the same session hangs in startResponseReader waiting on
+// sess.readDone.
+//
+// The caller must cancel the reader context (via the cancel func returned when
+// the cancellable context was created) before calling drain. Cancelling lets
+// nextToken send an attention so the server stops streaming promptly and bounds
+// the wait via cancelDrainTimeout. drain then reads until nextToken reports the
+// response is finished, guaranteeing the reader goroutine exits and closes
+// sess.readDone. See issue #407.
+func (t *tokenProcessor) drain() {
+	for {
+		tok, err := t.nextToken()
+		if err != nil || tok == nil {
+			return
+		}
+	}
+}
+
 func (t tokenProcessor) nextToken() (tokenStruct, error) {
 	// we do this separate non-blocking check on token channel to
 	// prioritize it over cancellation channel
