@@ -827,7 +827,21 @@ loop:
 						// startResponseReader. See issue #407.
 						serverErr := s.c.checkBadConn(ctx, token.getError(), false)
 						cancel()
-						reader.drain()
+						// If the drain itself fails (attention could not be
+						// sent, or the server never confirmed cancellation),
+						// the reader may still be blocked and this connection
+						// is not safe to reuse. Route that error through
+						// checkBadConn so the connection is marked bad and
+						// evicted from the pool instead of hanging the next
+						// query. A clean drain reports the cancellation
+						// context error, which is expected and ignored. The
+						// original server error is still returned to the
+						// caller.
+						if drainErr := reader.drain(); drainErr != nil &&
+							!errors.Is(drainErr, context.Canceled) &&
+							!errors.Is(drainErr, context.DeadlineExceeded) {
+							s.c.checkBadConn(ctx, drainErr, false)
+						}
 						return nil, serverErr
 					}
 				case ReturnStatus:

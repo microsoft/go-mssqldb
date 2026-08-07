@@ -1277,11 +1277,21 @@ func (t *tokenProcessor) iterateResponse() error {
 // the wait via cancelDrainTimeout. drain then reads until nextToken reports the
 // response is finished, guaranteeing the reader goroutine exits and closes
 // sess.readDone. See issue #407.
-func (t *tokenProcessor) drain() {
+//
+// drain returns the terminal error reported by nextToken. On a clean drain this
+// is the cancellation context error (context.Canceled/DeadlineExceeded); a
+// non-context error means the drain itself failed (for example attention could
+// not be sent, or the server never confirmed cancellation), the reader may
+// still be blocked, and the connection is not safe to reuse. Callers should
+// route such errors through checkBadConn so the connection is evicted.
+func (t *tokenProcessor) drain() error {
 	for {
 		tok, err := t.nextToken()
-		if err != nil || tok == nil {
-			return
+		if err != nil {
+			return err
+		}
+		if tok == nil {
+			return nil
 		}
 	}
 }
