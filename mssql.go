@@ -836,11 +836,12 @@ loop:
 						// query. A clean drain reports the cancellation
 						// context error, which is expected and ignored. The
 						// original server error is still returned to the
-						// caller.
+						// caller, so we only want checkBadConn's side effect of
+						// clearing connectionGood here.
 						if drainErr := reader.drain(); drainErr != nil &&
 							!errors.Is(drainErr, context.Canceled) &&
 							!errors.Is(drainErr, context.DeadlineExceeded) {
-							s.c.checkBadConn(ctx, drainErr, false)
+							_ = s.c.checkBadConn(ctx, drainErr, false)
 						}
 						return nil, serverErr
 					}
