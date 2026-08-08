@@ -1278,16 +1278,29 @@ func (t *tokenProcessor) iterateResponse() error {
 // response is finished, guaranteeing the reader goroutine exits and closes
 // sess.readDone. See issue #407.
 //
-// drain returns the terminal error reported by nextToken. On a clean drain this
-// is the cancellation context error (context.Canceled/DeadlineExceeded); a
-// non-context error means the drain itself failed (for example attention could
-// not be sent, or the server never confirmed cancellation), the reader may
-// still be blocked, and the connection is not safe to reuse. Callers should
-// route such errors through checkBadConn so the connection is evicted.
+// drain returns nil when the response was drained cleanly and a non-nil error
+// when it was not. A clean drain ends either because the reader reached the end
+// of the response (nextToken returns a nil token) or because the server
+// confirmed the cancellation attention, which nextToken surfaces as the reader
+// context's own cancellation error (context.Canceled/DeadlineExceeded returned
+// directly). Both outcomes mean the background reader goroutine has exited and
+// sess.readDone is closed, so the connection is safe to reuse.
+//
+// Any other error means the drain did not complete: attention could not be
+// sent (nextToken returns the raw write error), or the server never confirmed
+// cancellation (a StreamError). In those cases the reader may still be blocked
+// and the connection must not be reused. The caller is responsible for evicting
+// the connection whenever drain returns non-nil, without inspecting the error's
+// concrete type. Equality (not errors.Is) is used against the context sentinels
+// on purpose so that a transport error which merely wraps a deadline is treated
+// as a genuine drain failure rather than a clean cancellation.
 func (t *tokenProcessor) drain() error {
 	for {
 		tok, err := t.nextToken()
 		if err != nil {
+			if err == context.Canceled || err == context.DeadlineExceeded {
+				return nil
+			}
 			return err
 		}
 		if tok == nil {
