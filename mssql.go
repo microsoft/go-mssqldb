@@ -827,21 +827,19 @@ loop:
 						// startResponseReader. See issue #407.
 						serverErr := s.c.checkBadConn(ctx, token.getError(), false)
 						cancel()
-						// If the drain itself fails (attention could not be
-						// sent, or the server never confirmed cancellation),
-						// the reader may still be blocked and this connection
-						// is not safe to reuse. Route that error through
-						// checkBadConn so the connection is marked bad and
-						// evicted from the pool instead of hanging the next
-						// query. A clean drain reports the cancellation
-						// context error, which is expected and ignored. The
-						// original server error is still returned to the
-						// caller, so we only want checkBadConn's side effect of
-						// clearing connectionGood here.
-						if drainErr := reader.drain(); drainErr != nil &&
-							!errors.Is(drainErr, context.Canceled) &&
-							!errors.Is(drainErr, context.DeadlineExceeded) {
-							_ = s.c.checkBadConn(ctx, drainErr, false)
+						// drain returns nil only when the response was
+						// drained cleanly (end of response, or the server
+						// confirmed the cancellation attention). Any non-nil
+						// error means the reader may still be blocked, so this
+						// connection cannot be safely reused. Mark it bad
+						// unconditionally: checkBadConn only evicts for
+						// specific error types, but nextToken can surface an
+						// ordinary error from a failed attention write that
+						// would otherwise leave connectionGood true and hang
+						// the next query. The original server error is still
+						// returned to the caller.
+						if drainErr := reader.drain(); drainErr != nil {
+							s.c.connectionGood = false
 						}
 						return nil, serverErr
 					}
