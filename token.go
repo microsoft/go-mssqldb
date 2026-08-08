@@ -998,18 +998,24 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 	defer func() {
 		if err := recover(); err != nil {
 			sess.LogF(ctx, msdsn.LogErrors, "intercepted panic: %v", err)
-			if outs.msgq != nil {
-				var derr error
-				switch e := err.(type) {
-				case error:
-					derr = e
-				default:
-					derr = fmt.Errorf("unhandled session error: %v", e)
-				}
-				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgError{Error: derr})
-
+			// Normalize the recovered value to an error before enqueuing it.
+			// Several parse paths panic with plain strings (e.g. "invalid
+			// size for US_VARCHAR"); if such a value were sent to ch as-is,
+			// nextToken would treat it as an ordinary token rather than an
+			// error, and drain would then report a clean completion on the
+			// following channel close while unread TDS data remained on the
+			// wire, leaving connectionGood true. See issue #407.
+			var derr error
+			switch e := err.(type) {
+			case error:
+				derr = e
+			default:
+				derr = fmt.Errorf("unhandled session error: %v", e)
 			}
-			ch <- err
+			if outs.msgq != nil {
+				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgError{Error: derr})
+			}
+			ch <- derr
 		}
 		close(ch)
 	}()
@@ -1376,8 +1382,17 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		}
 		t.sess.LogF(t.ctx, msdsn.LogDebug, "Sending attention to the server")
 		if err := sendAttention(t.sess.buf); err != nil {
-			// unable to send attention, current connection is bad
-			// notify caller and close channel
+			// Unable to send attention, so the current connection is bad and
+			// the caller will evict it. The background processSingleResponse
+			// goroutine may still be blocked sending to t.tokChan; marking the
+			// connection bad only closes the transport, which cannot unblock a
+			// pending channel send. Drain the channel in the background so the
+			// goroutine can finish and close readDone, matching the pattern used
+			// by the cancellation-unavailable branches below. See issue #407.
+			go func() {
+				for range t.tokChan {
+				}
+			}()
 			return nil, err
 		}
 
