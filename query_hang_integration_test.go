@@ -111,6 +111,7 @@ func TestQueryErrorDoesNotHangMessageLoop(t *testing.T) {
 					done <- qerr
 					return
 				}
+				defer rows.Close()
 
 				sawError := false
 				active := true
@@ -119,7 +120,8 @@ func TestQueryErrorDoesNotHangMessageLoop(t *testing.T) {
 					case sqlexp.MsgError:
 						sawError = true
 						if stopOnError {
-							// Abandon the trailing result set; Close must drain it.
+							// Abandon the trailing result set; the deferred
+							// Close must drain it.
 							active = false
 						}
 					case sqlexp.MsgNextResultSet:
@@ -133,10 +135,6 @@ func TestQueryErrorDoesNotHangMessageLoop(t *testing.T) {
 					default:
 						// MsgNotice, MsgRowsAffected, etc.
 					}
-				}
-				if cerr := rows.Close(); cerr != nil {
-					done <- cerr
-					return
 				}
 
 				if !sawError {
