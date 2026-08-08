@@ -2,9 +2,16 @@ package mssql
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/golang-sql/sqlexp"
 )
+
+// errNoStatementError is a sentinel used by the message-loop regression test to
+// signal that the expected statement-scoped server error never surfaced.
+var errNoStatementError = errors.New("no statement error surfaced")
 
 // TestQueryErrorDoesNotHangConnection is an end-to-end regression test for
 // issue #407. A batch whose first result-producing token is a statement-scoped
@@ -59,4 +66,106 @@ func TestQueryErrorDoesNotHangConnection(t *testing.T) {
 	for attempt := 1; attempt <= 3; attempt++ {
 		runQuery(attempt)
 	}
+}
+
+// TestQueryErrorDoesNotHangMessageLoop is the issue #407 regression test for the
+// message-loop (Rowsq) reader path that go-sqlcmd uses. That path is reached when
+// the caller passes a *sqlexp.ReturnMessage: processQueryResponse returns a Rowsq
+// immediately (before reading the error DONE) and the application pulls tokens via
+// Next/NextResultSet/Close, so the inline drain added for the classic Rows path is
+// never exercised here.
+//
+// Two abandonment patterns are covered, each with the pool pinned to a single
+// connection so the following query is guaranteed to reuse the connection left
+// behind by the batch that errored:
+//   - "drain": the app runs the message loop to completion (normal go-sqlcmd
+//     behaviour).
+//   - "abandon": the app stops pulling messages as soon as the statement error
+//     surfaces and relies on Rows.Close to unwind the reader, leaving the trailing
+//     result set unread. This most closely mirrors the #407 leak.
+//
+// In both cases the batch itself and a subsequent query on the reused connection
+// must return rather than hang.
+func TestQueryErrorDoesNotHangMessageLoop(t *testing.T) {
+	checkConnStr(t)
+
+	// RAISERROR emits an error DONE with no preceding column metadata, then a
+	// large result set follows in the same batch, so a reader that stops on the
+	// error would leave the trailing rows buffered.
+	const badBatch = "SET NOCOUNT ON; RAISERROR('issue407', 16, 1); SELECT TOP 500 name FROM sys.all_objects;"
+
+	run := func(t *testing.T, stopOnError bool) {
+		db, _ := open(t)
+		defer db.Close()
+		db.SetMaxOpenConns(1)
+
+		once := func(attempt int) {
+			done := make(chan error, 1)
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+
+				retmsg := &sqlexp.ReturnMessage{}
+				rows, qerr := db.QueryContext(ctx, badBatch, retmsg)
+				if qerr != nil {
+					done <- qerr
+					return
+				}
+
+				sawError := false
+				active := true
+				for active {
+					switch retmsg.Message(ctx).(type) {
+					case sqlexp.MsgError:
+						sawError = true
+						if stopOnError {
+							// Abandon the trailing result set; Close must drain it.
+							active = false
+						}
+					case sqlexp.MsgNextResultSet:
+						active = rows.NextResultSet()
+					case sqlexp.MsgNext:
+						// One MsgNext is delivered per result set; the consumer
+						// must drain every row with rows.Next() until it returns
+						// false, per the sqlexp message-loop contract.
+						for rows.Next() {
+						}
+					default:
+						// MsgNotice, MsgRowsAffected, etc.
+					}
+				}
+				if cerr := rows.Close(); cerr != nil {
+					done <- cerr
+					return
+				}
+
+				if !sawError {
+					done <- errNoStatementError
+					return
+				}
+				done <- nil
+			}()
+
+			select {
+			case err := <-done:
+				if err == errNoStatementError {
+					t.Fatalf("attempt %d: expected statement error from RAISERROR, got none", attempt)
+				}
+				if err != nil {
+					t.Fatalf("attempt %d: unexpected error: %v", attempt, err)
+				}
+			case <-time.After(20 * time.Second):
+				t.Fatalf("attempt %d: message-loop query hung, connection was not drained (issue #407)", attempt)
+			}
+		}
+
+		// Attempt 1 abandons/errors; attempts 2 and 3 reuse the same connection,
+		// which is where a leaked reader would hang.
+		for attempt := 1; attempt <= 3; attempt++ {
+			once(attempt)
+		}
+	}
+
+	t.Run("drain", func(t *testing.T) { run(t, false) })
+	t.Run("abandon", func(t *testing.T) { run(t, true) })
 }
