@@ -440,7 +440,7 @@ func Parse(dsn string) (Config, error) {
 		}
 	}
 
-	// https://docs.microsoft.com/en-us/sql/database-engine/configure-windows/configure-the-network-packet-size-server-configuration-option\
+	// https://docs.microsoft.com/sql/database-engine/configure-windows/configure-the-network-packet-size-server-configuration-option
 	strpsize, ok := params[PacketSize]
 	if ok {
 		var err error
@@ -462,7 +462,7 @@ func Parse(dsn string) (Config, error) {
 		}
 	}
 
-	// https://msdn.microsoft.com/en-us/library/dd341108.aspx
+	// https://msdn.microsoft.com/library/dd341108.aspx
 	//
 	// Do not set a connection timeout. Use Context to manage such things.
 	// Default to zero, but still allow it to be set.
@@ -476,7 +476,7 @@ func Parse(dsn string) (Config, error) {
 	}
 
 	// default keep alive should be 30 seconds according to spec:
-	// https://msdn.microsoft.com/en-us/library/dd341108.aspx
+	// https://msdn.microsoft.com/library/dd341108.aspx
 	p.KeepAlive = 30 * time.Second
 	if keepAlive, ok := params[KeepAlive]; ok {
 		timeout, err := strconv.ParseUint(keepAlive, 10, 64)
@@ -759,8 +759,10 @@ func (p Config) URL() *url.URL {
 	return &res
 }
 
-// ADO connection string keywords at https://github.com/dotnet/SqlClient/blob/main/src/Microsoft.Data.SqlClient/src/Microsoft/Data/Common/DbConnectionStringCommon.cs
+// adoSynonyms maps ADO.Net alternate keyword forms to this driver's canonical keys.
+// See https://learn.microsoft.com/dotnet/api/microsoft.data.sqlclient.sqlconnection.connectionstring
 var adoSynonyms = map[string]string{
+	"app":                       AppName,
 	"application name":          AppName,
 	"data source":               Server,
 	"address":                   Server,
@@ -770,6 +772,17 @@ var adoSynonyms = map[string]string{
 	"uid":                       UserID,
 	"pwd":                       Password,
 	"initial catalog":           Database,
+	"connect timeout":           ConnectionTimeout,
+	"timeout":                   ConnectionTimeout,
+	"failover partner":          FailoverPartner,
+	"failover partner spn":      FailoverPartnerSpn,
+	"application intent":        ApplicationIntent,
+	"trust server certificate":  TrustServerCertificate,
+	"multi subnet failover":     MultiSubnetFailover,
+	"host name in certificate":  HostNameInCertificate,
+	"server spn":                ServerSpn,
+	"server certificate":        ServerCertificate,
+	"wsid":                      WorkstationID,
 	"column encryption setting": "columnencryption",
 }
 
