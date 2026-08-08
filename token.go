@@ -998,18 +998,24 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 	defer func() {
 		if err := recover(); err != nil {
 			sess.LogF(ctx, msdsn.LogErrors, "intercepted panic: %v", err)
-			if outs.msgq != nil {
-				var derr error
-				switch e := err.(type) {
-				case error:
-					derr = e
-				default:
-					derr = fmt.Errorf("unhandled session error: %v", e)
-				}
-				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgError{Error: derr})
-
+			// Normalize the recovered value to an error before enqueuing it.
+			// Several parse paths panic with plain strings (e.g. "invalid
+			// size for US_VARCHAR"); if such a value were sent to ch as-is,
+			// nextToken would treat it as an ordinary token rather than an
+			// error, and drain would then report a clean completion on the
+			// following channel close while unread TDS data remained on the
+			// wire, leaving connectionGood true. See issue #407.
+			var derr error
+			switch e := err.(type) {
+			case error:
+				derr = e
+			default:
+				derr = fmt.Errorf("unhandled session error: %v", e)
 			}
-			ch <- err
+			if outs.msgq != nil {
+				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgError{Error: derr})
+			}
+			ch <- derr
 		}
 		close(ch)
 	}()
@@ -1197,6 +1203,16 @@ type tokenProcessor struct {
 	firstError error
 	// whether to skip sending attention when ctx is done
 	noAttn bool
+	// cancelConfirmed, when non-nil, is set to true by nextToken whenever the
+	// server confirms a cancellation attention. drain uses it to tell a context
+	// error that means "attention confirmed, the stream is clean" apart from an
+	// identical context.Canceled/DeadlineExceeded value that was instead
+	// forwarded as a token-channel error by token parsing (for example a row
+	// parse failure or an Always Encrypted key provider returning a context
+	// error). The latter means the response was abandoned mid-stream with
+	// unread TDS data still on the wire, so the connection must not be reused.
+	// It is a pointer so the signal survives nextToken's value receiver.
+	cancelConfirmed *bool
 }
 
 // startResponseReader waits for any previous reader goroutine to finish,
@@ -1263,6 +1279,73 @@ func (t *tokenProcessor) iterateResponse() error {
 	}
 }
 
+// drain discards any tokens the background processSingleResponse goroutine is
+// still producing after the caller has decided to stop reading the response
+// early (for example after an error DONE token that precedes additional result
+// sets). The token channel is only lightly buffered, so a producer that is not
+// drained blocks forever on a channel send, its deferred close never runs, and
+// the next query on the same session hangs in startResponseReader waiting on
+// sess.readDone.
+//
+// The caller must cancel the reader context (via the cancel func returned when
+// the cancellable context was created) before calling drain. Cancelling lets
+// nextToken send an attention so the server stops streaming promptly and bounds
+// the wait via cancelDrainTimeout. drain then reads until nextToken reports the
+// response is finished, guaranteeing the reader goroutine exits and closes
+// sess.readDone. See issue #407.
+//
+// drain returns nil when the response was drained cleanly and a non-nil error
+// when it was not. A clean drain ends either because the reader reached the end
+// of the response (nextToken returns a nil token) or because the server
+// confirmed the cancellation attention. Both outcomes mean the background
+// reader goroutine has exited and sess.readDone is closed, so the connection is
+// safe to reuse.
+//
+// Confirmed cancellation is identified by an out-of-band signal that nextToken
+// sets (cancelConfirmed), not by the error value alone: nextToken surfaces the
+// reader context's own error (context.Canceled/DeadlineExceeded) when the
+// attention is confirmed, but the exact same values can also arrive as an
+// ordinary token-channel error produced by token parsing — for example a row
+// parse failure or an Always Encrypted key provider returning a context error.
+// Treating those as a clean drain would leave unread TDS data on the wire with
+// connectionGood still true, so only a context error accompanied by the
+// confirmation signal counts as success. Every other terminal error means the
+// drain did not complete (attention could not be sent, the server never
+// confirmed cancellation, or parsing failed mid-stream); the reader may still
+// be blocked and the connection must not be reused. The caller is responsible
+// for evicting the connection whenever drain returns non-nil, without inspecting
+// the error's concrete type.
+func (t *tokenProcessor) drain() error {
+	var confirmed bool
+	t.cancelConfirmed = &confirmed
+	defer func() { t.cancelConfirmed = nil }()
+	for {
+		confirmed = false
+		tok, err := t.nextToken()
+		if err != nil {
+			if confirmed &&
+				(err == context.Canceled || err == context.DeadlineExceeded) {
+				return nil
+			}
+			return err
+		}
+		if tok == nil {
+			return nil
+		}
+	}
+}
+
+// markCancelConfirmed records, via the out-of-band pointer drain installed, that
+// the server confirmed a cancellation attention. It is a no-op when no drain is
+// in progress (cancelConfirmed is nil), so ordinary callers of nextToken are
+// unaffected. nextToken takes a value receiver, so the signal must travel
+// through a pointer field rather than a plain bool.
+func (t tokenProcessor) markCancelConfirmed() {
+	if t.cancelConfirmed != nil {
+		*t.cancelConfirmed = true
+	}
+}
+
 func (t tokenProcessor) nextToken() (tokenStruct, error) {
 	// we do this separate non-blocking check on token channel to
 	// prioritize it over cancellation channel
@@ -1299,8 +1382,17 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		}
 		t.sess.LogF(t.ctx, msdsn.LogDebug, "Sending attention to the server")
 		if err := sendAttention(t.sess.buf); err != nil {
-			// unable to send attention, current connection is bad
-			// notify caller and close channel
+			// Unable to send attention, so the current connection is bad and
+			// the caller will evict it. The background processSingleResponse
+			// goroutine may still be blocked sending to t.tokChan; marking the
+			// connection bad only closes the transport, which cannot unblock a
+			// pending channel send. Drain the channel in the background so the
+			// goroutine can finish and close readDone, matching the pattern used
+			// by the cancellation-unavailable branches below. See issue #407.
+			go func() {
+				for range t.tokChan {
+				}
+			}()
 			return nil, err
 		}
 
@@ -1320,6 +1412,7 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		switch result {
 		case cancelConfirmationReceived:
 			// we got confirmation in current response
+			t.markCancelConfirmed()
 			return nil, t.ctx.Err()
 		case cancelConfirmationUnavailable:
 			// Drain tokChan in the background so processSingleResponse
@@ -1344,6 +1437,7 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		defer drainCancel2()
 		result2, tokErr2 := readCancelConfirmation(drainCtx2, t.tokChan)
 		if result2 == cancelConfirmationReceived {
+			t.markCancelConfirmed()
 			return nil, t.ctx.Err()
 		}
 		// we did not get cancellation confirmation, something is not
