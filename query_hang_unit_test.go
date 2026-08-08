@@ -5,6 +5,8 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/binary"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -204,4 +206,135 @@ func TestDrain_ParseContextErrorEvictsConnection(t *testing.T) {
 	require.Error(t, err,
 		"a parse-produced context error must be reported as a drain failure")
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// gatedTransport serves a first response packet immediately, then blocks the
+// next read until the first Write happens (which also fails, simulating a
+// broken send), after which it serves a second packet. It lets a test place the
+// background processSingleResponse goroutine in the exact state issue #407 cares
+// about: blocked waiting for more server data at the moment drain tries and
+// fails to send an attention.
+type gatedTransport struct {
+	mu       sync.Mutex
+	p1       *bytes.Reader
+	p2       *bytes.Reader
+	gate     chan struct{}
+	opened   bool
+	writeErr error
+}
+
+func (t *gatedTransport) Read(p []byte) (int, error) {
+	t.mu.Lock()
+	if t.p1.Len() > 0 {
+		t.mu.Unlock()
+		return t.p1.Read(p)
+	}
+	gate := t.gate
+	t.mu.Unlock()
+	// First packet consumed: block until the attention Write opens the gate,
+	// then stream the second packet.
+	<-gate
+	return t.p2.Read(p)
+}
+
+func (t *gatedTransport) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	if !t.opened {
+		t.opened = true
+		close(t.gate)
+	}
+	we := t.writeErr
+	t.mu.Unlock()
+	// Report the write as failed so sendAttention returns an error, but still
+	// release the reader so the producer goroutine can resume and stream the
+	// remaining tokens.
+	return len(p), we
+}
+
+func (*gatedTransport) Close() error { return nil }
+
+// TestNextToken_AttentionWriteFailureDoesNotLeakReader is the regression test
+// for the follow-up to issue #407 in the drain/attention path: when drain
+// cancels the reader and nextToken cannot send its attention (sendAttention
+// returns an error), the background processSingleResponse goroutine may still be
+// mid-response and about to stream more tokens than the channel can buffer.
+// Marking the connection bad only closes the transport; it cannot unblock a
+// pending channel send, so without a background consumer the producer would
+// block forever on a full channel and sess.readDone would never close,
+// re-introducing the original hang on the next query.
+//
+// The test drives that exact sequence: an error DONE arrives in a non-final
+// first packet (so processQueryResponse enters the drain path), drain's
+// attention write fails, and the server then streams far more DONE tokens than
+// the 5-slot channel can hold. The assertion is that the reader goroutine still
+// exits (readDone closes), proving nextToken started a fallback drain of the
+// abandoned channel.
+func TestNextToken_AttentionWriteFailureDoesNotLeakReader(t *testing.T) {
+	// Packet 1: a single error DONE (doneError|doneMore) in a non-final packet,
+	// so the consumer returns on the error while the producer keeps reading.
+	var s1 []byte
+	s1 = appendDoneToken(s1, tokenDone, doneError|doneMore)
+	packet1 := wrapReplyPacketStatus(s1, 0x00 /* not final */)
+
+	// Packet 2: many DONE-IN-PROC tokens (more than the 5-slot channel buffer)
+	// followed by a final DONE, so a producer with no consumer blocks on a full
+	// channel send.
+	var s2 []byte
+	for i := 0; i < 20; i++ {
+		s2 = appendDoneToken(s2, tokenDoneInProc, doneMore)
+	}
+	s2 = appendDoneToken(s2, tokenDone, doneFinal)
+	packet2 := wrapReplyPacket(s2)
+
+	transport := &gatedTransport{
+		p1:       bytes.NewReader(packet1),
+		p2:       bytes.NewReader(packet2),
+		gate:     make(chan struct{}),
+		writeErr: errors.New("simulated attention write failure"),
+	}
+	sess := &tdsSession{
+		buf:    newTdsBuffer(defaultPacketSize, transport),
+		logger: optionalLogger{},
+	}
+	conn := &Conn{
+		sess:           sess,
+		connectionGood: true,
+		connector:      &Connector{params: msdsn.Config{}},
+	}
+	stmt := &Stmt{c: conn}
+
+	type result struct {
+		rows driver.Rows
+		err  error
+	}
+	resCh := make(chan result, 1)
+	go func() {
+		rows, err := stmt.processQueryResponse(context.Background())
+		resCh <- result{rows, err}
+	}()
+
+	var res result
+	select {
+	case res = <-resCh:
+	case <-time.After(10 * time.Second):
+		t.Fatal("processQueryResponse hung (issue #407)")
+	}
+
+	assert.Error(t, res.err, "processQueryResponse should return the server error")
+	assert.Nil(t, res.rows, "no rows should be returned on error")
+	assert.False(t, conn.connectionGood,
+		"a failed attention write must mark the connection bad so the pool evicts it")
+
+	// The critical assertion: even though the attention write failed while the
+	// producer still had a large response to stream, the reader goroutine must
+	// have drained and exited so the next query would not hang on readDone.
+	readDone := sess.readDone
+	require.NotNil(t, readDone, "startResponseReader should have set readDone")
+	select {
+	case <-readDone:
+		// reader goroutine exited: the fallback drain consumed the abandoned
+		// channel and let the producer finish.
+	case <-time.After(10 * time.Second):
+		t.Fatal("reader goroutine leaked: readDone never closed after attention write failure (issue #407)")
+	}
 }
