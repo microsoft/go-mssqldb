@@ -1197,6 +1197,16 @@ type tokenProcessor struct {
 	firstError error
 	// whether to skip sending attention when ctx is done
 	noAttn bool
+	// cancelConfirmed, when non-nil, is set to true by nextToken whenever the
+	// server confirms a cancellation attention. drain uses it to tell a context
+	// error that means "attention confirmed, the stream is clean" apart from an
+	// identical context.Canceled/DeadlineExceeded value that was instead
+	// forwarded as a token-channel error by token parsing (for example a row
+	// parse failure or an Always Encrypted key provider returning a context
+	// error). The latter means the response was abandoned mid-stream with
+	// unread TDS data still on the wire, so the connection must not be reused.
+	// It is a pointer so the signal survives nextToken's value receiver.
+	cancelConfirmed *bool
 }
 
 // startResponseReader waits for any previous reader goroutine to finish,
@@ -1281,24 +1291,34 @@ func (t *tokenProcessor) iterateResponse() error {
 // drain returns nil when the response was drained cleanly and a non-nil error
 // when it was not. A clean drain ends either because the reader reached the end
 // of the response (nextToken returns a nil token) or because the server
-// confirmed the cancellation attention, which nextToken surfaces as the reader
-// context's own cancellation error (context.Canceled/DeadlineExceeded returned
-// directly). Both outcomes mean the background reader goroutine has exited and
-// sess.readDone is closed, so the connection is safe to reuse.
+// confirmed the cancellation attention. Both outcomes mean the background
+// reader goroutine has exited and sess.readDone is closed, so the connection is
+// safe to reuse.
 //
-// Any other error means the drain did not complete: attention could not be
-// sent (nextToken returns the raw write error), or the server never confirmed
-// cancellation (a StreamError). In those cases the reader may still be blocked
-// and the connection must not be reused. The caller is responsible for evicting
-// the connection whenever drain returns non-nil, without inspecting the error's
-// concrete type. Equality (not errors.Is) is used against the context sentinels
-// on purpose so that a transport error which merely wraps a deadline is treated
-// as a genuine drain failure rather than a clean cancellation.
+// Confirmed cancellation is identified by an out-of-band signal that nextToken
+// sets (cancelConfirmed), not by the error value alone: nextToken surfaces the
+// reader context's own error (context.Canceled/DeadlineExceeded) when the
+// attention is confirmed, but the exact same values can also arrive as an
+// ordinary token-channel error produced by token parsing — for example a row
+// parse failure or an Always Encrypted key provider returning a context error.
+// Treating those as a clean drain would leave unread TDS data on the wire with
+// connectionGood still true, so only a context error accompanied by the
+// confirmation signal counts as success. Every other terminal error means the
+// drain did not complete (attention could not be sent, the server never
+// confirmed cancellation, or parsing failed mid-stream); the reader may still
+// be blocked and the connection must not be reused. The caller is responsible
+// for evicting the connection whenever drain returns non-nil, without inspecting
+// the error's concrete type.
 func (t *tokenProcessor) drain() error {
+	var confirmed bool
+	t.cancelConfirmed = &confirmed
+	defer func() { t.cancelConfirmed = nil }()
 	for {
+		confirmed = false
 		tok, err := t.nextToken()
 		if err != nil {
-			if err == context.Canceled || err == context.DeadlineExceeded {
+			if confirmed &&
+				(err == context.Canceled || err == context.DeadlineExceeded) {
 				return nil
 			}
 			return err
@@ -1306,6 +1326,17 @@ func (t *tokenProcessor) drain() error {
 		if tok == nil {
 			return nil
 		}
+	}
+}
+
+// markCancelConfirmed records, via the out-of-band pointer drain installed, that
+// the server confirmed a cancellation attention. It is a no-op when no drain is
+// in progress (cancelConfirmed is nil), so ordinary callers of nextToken are
+// unaffected. nextToken takes a value receiver, so the signal must travel
+// through a pointer field rather than a plain bool.
+func (t tokenProcessor) markCancelConfirmed() {
+	if t.cancelConfirmed != nil {
+		*t.cancelConfirmed = true
 	}
 }
 
@@ -1366,6 +1397,7 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		switch result {
 		case cancelConfirmationReceived:
 			// we got confirmation in current response
+			t.markCancelConfirmed()
 			return nil, t.ctx.Err()
 		case cancelConfirmationUnavailable:
 			// Drain tokChan in the background so processSingleResponse
@@ -1390,6 +1422,7 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		defer drainCancel2()
 		result2, tokErr2 := readCancelConfirmation(drainCtx2, t.tokChan)
 		if result2 == cancelConfirmationReceived {
+			t.markCancelConfirmed()
 			return nil, t.ctx.Err()
 		}
 		// we did not get cancellation confirmation, something is not

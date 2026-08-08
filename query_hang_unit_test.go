@@ -177,3 +177,31 @@ func TestProcessQueryResponse_DrainFailureEvictsConnection(t *testing.T) {
 	assert.False(t, conn.connectionGood,
 		"a failed drain must mark the connection bad so the pool evicts it (issue #407)")
 }
+
+// TestDrain_ParseContextErrorEvictsConnection proves the provenance distinction
+// added for issue #407: a context.Canceled/DeadlineExceeded value that reaches
+// nextToken as an ordinary token-channel error (as happens when row parsing or
+// an Always Encrypted key provider fails with a context error) must be reported
+// by drain as a failure, not mistaken for a confirmed cancellation attention.
+// Otherwise drain would return nil and the connection would be kept with unread
+// TDS data still on the wire, corrupting the next query on the session.
+func TestDrain_ParseContextErrorEvictsConnection(t *testing.T) {
+	// Deliver a bare context.Canceled as a token-channel error (the shape
+	// processSingleResponse produces when parseRow forwards a decrypt/key
+	// provider error) on a context that is NOT cancelled, so the value cannot
+	// have come from the confirmed-attention path.
+	tokChan := make(chan tokenStruct, 1)
+	tokChan <- context.Canceled
+	close(tokChan)
+
+	reader := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     context.Background(),
+		sess:    &tdsSession{logger: optionalLogger{}},
+	}
+
+	err := reader.drain()
+	require.Error(t, err,
+		"a parse-produced context error must be reported as a drain failure")
+	assert.ErrorIs(t, err, context.Canceled)
+}
