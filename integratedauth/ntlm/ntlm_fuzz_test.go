@@ -29,7 +29,7 @@ func FuzzNextBytes(f *testing.F) {
 
 	auth := &Auth{Domain: "DOMAIN", UserName: "user", Password: "pw", ChannelBinding: []byte{}}
 
-	f.Fuzz(func(t *testing.T, msg []byte) {
+	f.Fuzz(func(_ *testing.T, msg []byte) {
 		// Must not panic. Return value is ignored; we only care that the
 		// call completes without an out-of-bounds slice read.
 		_, _ = auth.NextBytes(msg)

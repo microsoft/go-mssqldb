@@ -19,7 +19,7 @@ func FuzzParse(f *testing.F) {
 		f.Add(s)
 	}
 
-	f.Fuzz(func(t *testing.T, dsn string) {
+	f.Fuzz(func(_ *testing.T, dsn string) {
 		_, _ = Parse(dsn)
 	})
 }

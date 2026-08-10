@@ -25,7 +25,7 @@ func FuzzSplit(f *testing.F) {
 		f.Add(s.sql, s.sep)
 	}
 
-	f.Fuzz(func(t *testing.T, sql, sep string) {
+	f.Fuzz(func(_ *testing.T, sql, sep string) {
 		_ = Split(sql, sep)
 	})
 }

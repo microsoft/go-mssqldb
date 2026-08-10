@@ -19,7 +19,7 @@ func FuzzParseParams(f *testing.F) {
 		f.Add(s)
 	}
 
-	f.Fuzz(func(t *testing.T, query string) {
+	f.Fuzz(func(_ *testing.T, query string) {
 		_, _ = ParseParams(query)
 	})
 }
