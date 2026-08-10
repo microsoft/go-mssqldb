@@ -60,3 +60,28 @@ func TestNextBytesMinimumSizeNoPanic(t *testing.T) {
 		t.Fatalf("extended session security path returned error: %v", err)
 	}
 }
+
+// TestNextBytesTargetInfoShortMessage exercises the NTLMv2 target-info path
+// (extended session security + target info flags), where getNTLMv2TargetInfoFields
+// reads the target-information header at offsets 42-48. A challenge that is long
+// enough to enter NextBytes (>= 32 bytes) but shorter than 48 bytes must return
+// an error without panicking. Regression test for the target-info bounds guard.
+func TestNextBytesTargetInfoShortMessage(t *testing.T) {
+	auth := &Auth{Domain: "DOMAIN", UserName: "user", Password: "pw", ChannelBinding: []byte{}}
+	flags := uint32(_NEGOTIATE_EXTENDED_SESSIONSECURITY | _NEGOTIATE_TARGET_INFO)
+
+	for size := minChallengeMessageSize; size < 48; size++ {
+		msg := make([]byte, size)
+		copy(msg, []byte("NTLMSSP\x00"))
+		binary.LittleEndian.PutUint32(msg[8:12], _CHALLENGE_MESSAGE)
+		binary.LittleEndian.PutUint32(msg[20:24], flags)
+
+		out, err := auth.NextBytes(msg)
+		if err == nil {
+			t.Fatalf("size=%d: expected error for truncated target-info message, got nil", size)
+		}
+		if out != nil {
+			t.Fatalf("size=%d: expected nil output on error, got %v", size, out)
+		}
+	}
+}
