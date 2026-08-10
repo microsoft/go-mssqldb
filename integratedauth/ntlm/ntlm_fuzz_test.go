@@ -28,10 +28,15 @@ func FuzzNextBytes(f *testing.F) {
 	f.Add(ess)
 
 	auth := &Auth{Domain: "DOMAIN", UserName: "user", Password: "pw", ChannelBinding: []byte{}}
+	// authCB exercises the TLS/EPA channel-binding path, which slices the
+	// parsed target-information block and has its own out-of-bounds hazards.
+	authCB := &Auth{Domain: "DOMAIN", UserName: "user", Password: "pw", ChannelBinding: []byte{0x01, 0x02, 0x03, 0x04}}
 
 	f.Fuzz(func(_ *testing.T, msg []byte) {
-		// Must not panic. Return value is ignored; we only care that the
-		// call completes without an out-of-bounds slice read.
+		// Must not panic for either channel-binding configuration. Return
+		// values are ignored; we only care that the calls complete without
+		// an out-of-bounds slice read.
 		_, _ = auth.NextBytes(msg)
+		_, _ = authCB.NextBytes(msg)
 	})
 }

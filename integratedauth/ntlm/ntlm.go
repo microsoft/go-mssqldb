@@ -320,6 +320,13 @@ func getNTLMv2TargetInfoFields(type2Message []byte) (info []byte, err error) {
 	}
 
 	targetInformationAllocated := binary.LittleEndian.Uint16(type2Message[42:44])
+	// A well-formed target information block is an AV_PAIR list terminated by
+	// the 4-byte MsvAvEOL pair. The channel-binding path assumes those final
+	// 4 bytes exist (it slices targetInfoFields[:len-4]), so a block shorter
+	// than 4 bytes is malformed and would cause a negative slice index panic.
+	if targetInformationAllocated < 4 {
+		return nil, fmt.Errorf("mssql: NTLMv2 type 2 message target information length %d too small, minimum 4", targetInformationAllocated)
+	}
 	targetInformationDataOffset := binary.LittleEndian.Uint32(type2Message[44:48])
 	endOfOffset = int64(targetInformationDataOffset) + int64(targetInformationAllocated)
 	if int64(type2MessageLength) < endOfOffset {
