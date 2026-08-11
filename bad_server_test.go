@@ -156,6 +156,21 @@ func TestBadServerPreLoginPacketWithMissingData(t *testing.T) {
 	})
 }
 
+// TestBadServerPreLoginPacketWithOverflowingOptionLength sends an option whose
+// offset+length sum wraps past 65535. The connection must fail with an error
+// instead of panicking and taking down the process.
+func TestBadServerPreLoginPacketWithOverflowingOptionLength(t *testing.T) {
+	testBadServer(t, func(conn net.Conn) {
+		// token=0x00, offset=6, length=65530, then padding
+		preloginPacket := []byte{4, 1, 0, 15, 0, 0, 1, 0, 0, 0, 6, 255, 250, 0, 0}
+
+		_, err := conn.Write(preloginPacket)
+		if err != nil {
+			t.Fatal("Writing PRELOGIN packet failed", err)
+		}
+	})
+}
+
 func goodPreloginSequence(t *testing.T, buf *tdsBuffer) {
 	// read prelogin request
 	packetType, err := buf.BeginRead()
