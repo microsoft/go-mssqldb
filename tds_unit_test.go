@@ -2,6 +2,7 @@ package mssql
 
 import (
 	"encoding/binary"
+	"strings"
 	"testing"
 
 	"github.com/microsoft/go-mssqldb/msdsn"
@@ -15,11 +16,13 @@ func TestParseDAC(t *testing.T) {
 		name     string
 		msg      []byte
 		instance string
+		wantPort string // empty means no entry is expected
 	}{
 		{
 			name:     "valid DAC response",
-			msg:      []byte{5, 0, 0, 0, 0, 0x59, 0x05}, // Port 1369 (0x0559) little-endian
+			msg:      []byte{5, 3, 0, 1, 0x59, 0x05}, // Port 1369 (0x0559) little-endian
 			instance: "testinstance",
+			wantPort: "1369",
 		},
 		{
 			name:     "empty message",
@@ -28,34 +31,74 @@ func TestParseDAC(t *testing.T) {
 		},
 		{
 			name:     "wrong first byte",
-			msg:      []byte{4, 0, 0, 0, 0, 0x59, 0x05},
+			msg:      []byte{4, 3, 0, 1, 0x59, 0x05},
 			instance: "testinstance",
 		},
 		{
 			name:     "too short message",
-			msg:      []byte{5, 0, 0, 0, 0},
+			msg:      []byte{5, 3, 0, 1, 0x59},
+			instance: "testinstance",
+		},
+		{
+			name:     "too long message",
+			msg:      []byte{5, 3, 0, 1, 0x59, 0x05, 0x00},
 			instance: "testinstance",
 		},
 		{
 			name:     "case insensitive instance",
 			msg:      createValidDACResponse(1433),
 			instance: "MyInstance",
+			wantPort: "1433",
+		},
+		{
+			name:     "max port",
+			msg:      createValidDACResponse(65535),
+			instance: "testinstance",
+			wantPort: "65535",
+		},
+		{
+			name:     "empty instance name",
+			msg:      createValidDACResponse(1434),
+			instance: "",
+			wantPort: "1434",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Just verify we don't panic
-			_ = parseDAC(tt.msg, tt.instance)
+			results := parseDAC(tt.msg, tt.instance)
+			if tt.wantPort == "" {
+				assert.Empty(t, results, "expected no browser data")
+				return
+			}
+			key := strings.ToUpper(tt.instance)
+			assert.Len(t, results, 1, "browser data length")
+			assert.Equal(t, tt.wantPort, results[key]["tcp"], "tcp port")
+			// ParseBrowserData matches on InstanceName, so it must be present.
+			assert.Equal(t, key, results[key]["InstanceName"], "instance name")
 		})
 	}
 }
 
-// Helper to create a valid DAC response message
+// TestParseDACParseBrowserData verifies that the data parseDAC returns is
+// actually consumable by the dialer that resolves the DAC port.
+func TestParseDACParseBrowserData(t *testing.T) {
+	t.Parallel()
+
+	p := &msdsn.Config{Host: "localhost", Instance: "MyInstance"}
+	err := tcpDialer{}.ParseBrowserData(parseDAC(createValidDACResponse(1434), p.Instance), p)
+	assert.NoError(t, err, "ParseBrowserData")
+	assert.Equal(t, uint64(1434), p.Port, "resolved DAC port")
+}
+
+// Helper to create a valid DAC response message: SVR_RESP, 2-byte length,
+// protocol version, then the little-endian TCP port at offset 4.
 func createValidDACResponse(port uint16) []byte {
-	msg := make([]byte, 7) // parseDAC expects 6 bytes + buffer, uses index 5
+	msg := make([]byte, 6)
 	msg[0] = 5
-	binary.LittleEndian.PutUint16(msg[5:], port)
+	msg[1] = 3
+	msg[3] = 1
+	binary.LittleEndian.PutUint16(msg[4:6], port)
 	return msg
 }
 
