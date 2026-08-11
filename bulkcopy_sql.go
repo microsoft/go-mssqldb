@@ -43,6 +43,16 @@ func (c *Conn) prepareCopyIn(ctx context.Context, query string) (_ driver.Stmt, 
 	return ci, nil
 }
 
+// CopyIn creates a bulk import statement that can be passed to Prepare.
+//
+// table is the destination object name. It is treated as an object name and is
+// quoted before it is sent to the server, so a name that is not a regular
+// identifier does not need to be delimited by the caller. It may be qualified,
+// as in "schema.table" or "database.schema.table", and individual parts may be
+// delimited, as in "[my schema].[my table]".
+//
+// columns are the destination column names, in the order their values are
+// passed to Exec.
 func CopyIn(table string, options BulkOptions, columns ...string) string {
 	bulkconfig := &serializableBulkConfig{TableName: table, Options: options, ColumnsName: columns}
 

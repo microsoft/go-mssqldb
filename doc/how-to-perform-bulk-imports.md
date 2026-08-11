@@ -16,6 +16,12 @@ bulkImportStr := mssql.CopyIn("tablename", mssql.BulkOptions{}, "column1", "colu
 stmt, err := db.Prepare(bulkImportStr)
 ```
 
+The table name is treated as an object name and is quoted before it is sent to the server, so a name that is not a regular identifier does not need to be delimited by the caller. It may be qualified, and individual parts may be delimited.
+
+```
+bulkImportStr := mssql.CopyIn("[my schema].[my table]", mssql.BulkOptions{}, "column1")
+```
+
 Bulk options can be specified using the `mssql.BulkOptions` type. The following is how the `BulkOptions` type is defined:
 
 ```
@@ -28,6 +34,12 @@ type BulkOptions struct {
     Order             []string
     Tablock           bool
 }
+```
+
+Each `Order` entry is a destination column name, optionally followed by `ASC` or `DESC`. The column name is quoted the same way the table name is, so a column name that ends in `asc` or `desc` has to be delimited to be told apart from a sort direction.
+
+```
+mssql.BulkOptions{Order: []string{"column1 DESC", "[my column]"}}
 ```
 
 The statement can be executed many times to copy data into the table specified.
