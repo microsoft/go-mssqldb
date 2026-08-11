@@ -67,6 +67,13 @@ func TestParseDAC(t *testing.T) {
 			instance: "testinstance",
 		},
 		{
+			// Port 0 is not a listening endpoint, and resolveServerPort would
+			// silently turn it into the default TDS port.
+			name:     "zero port",
+			msg:      createValidDACResponse(0),
+			instance: "testinstance",
+		},
+		{
 			name:     "case insensitive instance",
 			msg:      createValidDACResponse(1433),
 			instance: "MyInstance",
@@ -111,6 +118,21 @@ func TestParseDACParseBrowserData(t *testing.T) {
 	err := tcpDialer{}.ParseBrowserData(parseDAC(createValidDACResponse(1434), p.Instance), p)
 	assert.NoError(t, err, "ParseBrowserData")
 	assert.Equal(t, uint64(1434), p.Port, "resolved DAC port")
+}
+
+// TestParseDACZeroPortNotDefaulted documents why a zero TCP_DAC_PORT is
+// rejected outright: if it were accepted, ParseBrowserData would store it as-is
+// and resolveServerPort would rewrite it to the default TDS port, quietly
+// connecting to the regular endpoint instead of the DAC one.
+func TestParseDACZeroPortNotDefaulted(t *testing.T) {
+	t.Parallel()
+
+	p := &msdsn.Config{Host: "localhost", Instance: "MyInstance"}
+	err := tcpDialer{}.ParseBrowserData(parseDAC(createValidDACResponse(0), p.Instance), p)
+	assert.Error(t, err, "a zero DAC port must not resolve")
+	assert.Zero(t, p.Port, "port must be left unset")
+	assert.Equal(t, uint64(defaultServerPort), resolveServerPort(p.Port),
+		"an unset port silently becomes the default TDS port, which is what rejecting port 0 avoids")
 }
 
 // Helper to create a valid SVR_RESP (DAC) message per MC-SQLR 2.2.6:
@@ -179,8 +201,9 @@ func TestGetInstancesDACResponseSize(t *testing.T) {
 }
 
 // newUDPResponder starts a loopback UDP server that answers the first datagram
-// it receives with reply, and returns a Dialer targeting it.
-func newUDPResponder(t *testing.T, reply []byte) Dialer {
+// it receives with reply, records that datagram, and acts as a Dialer targeting
+// itself.
+func newUDPResponder(t *testing.T, reply []byte) *udpResponder {
 	t.Helper()
 
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -189,27 +212,65 @@ func newUDPResponder(t *testing.T, reply []byte) Dialer {
 	}
 	t.Cleanup(func() { _ = pc.Close() })
 
+	r := &udpResponder{addr: pc.LocalAddr().String(), requests: make(chan []byte, 1)}
 	go func() {
 		buf := make([]byte, 1024)
-		_, peer, err := pc.ReadFrom(buf)
+		n, peer, err := pc.ReadFrom(buf)
 		if err != nil {
 			return
+		}
+		select {
+		case r.requests <- append([]byte(nil), buf[:n]...):
+		default:
 		}
 		_, _ = pc.WriteTo(reply, peer)
 	}()
 
-	return udpResponderDialer{addr: pc.LocalAddr().String()}
+	return r
 }
 
-// udpResponderDialer ignores the requested address so the test does not need to
-// bind the real SQL Server Browser port.
-type udpResponderDialer struct {
-	addr string
+// udpResponder ignores the requested address so the test does not need to bind
+// the real SQL Server Browser port.
+type udpResponder struct {
+	addr     string
+	requests chan []byte
 }
 
-func (d udpResponderDialer) DialContext(ctx context.Context, network, _ string) (net.Conn, error) {
+func (d *udpResponder) DialContext(ctx context.Context, network, _ string) (net.Conn, error) {
 	var nd net.Dialer
 	return nd.DialContext(ctx, network, d.addr)
+}
+
+// request returns the datagram the responder received.
+func (d *udpResponder) request(t *testing.T) []byte {
+	t.Helper()
+
+	select {
+	case req := <-d.requests:
+		return req
+	case <-time.After(10 * time.Second):
+		t.Fatal("no request reached the responder")
+		return nil
+	}
+}
+
+// TestGetInstancesDACRequest pins the bytes actually put on the wire. MC-SQLR
+// 2.2.4 defines CLNT_UCAST_DAC as 0x0F, PROTOCOLVERSION 0x01, then a
+// null-terminated instance name, so the name starts at offset 2 and the packet
+// ends with the terminator.
+func TestGetInstancesDACRequest(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	d := newUDPResponder(t, createValidDACResponse(57138))
+	_, err := getInstances(ctx, d, "127.0.0.1", msdsn.BrowserDAC, "YUKONSTD")
+	assert.NoError(t, err, "getInstances")
+
+	// The worked example from MC-SQLR 4.3: 0f 01 "YUKONSTD" 00.
+	want := []byte{0x0F, 0x01, 'Y', 'U', 'K', 'O', 'N', 'S', 'T', 'D', 0x00}
+	assert.Equal(t, want, d.request(t), "CLNT_UCAST_DAC request")
 }
 
 func TestParseInstances(t *testing.T) {

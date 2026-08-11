@@ -30,10 +30,18 @@ import (
 func parseDAC(msg []byte, instance string) msdsn.BrowserData {
 	results := msdsn.BrowserData{}
 	if len(msg) == 6 && msg[0] == 5 && binary.LittleEndian.Uint16(msg[1:3]) == 6 && msg[3] == 1 {
+		port := binary.LittleEndian.Uint16(msg[4:6])
+		// Port 0 is never a listening endpoint. Accepting it would leave
+		// Config.Port at zero, which resolveServerPort silently rewrites to the
+		// default TDS port, connecting to the regular endpoint while the caller
+		// believes it reached the DAC one.
+		if port == 0 {
+			return results
+		}
 		name := strings.ToUpper(instance)
 		results[name] = map[string]string{
 			"InstanceName": name,
-			"tcp":          fmt.Sprint(binary.LittleEndian.Uint16(msg[4:6])),
+			"tcp":          fmt.Sprint(port),
 		}
 	}
 	return results
@@ -73,10 +81,13 @@ func getInstances(ctx context.Context, d Dialer, address string, browserMsg msds
 	var bmsg []byte
 	var resp []byte
 	if browserMsg == msdsn.BrowserDAC {
+		// CLNT_UCAST_DAC (MC-SQLR 2.2.4) is 0x0F, PROTOCOLVERSION 0x01, then a
+		// null-terminated instance name starting at offset 2. The buffer is
+		// sized so its zero-initialized last byte is the terminator.
 		bmsg = make([]byte, 3+len(instance))
 		bmsg[0] = byte(msdsn.BrowserDAC)
 		bmsg[1] = 1
-		_ = copy(bmsg[3:], instance)
+		_ = copy(bmsg[2:], instance)
 		// A DAC reply is exactly 6 bytes (MC-SQLR 2.2.6). Read into a larger
 		// buffer so an oversized datagram is reported as such rather than
 		// being silently truncated to a well-formed looking 6 bytes, which
