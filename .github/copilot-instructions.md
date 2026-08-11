@@ -259,12 +259,12 @@ strategy:
 
 ### AppVeyor Configuration (appveyor.yml)
 Update multiple `GOVERSION` entries:
-1. **Default GOVERSION** (line ~14): `GOVERSION: 123` (remove dots)
+1. **Default GOVERSION** (line ~14): `GOVERSION: 125` (remove dots)
 2. **Matrix entries** (lines ~20-35): Update all GOVERSION values
 
 **Version Format Difference:**
-- **GitHub Actions**: Use full version with dots (e.g., `'1.23'`)
-- **AppVeyor**: Remove dots and use just numbers (e.g., `123` for Go 1.23)
+- **GitHub Actions**: Use full version with dots (e.g., `'1.25.7'`)
+- **AppVeyor**: Remove dots and use just numbers (e.g., `125` for Go 1.25)
 
 ### Complete Upgrade Checklist
 - [ ] Update `.github/workflows/pr-validation.yml`: go version in matrix strategy
@@ -290,7 +290,7 @@ ls -la
 
 ### Build and Test Status
 ```bash
-go version  # Should be 1.23+
+go version  # Should be 1.25+
 go build    # Should complete in ~0.5 seconds
 go test ./msdsn  # Should pass quickly with connection string tests
 ```
