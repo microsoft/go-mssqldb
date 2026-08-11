@@ -561,3 +561,74 @@ func TestBrowserDataType(t *testing.T) {
 	assert.Len(t, data, 1, "BrowserData length")
 	assert.Equal(t, "1433", data["INSTANCE1"]["tcp"], "BrowserData[INSTANCE1][tcp]")
 }
+
+// TestReadPreloginOptionData covers bounds checking of the offset/length pair a
+// server supplies for each PRELOGIN option. The offset+length cases were found
+// by FuzzReadPrelogin: computing the sum in uint16 let it wrap past 65535, so
+// the bounds check passed while the slice expression itself was out of range.
+func TestReadPreloginOptionData(t *testing.T) {
+	t.Parallel()
+
+	buffer := []byte{0, 0, 6, 0, 4, preloginTERMINATOR, 1, 2, 3, 4}
+
+	tests := []struct {
+		name     string
+		option   *preloginOption
+		expected []byte
+		wantErr  bool
+	}{
+		{
+			name:     "valid option",
+			option:   &preloginOption{token: preloginVERSION, offset: 6, length: 4},
+			expected: []byte{1, 2, 3, 4},
+		},
+		{
+			name:     "zero length option",
+			option:   &preloginOption{token: preloginVERSION, offset: 6, length: 0},
+			expected: []byte{},
+		},
+		{
+			name:    "nil option",
+			option:  nil,
+			wantErr: true,
+		},
+		{
+			name:    "terminator record",
+			option:  &preloginOption{token: preloginTERMINATOR, offset: 6, length: 4},
+			wantErr: true,
+		},
+		{
+			name:    "offset past end of buffer",
+			option:  &preloginOption{token: preloginVERSION, offset: uint16(len(buffer)), length: 0},
+			wantErr: true,
+		},
+		{
+			name:    "length past end of buffer",
+			option:  &preloginOption{token: preloginVERSION, offset: 6, length: 5},
+			wantErr: true,
+		},
+		{
+			name:    "offset plus length overflows uint16",
+			option:  &preloginOption{token: preloginVERSION, offset: 6, length: 65530},
+			wantErr: true,
+		},
+		{
+			name:    "maximum length",
+			option:  &preloginOption{token: preloginVERSION, offset: 5, length: 65535},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			value, err := readPreloginOptionData(tt.option, buffer)
+			if tt.wantErr {
+				assert.Error(t, err, "readPreloginOptionData error")
+				assert.Nil(t, value, "readPreloginOptionData value")
+				return
+			}
+			assert.NoError(t, err, "readPreloginOptionData error")
+			assert.Equal(t, tt.expected, value, "readPreloginOptionData value")
+		})
+	}
+}
