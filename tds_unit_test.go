@@ -348,6 +348,50 @@ func TestBrowserDataType(t *testing.T) {
 	assert.Equal(t, "1433", data["INSTANCE1"]["tcp"], "BrowserData[INSTANCE1][tcp]")
 }
 
+func TestInterpretPreloginResponseEncryptionLength(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		fields    map[uint8][]byte
+		expected  byte
+		expectErr string
+	}{
+		{
+			name:     "valid encryption option",
+			fields:   map[uint8][]byte{preloginENCRYPTION: {encryptNotSup}},
+			expected: encryptNotSup,
+		},
+		{
+			name:      "missing encryption option",
+			fields:    map[uint8][]byte{},
+			expectErr: "encrypt negotiation failed",
+		},
+		{
+			name:      "empty encryption option",
+			fields:    map[uint8][]byte{preloginENCRYPTION: {}},
+			expectErr: "encrypt negotiation response length should be 1: is 0",
+		},
+		{
+			name:      "oversized encryption option",
+			fields:    map[uint8][]byte{preloginENCRYPTION: {encryptOn, encryptOff}},
+			expectErr: "encrypt negotiation response length should be 1: is 2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			encrypt, err := interpretPreloginResponse(msdsn.Config{}, &featureExtFedAuth{FedAuthLibrary: FedAuthLibraryReserved}, tt.fields)
+			if tt.expectErr != "" {
+				assert.EqualError(t, err, tt.expectErr)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, encrypt)
+		})
+	}
+}
+
 // TestReadPreloginOptionData covers bounds checking of the offset/length pair a
 // server supplies for each PRELOGIN option. The offset+length cases were found
 // by FuzzReadPrelogin: computing the sum in uint16 let it wrap past 65535, so
