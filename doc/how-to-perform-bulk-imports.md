@@ -36,10 +36,11 @@ type BulkOptions struct {
 }
 ```
 
-Each `Order` entry is a destination column name, optionally followed by `ASC` or `DESC`. The column name is quoted the same way the table name is, so a column name that ends in `asc` or `desc` has to be delimited to be told apart from a sort direction.
+Each `Order` entry names one or more destination columns, separated by commas, each optionally followed by `ASC` or `DESC`. Column names are quoted the same way the table name is, so a column name that ends in `asc` or `desc`, or that contains a comma, has to be delimited to be told apart from a sort direction or a separator.
 
 ```
 mssql.BulkOptions{Order: []string{"column1 DESC", "[my column]"}}
+mssql.BulkOptions{Order: []string{"column1 DESC, [my column]"}}
 ```
 
 The statement can be executed many times to copy data into the table specified.

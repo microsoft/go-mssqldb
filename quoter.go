@@ -18,13 +18,19 @@ func (TSQLQuoter) ID(name string) string {
 // into its individual parts. Dots inside a part delimited with [] or "" are not
 // treated as separators.
 func splitMultiPartID(name string) []string {
+	return splitTopLevel(name, '.')
+}
+
+// splitTopLevel splits s on sep, ignoring any separator that appears inside a
+// part delimited with [] or "".
+func splitTopLevel(s string, sep byte) []string {
 	parts := make([]string, 0, 4)
 	var part strings.Builder
 	// closer is the byte that ends the delimited part currently being read,
 	// or 0 when the reader is not inside a delimited part.
 	var closer byte
-	for i := 0; i < len(name); i++ {
-		c := name[i]
+	for i := 0; i < len(s); i++ {
+		c := s[i]
 		switch {
 		case closer != 0:
 			part.WriteByte(c)
@@ -33,7 +39,7 @@ func splitMultiPartID(name string) []string {
 			}
 			// A doubled delimiter is an escaped literal rather than the end
 			// of the part.
-			if i+1 < len(name) && name[i+1] == closer {
+			if i+1 < len(s) && s[i+1] == closer {
 				i++
 				part.WriteByte(c)
 				continue
@@ -45,7 +51,7 @@ func splitMultiPartID(name string) []string {
 		case c == '"':
 			closer = '"'
 			part.WriteByte(c)
-		case c == '.':
+		case c == sep:
 			parts = append(parts, part.String())
 			part.Reset()
 		default:
@@ -117,13 +123,24 @@ func quoteMultiPartID(name string) string {
 	return strings.Join(parts, ".")
 }
 
-// quoteBulkOrder quotes the column name in a BulkOptions.Order entry so it is
-// safe to embed in the ORDER hint of an INSERT BULK statement. An optional
+// quoteBulkOrder quotes the column names in a BulkOptions.Order entry so they
+// are safe to embed in the ORDER hint of an INSERT BULK statement. An entry may
+// name a single column or several columns separated by commas. An optional
 // trailing ASC or DESC sort direction is preserved. A column name that itself
-// ends in "asc" or "desc" has to be delimited by the caller to be told apart
-// from a sort direction.
+// ends in "asc" or "desc", or that contains a comma, has to be delimited by the
+// caller to be told apart from a sort direction or a separator.
 func quoteBulkOrder(entry string) string {
-	name := strings.TrimSpace(entry)
+	columns := splitTopLevel(entry, ',')
+	for i, column := range columns {
+		columns[i] = quoteBulkOrderColumn(column)
+	}
+	return strings.Join(columns, ",")
+}
+
+// quoteBulkOrderColumn quotes a single column of an ORDER hint, keeping any
+// trailing sort direction.
+func quoteBulkOrderColumn(column string) string {
+	name := strings.TrimSpace(column)
 	direction := ""
 	if i := strings.LastIndexAny(name, " \t\r\n"); i >= 0 {
 		switch suffix := strings.ToUpper(strings.TrimSpace(name[i:])); suffix {

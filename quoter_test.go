@@ -241,6 +241,26 @@ func TestQuoteBulkOrder(t *testing.T) {
 			input:    "id) WITH (TABLOCK); PRINT 1;--",
 			expected: "[id) WITH (TABLOCK); PRINT 1;--]",
 		},
+		{
+			name:     "several columns in one entry",
+			input:    "col1,col2",
+			expected: "[col1],[col2]",
+		},
+		{
+			name:     "several columns with directions",
+			input:    "col1 ASC, col2 DESC",
+			expected: "[col1] ASC,[col2] DESC",
+		},
+		{
+			name:     "delimited column containing a comma",
+			input:    "[order, id]",
+			expected: "[order, id]",
+		},
+		{
+			name:     "delimited column containing a comma with a direction",
+			input:    "[order, id] DESC, col2",
+			expected: "[order, id] DESC,[col2]",
+		},
 	}
 
 	for _, tt := range tests {

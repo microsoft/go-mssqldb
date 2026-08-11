@@ -587,6 +587,13 @@ func TestBulkcopyIdentifierQuoting(t *testing.T) {
 			columns:  []string{"id", "order name"},
 			order:    []string{"order name DESC"},
 		},
+		{
+			name:     "several order columns in one entry",
+			table:    "bulk_quote_order_multi",
+			copyName: "bulk_quote_order_multi",
+			columns:  []string{"id", "name"},
+			order:    []string{"id ASC, name DESC"},
+		},
 	}
 
 	pool, logger := open(t)
