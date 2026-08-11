@@ -348,10 +348,17 @@ func readPreloginOption(buffer []byte, offset int) (*preloginOption, error) {
 }
 
 func readPreloginOptionData(plOption *preloginOption, buffer []byte) ([]byte, error) {
+	if plOption == nil {
+		return nil, fmt.Errorf("invalid buffer, invalid prelogin option")
+	}
+
 	buffer_length := len(buffer)
+	// widen to int before adding so the sum cannot wrap around and bypass the bounds check
+	optionOffset := int(plOption.offset)
+	optionLength := int(plOption.length)
+
 	// check if prelogin option data exists in buffer
-	if plOption == nil || int(plOption.length+plOption.offset) > buffer_length ||
-		int(plOption.offset) >= buffer_length {
+	if optionOffset+optionLength > buffer_length || optionOffset >= buffer_length {
 		return nil, fmt.Errorf("invalid buffer, invalid prelogin option")
 	}
 
@@ -359,7 +366,7 @@ func readPreloginOptionData(plOption *preloginOption, buffer []byte) ([]byte, er
 		return nil, fmt.Errorf("cannot read data for prelogin terminator record")
 	}
 
-	value := buffer[plOption.offset : plOption.length+plOption.offset]
+	value := buffer[optionOffset : optionOffset+optionLength]
 	return value, nil
 }
 
