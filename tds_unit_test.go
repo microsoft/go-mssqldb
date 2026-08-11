@@ -1,9 +1,12 @@
 package mssql
 
 import (
+	"context"
 	"encoding/binary"
+	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/microsoft/go-mssqldb/msdsn"
 	"github.com/stretchr/testify/assert"
@@ -120,6 +123,93 @@ func createValidDACResponse(port uint16) []byte {
 	msg[3] = 1
 	binary.LittleEndian.PutUint16(msg[4:6], port)
 	return msg
+}
+
+// TestGetInstancesDACResponseSize exercises the real UDP read path behind
+// parseDAC. A datagram larger than the receive buffer is truncated rather than
+// reported on Unix, so the buffer must be big enough for an oversized reply to
+// stay observable; otherwise a non-conforming reply would be trimmed down to a
+// well-formed looking 6 bytes and accepted. Windows instead fails the read with
+// WSAEMSGSIZE, so the assertion here is the platform-independent one: an
+// oversized reply must never resolve a DAC port.
+func TestGetInstancesDACResponseSize(t *testing.T) {
+	t.Parallel()
+
+	valid := createValidDACResponse(1434)
+
+	tests := []struct {
+		name     string
+		reply    []byte
+		wantPort string // empty means the reply must be rejected
+	}{
+		{
+			name:     "exactly sized reply",
+			reply:    valid,
+			wantPort: "1434",
+		},
+		{
+			name:  "oversized reply with valid prefix",
+			reply: append(append([]byte{}, valid...), 0xFF, 0xFF, 0xFF),
+		},
+		{
+			name:  "truncated reply",
+			reply: valid[:5],
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			d := newUDPResponder(t, tt.reply)
+			results, err := getInstances(ctx, d, "127.0.0.1", msdsn.BrowserDAC, "MyInstance")
+
+			if tt.wantPort == "" {
+				// The read itself may fail instead, which rejects the reply too.
+				assert.Empty(t, results, "expected the reply to be rejected")
+				return
+			}
+			assert.NoError(t, err, "getInstances")
+			assert.Equal(t, tt.wantPort, results["MYINSTANCE"]["tcp"], "tcp port")
+		})
+	}
+}
+
+// newUDPResponder starts a loopback UDP server that answers the first datagram
+// it receives with reply, and returns a Dialer targeting it.
+func newUDPResponder(t *testing.T, reply []byte) Dialer {
+	t.Helper()
+
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("cannot bind a loopback UDP socket: %v", err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+
+	go func() {
+		buf := make([]byte, 1024)
+		_, peer, err := pc.ReadFrom(buf)
+		if err != nil {
+			return
+		}
+		_, _ = pc.WriteTo(reply, peer)
+	}()
+
+	return udpResponderDialer{addr: pc.LocalAddr().String()}
+}
+
+// udpResponderDialer ignores the requested address so the test does not need to
+// bind the real SQL Server Browser port.
+type udpResponderDialer struct {
+	addr string
+}
+
+func (d udpResponderDialer) DialContext(ctx context.Context, network, _ string) (net.Conn, error) {
+	var nd net.Dialer
+	return nd.DialContext(ctx, network, d.addr)
 }
 
 func TestParseInstances(t *testing.T) {

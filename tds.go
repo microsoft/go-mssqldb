@@ -77,7 +77,11 @@ func getInstances(ctx context.Context, d Dialer, address string, browserMsg msds
 		bmsg[0] = byte(msdsn.BrowserDAC)
 		bmsg[1] = 1
 		_ = copy(bmsg[3:], instance)
-		resp = make([]byte, 6)
+		// A DAC reply is exactly 6 bytes (MC-SQLR 2.2.6). Read into a larger
+		// buffer so an oversized datagram is reported as such rather than
+		// being silently truncated to a well-formed looking 6 bytes, which
+		// would defeat the length check in parseDAC.
+		resp = make([]byte, 7)
 	} else { // default to AllInstances
 		bmsg = []byte{byte(msdsn.BrowserAllInstances)}
 		resp = make([]byte, 16*1024-1)
