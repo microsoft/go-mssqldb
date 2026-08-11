@@ -52,6 +52,18 @@ func TestParseDAC(t *testing.T) {
 			instance: "testinstance",
 		},
 		{
+			// RESP_SIZE MUST be 0x0006 (MC-SQLR 2.2.6).
+			name:     "wrong resp size",
+			msg:      []byte{5, 3, 0, 1, 0x59, 0x05},
+			instance: "testinstance",
+		},
+		{
+			// PROTOCOLVERSION MUST be 0x01 (MC-SQLR 2.2.6).
+			name:     "wrong protocol version",
+			msg:      []byte{5, 6, 0, 0, 0x59, 0x05},
+			instance: "testinstance",
+		},
+		{
 			name:     "case insensitive instance",
 			msg:      createValidDACResponse(1433),
 			instance: "MyInstance",

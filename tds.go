@@ -21,12 +21,15 @@ import (
 )
 
 // parseDAC parses a SQL Server Browser SVR_RESP (DAC) reply, MC-SQLR 2.2.6.
-// The response is exactly 6 bytes: SVR_RESP (0x05), a 2-byte RESP_SIZE, a
-// PROTOCOLVERSION byte, then the little-endian TCP_DAC_PORT at offset 4. The
-// message comes from an untrusted UDP source, so it must never panic.
+// The response is exactly 6 bytes: SVR_RESP (0x05), RESP_SIZE (0x0006, the
+// length of the whole packet), PROTOCOLVERSION (0x01), then the little-endian
+// TCP_DAC_PORT at offset 4. Every field except the port is fixed by the
+// protocol, so a reply that does not match is discarded instead of being used
+// to choose a TCP port. The message comes from an unauthenticated UDP source,
+// so this must never panic.
 func parseDAC(msg []byte, instance string) msdsn.BrowserData {
 	results := msdsn.BrowserData{}
-	if len(msg) == 6 && msg[0] == 5 {
+	if len(msg) == 6 && msg[0] == 5 && binary.LittleEndian.Uint16(msg[1:3]) == 6 && msg[3] == 1 {
 		name := strings.ToUpper(instance)
 		results[name] = map[string]string{
 			"InstanceName": name,
