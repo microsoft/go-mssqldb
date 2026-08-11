@@ -304,15 +304,32 @@ func getNTLMv2TargetInfoFields(type2Message []byte) (info []byte, err error) {
 
 	targetNameAllocated := binary.LittleEndian.Uint16(type2Message[14:16])
 	targetNameOffset := binary.LittleEndian.Uint32(type2Message[16:20])
-	endOfOffset := int(targetNameOffset + uint32(targetNameAllocated))
-	if type2MessageLength < endOfOffset {
+	// Use 64-bit arithmetic so a server-controlled offset near the uint32
+	// maximum cannot overflow and bypass the bounds check below.
+	endOfOffset := int64(targetNameOffset) + int64(targetNameAllocated)
+	if int64(type2MessageLength) < endOfOffset {
 		return nil, fmt.Errorf(type2MessageError, type2MessageLength, endOfOffset)
 	}
 
+	// The target information header fields live at offsets 42-48. A malformed
+	// or truncated challenge message may be long enough to pass the checks
+	// above but too short to contain these fields, so validate before reading
+	// to avoid an out-of-bounds slice read.
+	if type2MessageLength < 48 {
+		return nil, fmt.Errorf(type2MessageError, type2MessageLength, 48)
+	}
+
 	targetInformationAllocated := binary.LittleEndian.Uint16(type2Message[42:44])
+	// A well-formed target information block is an AV_PAIR list terminated by
+	// the 4-byte MsvAvEOL pair. The channel-binding path assumes those final
+	// 4 bytes exist (it slices targetInfoFields[:len-4]), so a block shorter
+	// than 4 bytes is malformed and would cause a negative slice index panic.
+	if targetInformationAllocated < 4 {
+		return nil, fmt.Errorf("mssql: NTLMv2 type 2 message target information length %d too small, minimum 4", targetInformationAllocated)
+	}
 	targetInformationDataOffset := binary.LittleEndian.Uint32(type2Message[44:48])
-	endOfOffset = int(targetInformationDataOffset + uint32(targetInformationAllocated))
-	if type2MessageLength < endOfOffset {
+	endOfOffset = int64(targetInformationDataOffset) + int64(targetInformationAllocated)
+	if int64(type2MessageLength) < endOfOffset {
 		return nil, fmt.Errorf(type2MessageError, type2MessageLength, endOfOffset)
 	}
 
@@ -388,7 +405,20 @@ func buildNTLMResponsePayload(lm, nt []byte, flags uint32, domain, workstation, 
 	return msg, nil
 }
 
+// minChallengeMessageSize is the minimum size in bytes of a well-formed
+// NTLM Type 2 (CHALLENGE) message. NextBytes reads the signature (0:8),
+// message type (8:12), flags (20:24) and server challenge (24:32) fields
+// directly, so a shorter buffer would cause an out-of-bounds slice panic.
+const minChallengeMessageSize = 32
+
 func (auth *Auth) NextBytes(bytes []byte) ([]byte, error) {
+	// A malicious or on-path server can send a truncated challenge message.
+	// Validate the length before slicing to avoid an out-of-bounds panic
+	// (Denial of Service).
+	if len(bytes) < minChallengeMessageSize {
+		return nil, errorNTLM
+	}
+
 	signature := string(bytes[0:8])
 	if signature != "NTLMSSP\x00" {
 		return nil, errorNTLM
