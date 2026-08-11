@@ -20,9 +20,16 @@ func TestParseDAC(t *testing.T) {
 	}{
 		{
 			name:     "valid DAC response",
-			msg:      []byte{5, 3, 0, 1, 0x59, 0x05}, // Port 1369 (0x0559) little-endian
+			msg:      []byte{5, 6, 0, 1, 0x59, 0x05}, // Port 1369 (0x0559) little-endian
 			instance: "testinstance",
 			wantPort: "1369",
+		},
+		{
+			// The worked example from MC-SQLR 4.3.
+			name:     "spec example response",
+			msg:      []byte{0x05, 0x06, 0x00, 0x01, 0x32, 0xDF},
+			instance: "YUKONSTD",
+			wantPort: "57138",
 		},
 		{
 			name:     "empty message",
@@ -31,17 +38,17 @@ func TestParseDAC(t *testing.T) {
 		},
 		{
 			name:     "wrong first byte",
-			msg:      []byte{4, 3, 0, 1, 0x59, 0x05},
+			msg:      []byte{4, 6, 0, 1, 0x59, 0x05},
 			instance: "testinstance",
 		},
 		{
 			name:     "too short message",
-			msg:      []byte{5, 3, 0, 1, 0x59},
+			msg:      []byte{5, 6, 0, 1, 0x59},
 			instance: "testinstance",
 		},
 		{
 			name:     "too long message",
-			msg:      []byte{5, 3, 0, 1, 0x59, 0x05, 0x00},
+			msg:      []byte{5, 6, 0, 1, 0x59, 0x05, 0x00},
 			instance: "testinstance",
 		},
 		{
@@ -91,12 +98,13 @@ func TestParseDACParseBrowserData(t *testing.T) {
 	assert.Equal(t, uint64(1434), p.Port, "resolved DAC port")
 }
 
-// Helper to create a valid DAC response message: SVR_RESP, 2-byte length,
-// protocol version, then the little-endian TCP port at offset 4.
+// Helper to create a valid SVR_RESP (DAC) message per MC-SQLR 2.2.6:
+// SVR_RESP (0x05), RESP_SIZE (whole-packet length, 0x0006), PROTOCOLVERSION
+// (0x01), then the little-endian TCP_DAC_PORT at offset 4.
 func createValidDACResponse(port uint16) []byte {
 	msg := make([]byte, 6)
 	msg[0] = 5
-	msg[1] = 3
+	binary.LittleEndian.PutUint16(msg[1:3], 6)
 	msg[3] = 1
 	binary.LittleEndian.PutUint16(msg[4:6], port)
 	return msg

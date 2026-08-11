@@ -10,19 +10,26 @@ import (
 // and it is parsed during connect() with no recover() anywhere in the call
 // stack. The parser must therefore never panic, whatever bytes arrive.
 func FuzzParseDAC(f *testing.F) {
-	// A spec-shaped CLNT_UCAST_DAC reply: SVR_RESP (0x05), 2-byte length,
-	// protocol version byte, then the little-endian TCP port at offset 4.
-	f.Add([]byte{0x05, 0x03, 0x00, 0x01, 0x9A, 0x05}, "SQLEXPRESS")
+	// SVR_RESP (DAC), MC-SQLR 2.2.6: SVR_RESP (0x05), RESP_SIZE (2 bytes, the
+	// length of the whole packet, so 0x0006), PROTOCOLVERSION (0x01), then the
+	// little-endian TCP_DAC_PORT at offset 4. Port 0x059A is 1434.
+	f.Add([]byte{0x05, 0x06, 0x00, 0x01, 0x9A, 0x05}, "SQLEXPRESS")
+
+	// The worked example from MC-SQLR 4.3, whose port is 0xDF32 (57138).
+	f.Add([]byte{0x05, 0x06, 0x00, 0x01, 0x32, 0xDF}, "YUKONSTD")
 
 	// Truncated, empty and non-SVR_RESP variants.
 	f.Add([]byte{}, "SQLEXPRESS")
 	f.Add([]byte{0x05}, "SQLEXPRESS")
-	f.Add([]byte{0x05, 0x03, 0x00, 0x01, 0x9A}, "SQLEXPRESS")
-	f.Add([]byte{0x04, 0x03, 0x00, 0x01, 0x9A, 0x05}, "SQLEXPRESS")
+	f.Add([]byte{0x05, 0x06, 0x00, 0x01, 0x9A}, "SQLEXPRESS")
+	f.Add([]byte{0x04, 0x06, 0x00, 0x01, 0x9A, 0x05}, "SQLEXPRESS")
 
-	// Longer-than-expected reply and an empty instance name.
-	f.Add([]byte{0x05, 0x03, 0x00, 0x01, 0x9A, 0x05, 0x00, 0x00}, "SQLEXPRESS")
-	f.Add([]byte{0x05, 0x03, 0x00, 0x01, 0x9A, 0x05}, "")
+	// Inconsistent RESP_SIZE / PROTOCOLVERSION, a longer-than-expected reply,
+	// and an empty instance name.
+	f.Add([]byte{0x05, 0x00, 0x00, 0x00, 0x9A, 0x05}, "SQLEXPRESS")
+	f.Add([]byte{0x05, 0xFF, 0xFF, 0x01, 0x9A, 0x05}, "SQLEXPRESS")
+	f.Add([]byte{0x05, 0x06, 0x00, 0x01, 0x9A, 0x05, 0x00, 0x00}, "SQLEXPRESS")
+	f.Add([]byte{0x05, 0x06, 0x00, 0x01, 0x9A, 0x05}, "")
 
 	f.Fuzz(func(_ *testing.T, msg []byte, instance string) {
 		// Return value is ignored; the property under test is that parsing an

@@ -20,10 +20,10 @@ import (
 	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
-// parseDAC parses a SQL Server Browser CLNT_UCAST_DAC reply (MS-SQLR 2.2.7).
-// The response is exactly 6 bytes: SVR_RESP (0x05), a 2-byte length, a protocol
-// version byte, then the little-endian TCP port at offset 4. The message comes
-// from an untrusted UDP source, so it must be parsed without panicking.
+// parseDAC parses a SQL Server Browser SVR_RESP (DAC) reply, MC-SQLR 2.2.6.
+// The response is exactly 6 bytes: SVR_RESP (0x05), a 2-byte RESP_SIZE, a
+// PROTOCOLVERSION byte, then the little-endian TCP_DAC_PORT at offset 4. The
+// message comes from an untrusted UDP source, so it must never panic.
 func parseDAC(msg []byte, instance string) msdsn.BrowserData {
 	results := msdsn.BrowserData{}
 	if len(msg) == 6 && msg[0] == 5 {
