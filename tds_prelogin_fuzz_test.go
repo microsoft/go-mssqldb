@@ -73,6 +73,8 @@ func FuzzReadPrelogin(f *testing.F) {
 		}
 		transport := &preloginTransport{r: bytes.NewReader(framePrelogin(body))}
 		buf := newTdsBuffer(defaultPacketSize, transport)
+		// return the 64 KiB backing buffer to bufpool so each iteration reuses it
+		defer buf.bufClose()
 		fields, err := readPrelogin(buf)
 		if err != nil {
 			return
