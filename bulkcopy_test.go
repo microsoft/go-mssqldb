@@ -597,7 +597,7 @@ func TestBulkcopyIdentifierQuoting(t *testing.T) {
 	}
 
 	pool, logger := open(t)
-	defer pool.Close()
+	defer func() { _ = pool.Close() }()
 	defer logger.StopLogging()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -611,7 +611,7 @@ func TestBulkcopyIdentifierQuoting(t *testing.T) {
 			if err != nil {
 				t.Fatal("failed to pull connection from pool", err)
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			quoted := q.ID(tt.table)
 			columnDefs := make([]string, len(tt.columns))
@@ -638,7 +638,7 @@ func TestBulkcopyIdentifierQuoting(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer stmt.Close()
+			defer func() { _ = stmt.Close() }()
 
 			values := make([]interface{}, len(tt.columns))
 			for i := range values {
@@ -672,7 +672,7 @@ func TestBulkcopyIdentifierQuoting(t *testing.T) {
 // the bulk copy builds into a batch of several statements.
 func TestBulkcopyDestinationIsASingleObject(t *testing.T) {
 	pool, logger := open(t)
-	defer pool.Close()
+	defer func() { _ = pool.Close() }()
 	defer logger.StopLogging()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -680,7 +680,7 @@ func TestBulkcopyDestinationIsASingleObject(t *testing.T) {
 
 	conn, err := pool.Conn(ctx)
 	assert.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	_, err = conn.ExecContext(ctx, "IF OBJECT_ID('dbo.bulk_single_object') IS NOT NULL DROP TABLE dbo.bulk_single_object")
 	assert.NoError(t, err)
@@ -697,7 +697,7 @@ func TestBulkcopyDestinationIsASingleObject(t *testing.T) {
 	table := "dbo.bulk_single_object SET FMTONLY OFF; CREATE TABLE dbo.bulk_second_statement (id int);--"
 	stmt, err := conn.PrepareContext(ctx, CopyIn(table, BulkOptions{}, "id"))
 	assert.NoError(t, err)
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	_, err = stmt.ExecContext(ctx, 1)
 	assert.ErrorContains(t, err, "Invalid object name")

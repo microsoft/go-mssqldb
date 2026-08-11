@@ -170,6 +170,21 @@ func TestQuoteMultiPartID(t *testing.T) {
 			input:    "dbo.[Orders",
 			expected: "[dbo].[[Orders]",
 		},
+		{
+			name:     "bracket inside an undelimited part is literal",
+			input:    "sch[ema.table",
+			expected: "[sch[ema].[table]",
+		},
+		{
+			name:     "quote inside an undelimited part is literal",
+			input:    `sch"ema.table`,
+			expected: `[sch"ema].[table]`,
+		},
+		{
+			name:     "delimited part after an undelimited part with a bracket",
+			input:    "sch[ema.[my.table]",
+			expected: "[sch[ema].[my.table]",
+		},
 	}
 
 	for _, tt := range tests {
@@ -261,6 +276,11 @@ func TestQuoteBulkOrder(t *testing.T) {
 			input:    "[order, id] DESC, col2",
 			expected: "[order, id] DESC,[col2]",
 		},
+		{
+			name:     "bracket inside an undelimited column does not hide a separator",
+			input:    "co[l1,col2",
+			expected: "[co[l1],[col2]",
+		},
 	}
 
 	for _, tt := range tests {
@@ -316,6 +336,21 @@ func TestSplitMultiPartID(t *testing.T) {
 			name:     "empty input",
 			input:    "",
 			expected: []string{""},
+		},
+		{
+			name:     "bracket inside an undelimited part does not hide a separator",
+			input:    "sch[ema.table",
+			expected: []string{"sch[ema", "table"},
+		},
+		{
+			name:     "unterminated delimiter does not hide a separator",
+			input:    "[schema.table",
+			expected: []string{"[schema", "table"},
+		},
+		{
+			name:     "whitespace before a delimited part is allowed",
+			input:    " [my.table] ",
+			expected: []string{" [my.table] "},
 		},
 	}
 

@@ -22,75 +22,92 @@ func splitMultiPartID(name string) []string {
 }
 
 // splitTopLevel splits s on sep, ignoring any separator that appears inside a
-// part delimited with [] or "".
+// delimited part such as [my.part] or "my.part".
+//
+// A delimiter only opens a delimited part when it starts that part and has a
+// matching closer. A delimiter anywhere else is an ordinary character of an
+// undelimited name, so later separators keep splitting and a name such as
+// "sch[ema.table" still names the object "table" in the schema "sch[ema".
 func splitTopLevel(s string, sep byte) []string {
 	parts := make([]string, 0, 4)
 	var part strings.Builder
-	// closer is the byte that ends the delimited part currently being read,
-	// or 0 when the reader is not inside a delimited part.
-	var closer byte
+	// blank reports whether the part being read is still empty or holds only
+	// leading whitespace, so " [my.part] " is recognised as delimited too.
+	blank := true
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		switch {
-		case closer != 0:
-			part.WriteByte(c)
-			if c != closer {
+		if blank {
+			if n := delimitedLen(s[i:]); n > 0 {
+				part.WriteString(s[i : i+n])
+				i += n - 1
+				blank = false
 				continue
 			}
-			// A doubled delimiter is an escaped literal rather than the end
-			// of the part.
-			if i+1 < len(s) && s[i+1] == closer {
-				i++
-				part.WriteByte(c)
-				continue
-			}
-			closer = 0
-		case c == '[':
-			closer = ']'
-			part.WriteByte(c)
-		case c == '"':
-			closer = '"'
-			part.WriteByte(c)
-		case c == sep:
+		}
+		if c == sep {
 			parts = append(parts, part.String())
 			part.Reset()
-		default:
-			part.WriteByte(c)
+			blank = true
+			continue
+		}
+		part.WriteByte(c)
+		if c != ' ' && c != '\t' && c != '\r' && c != '\n' {
+			blank = false
 		}
 	}
 	return append(parts, part.String())
 }
 
-// unquoteID reports whether part is a single well-formed delimited identifier
-// and, if so, returns the identifier without its delimiters. A part such as
-// `[a] SELECT 1 --[b]` starts and ends with brackets but is not a single
-// identifier, so it is rejected.
-func unquoteID(part string) (string, bool) {
-	if len(part) < 2 {
-		return "", false
+// delimitedLen returns the length of the well-formed delimited identifier that
+// starts s, such as [my part] or "my part", or 0 when s does not start one.
+// A doubled closing delimiter is an escaped literal rather than the end of the
+// identifier.
+func delimitedLen(s string) int {
+	if len(s) < 2 {
+		return 0
 	}
 	var closer byte
-	switch part[0] {
+	switch s[0] {
 	case '[':
 		closer = ']'
 	case '"':
 		closer = '"'
 	default:
-		return "", false
+		return 0
 	}
-	if part[len(part)-1] != closer {
-		return "", false
+	for i := 1; i < len(s); i++ {
+		if s[i] != closer {
+			continue
+		}
+		if i+1 < len(s) && s[i+1] == closer {
+			i++
+			continue
+		}
+		return i + 1
 	}
+	return 0
+}
 
+// unquoteID reports whether part is a single well-formed delimited identifier
+// and, if so, returns the identifier without its delimiters. A part such as
+// `[a] SELECT 1 --[b]` starts and ends with brackets but is not a single
+// identifier, so it is rejected. It recognises exactly the parts splitTopLevel
+// keeps together, because both decide what a delimited part is with
+// delimitedLen.
+func unquoteID(part string) (string, bool) {
+	// delimitedLen returns 0 for anything that does not start a delimited
+	// identifier, which the length comparison alone would accept for an empty
+	// part.
+	if n := delimitedLen(part); n == 0 || n != len(part) {
+		return "", false
+	}
+	closer := part[len(part)-1]
 	body := part[1 : len(part)-1]
 	var name strings.Builder
 	for i := 0; i < len(body); i++ {
+		// delimitedLen already established that every closer in body is
+		// doubled, so the second byte of the pair is the literal one.
 		if body[i] == closer {
-			// A lone delimiter would close the identifier early, so part is
-			// not a single delimited identifier.
-			if i+1 >= len(body) || body[i+1] != closer {
-				return "", false
-			}
 			i++
 		}
 		name.WriteByte(body[i])

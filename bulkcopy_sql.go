@@ -53,6 +53,14 @@ func (c *Conn) prepareCopyIn(ctx context.Context, query string) (_ driver.Stmt, 
 //
 // columns are the destination column names, in the order their values are
 // passed to Exec.
+//
+// Each options.Order entry names one or more columns to declare the data is
+// already sorted by, as in "id" or "id ASC, name DESC". Column names are quoted
+// the same way table is. A column name is separated from an optional trailing
+// ASC or DESC sort direction by whitespace, and from the next column by a
+// comma, so a column whose name ends in "asc" or "desc" or contains a comma has
+// to be delimited by the caller to be told apart from a direction or a
+// separator, as in "[sort desc]" or "[order, id]".
 func CopyIn(table string, options BulkOptions, columns ...string) string {
 	bulkconfig := &serializableBulkConfig{TableName: table, Options: options, ColumnsName: columns}
 
