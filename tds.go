@@ -20,10 +20,29 @@ import (
 	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
+// parseDAC parses a SQL Server Browser SVR_RESP (DAC) reply, MC-SQLR 2.2.6.
+// The response is exactly 6 bytes: SVR_RESP (0x05), RESP_SIZE (0x0006, the
+// length of the whole packet), PROTOCOLVERSION (0x01), then the little-endian
+// TCP_DAC_PORT at offset 4. Every field except the port is fixed by the
+// protocol, so a reply that does not match is discarded instead of being used
+// to choose a TCP port. The message comes from an unauthenticated UDP source,
+// so this must never panic.
 func parseDAC(msg []byte, instance string) msdsn.BrowserData {
 	results := msdsn.BrowserData{}
-	if len(msg) == 6 && msg[0] == 5 {
-		results[strings.ToUpper(instance)]["tcp"] = fmt.Sprint(binary.LittleEndian.Uint16(msg[5:]))
+	if len(msg) == 6 && msg[0] == 5 && binary.LittleEndian.Uint16(msg[1:3]) == 6 && msg[3] == 1 {
+		port := binary.LittleEndian.Uint16(msg[4:6])
+		// Port 0 is never a listening endpoint. Accepting it would leave
+		// Config.Port at zero, which resolveServerPort silently rewrites to the
+		// default TDS port, connecting to the regular endpoint while the caller
+		// believes it reached the DAC one.
+		if port == 0 {
+			return results
+		}
+		name := strings.ToUpper(instance)
+		results[name] = map[string]string{
+			"InstanceName": name,
+			"tcp":          fmt.Sprint(port),
+		}
 	}
 	return results
 }
@@ -62,11 +81,18 @@ func getInstances(ctx context.Context, d Dialer, address string, browserMsg msds
 	var bmsg []byte
 	var resp []byte
 	if browserMsg == msdsn.BrowserDAC {
+		// CLNT_UCAST_DAC (MC-SQLR 2.2.4) is 0x0F, PROTOCOLVERSION 0x01, then a
+		// null-terminated instance name starting at offset 2. The buffer is
+		// sized so its zero-initialized last byte is the terminator.
 		bmsg = make([]byte, 3+len(instance))
 		bmsg[0] = byte(msdsn.BrowserDAC)
 		bmsg[1] = 1
-		_ = copy(bmsg[3:], instance)
-		resp = make([]byte, 6)
+		_ = copy(bmsg[2:], instance)
+		// A DAC reply is exactly 6 bytes (MC-SQLR 2.2.6). Read into a larger
+		// buffer so an oversized datagram is reported as such rather than
+		// being silently truncated to a well-formed looking 6 bytes, which
+		// would defeat the length check in parseDAC.
+		resp = make([]byte, 7)
 	} else { // default to AllInstances
 		bmsg = []byte{byte(msdsn.BrowserAllInstances)}
 		resp = make([]byte, 16*1024-1)
