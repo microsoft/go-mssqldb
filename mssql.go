@@ -1426,18 +1426,27 @@ func (rc *Rowsq) Columns() (res []string) {
 	scan:
 		for {
 			tok, err := rc.reader.nextToken()
-			if err == nil {
-				rc.reader.sess.LogF(rc.reader.ctx, msdsn.LogDebug, "Columns() token type:%v", reflect.TypeOf(tok))
-				if tok == nil {
-					return []string{}
-				} else {
-					switch tokdata := tok.(type) {
-					case []columnStruct:
-						rc.cols = tokdata
-						rc.inResultSet = true
-						break scan
-					}
-				}
+			if err != nil {
+				// Columns has no error return, but a non-nil nextToken error
+				// (for example a failed attention write when the query context
+				// expires) can mean the connection is broken. Route it through
+				// checkBadConn so a fatal error marks the connection bad, then
+				// stop looping: otherwise we would spin calling nextToken while
+				// the fallback drain goroutine also consumes the channel. The
+				// subsequent Next/NextResultSet call surfaces driver.ErrBadConn.
+				// See issue #407.
+				rc.stmt.c.checkBadConn(rc.reader.ctx, err, false)
+				break scan
+			}
+			rc.reader.sess.LogF(rc.reader.ctx, msdsn.LogDebug, "Columns() token type:%v", reflect.TypeOf(tok))
+			if tok == nil {
+				return []string{}
+			}
+			switch tokdata := tok.(type) {
+			case []columnStruct:
+				rc.cols = tokdata
+				rc.inResultSet = true
+				break scan
 			}
 		}
 	}

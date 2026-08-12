@@ -394,3 +394,52 @@ func TestNextToken_AttentionWriteFailureMarksConnectionBad(t *testing.T) {
 	// Let the background drain goroutine started by nextToken exit.
 	close(tokChan)
 }
+
+// TestRowsqColumns_AttentionWriteFailureMarksConnectionBad covers the
+// Rowsq.Columns caller of nextToken, which has no error return and previously
+// ignored every non-nil error. When the query context expires while Columns is
+// waiting and the attention write fails, Columns must mark the connection bad
+// and stop looping instead of spinning on nextToken (racing the fallback drain
+// goroutine) and discarding the StreamError. See issue #407.
+func TestRowsqColumns_AttentionWriteFailureMarksConnectionBad(t *testing.T) {
+	transport := &gatedTransport{
+		p1:       bytes.NewReader(nil),
+		p2:       bytes.NewReader(nil),
+		gate:     make(chan struct{}),
+		writeErr: errors.New("simulated attention write failure"),
+	}
+	sess := &tdsSession{
+		buf:    newTdsBuffer(defaultPacketSize, transport),
+		logger: optionalLogger{},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tokChan := make(chan tokenStruct)
+	reader := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     ctx,
+		sess:    sess,
+	}
+	conn := &Conn{
+		sess:           sess,
+		connectionGood: true,
+		connector:      &Connector{params: msdsn.Config{}},
+	}
+	rc := &Rowsq{stmt: &Stmt{c: conn}, reader: reader}
+
+	done := make(chan []string, 1)
+	go func() { done <- rc.Columns() }()
+	select {
+	case cols := <-done:
+		assert.Empty(t, cols,
+			"Columns should return no columns after a failed attention write")
+	case <-time.After(10 * time.Second):
+		t.Fatal("Rowsq.Columns hung after a failed attention write (issue #407)")
+	}
+	assert.False(t, conn.connectionGood,
+		"Rowsq.Columns must mark the connection bad after a failed attention write")
+
+	// Let the background drain goroutine started by nextToken exit.
+	close(tokChan)
+}
