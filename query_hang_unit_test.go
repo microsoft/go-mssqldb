@@ -338,3 +338,59 @@ func TestNextToken_AttentionWriteFailureDoesNotLeakReader(t *testing.T) {
 		t.Fatal("reader goroutine leaked: readDone never closed after attention write failure (issue #407)")
 	}
 }
+
+// TestNextToken_AttentionWriteFailureMarksConnectionBad verifies the follow-up
+// to issue #407 for every nextToken caller other than processQueryResponse
+// (Rows.Next/Close, Rowsq.Next/Close/NextResultSet). When a caller cancels the
+// context and nextToken cannot send its attention, the transport is broken and
+// the connection must not be reused. Those callers surface nextToken's error
+// through checkBadConn, which only evicts for recognized fatal error types.
+// nextToken therefore wraps the failed-attention error in a StreamError so
+// checkBadConn reliably marks the connection bad; an unwrapped "ordinary"
+// transport error would leave connectionGood true and let database/sql reuse a
+// connection whose transport just failed.
+func TestNextToken_AttentionWriteFailureMarksConnectionBad(t *testing.T) {
+	transport := &gatedTransport{
+		p1:       bytes.NewReader(nil),
+		p2:       bytes.NewReader(nil),
+		gate:     make(chan struct{}),
+		writeErr: errors.New("simulated attention write failure"),
+	}
+	sess := &tdsSession{
+		buf:    newTdsBuffer(defaultPacketSize, transport),
+		logger: optionalLogger{},
+	}
+
+	// A cancelled context with no tokens buffered drives nextToken straight to
+	// the attention branch, where the write fails.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tokChan := make(chan tokenStruct)
+	reader := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     ctx,
+		sess:    sess,
+	}
+
+	_, err := reader.nextToken()
+	require.Error(t, err, "a failed attention write must return an error")
+	var se StreamError
+	require.ErrorAs(t, err, &se,
+		"a failed attention write must surface a StreamError so callers evict the connection")
+
+	// Every nextToken caller routes its error through checkBadConn. Verify that
+	// path marks the connection bad for this signal.
+	conn := &Conn{
+		sess:           sess,
+		connectionGood: true,
+		connector:      &Connector{params: msdsn.Config{}},
+	}
+	returned := conn.checkBadConn(ctx, err, false)
+	assert.False(t, conn.connectionGood,
+		"checkBadConn must evict the connection after a failed attention write")
+	assert.Equal(t, err, returned, "checkBadConn should return the same error unchanged")
+
+	// Let the background drain goroutine started by nextToken exit.
+	close(tokChan)
+}

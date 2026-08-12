@@ -935,7 +935,12 @@ func (rc *Rows) Close() error {
 			if err == rc.reader.ctx.Err() {
 				return closeErr
 			} else {
-				return err
+				// A non-context error here (for example a failed attention
+				// write during cancellation) can mean the transport is broken.
+				// Route it through checkBadConn so a fatal error marks the
+				// connection bad and the pool evicts it instead of reusing a
+				// connection whose transport just failed. See issue #407.
+				return rc.stmt.c.checkBadConn(rc.reader.ctx, err, false)
 			}
 		}
 	}
@@ -1403,7 +1408,10 @@ func (rc *Rowsq) Close() error {
 			if err == rc.reader.ctx.Err() {
 				return nil
 			} else {
-				return err
+				// See Rows.Close: route through checkBadConn so a fatal error
+				// (for example a failed attention write) marks the connection
+				// bad and prevents reuse of a broken transport. See issue #407.
+				return rc.stmt.c.checkBadConn(rc.reader.ctx, err, false)
 			}
 		}
 	}
@@ -1512,7 +1520,11 @@ scan:
 		rc.reader.sess.LogF(rc.reader.ctx, msdsn.LogDebug, "NextResultSet() token type:%v", reflect.TypeOf(tok))
 
 		if err != nil {
-			return err
+			// Route through checkBadConn so a fatal error (for example a failed
+			// attention write) marks the connection bad and prevents reuse.
+			// checkBadConn returns context errors unchanged, preserving
+			// clean-cancellation behavior. See issue #407.
+			return rc.stmt.c.checkBadConn(rc.reader.ctx, err, false)
 		}
 		if tok == nil {
 			return io.EOF

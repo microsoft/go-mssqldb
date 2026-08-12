@@ -1382,18 +1382,23 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		}
 		t.sess.LogF(t.ctx, msdsn.LogDebug, "Sending attention to the server")
 		if err := sendAttention(t.sess.buf); err != nil {
-			// Unable to send attention, so the current connection is bad and
-			// the caller will evict it. The background processSingleResponse
-			// goroutine may still be blocked sending to t.tokChan; marking the
-			// connection bad only closes the transport, which cannot unblock a
-			// pending channel send. Drain the channel in the background so the
-			// goroutine can finish and close readDone, matching the pattern used
-			// by the cancellation-unavailable branches below. See issue #407.
+			// The attention write failed, so the transport is broken and the
+			// TDS stream can no longer be trusted. The background
+			// processSingleResponse goroutine may still be blocked sending to
+			// t.tokChan; closing the transport cannot unblock a pending channel
+			// send, so drain the channel in the background to let the goroutine
+			// finish and close readDone, matching the cancellation-unavailable
+			// branches below. See issue #407.
 			go func() {
 				for range t.tokChan {
 				}
 			}()
-			return nil, err
+			// Wrap the write error in StreamError so every caller that routes
+			// it through checkBadConn evicts the connection. An unwrapped
+			// transport error can be an "ordinary" error type that checkBadConn
+			// does not treat as fatal, which would leave connectionGood true and
+			// let database/sql reuse a connection whose transport just failed.
+			return nil, StreamError{InnerError: err}
 		}
 
 		// now the server should send cancellation confirmation
