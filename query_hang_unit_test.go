@@ -443,3 +443,112 @@ func TestRowsqColumns_AttentionWriteFailureMarksConnectionBad(t *testing.T) {
 	// Let the background drain goroutine started by nextToken exit.
 	close(tokChan)
 }
+
+// TestNextToken_TokenChannelContextErrorIsFatal verifies the core normalization:
+// a context.Canceled/DeadlineExceeded that arrives as a token-channel error
+// (the shape processSingleResponse produces when a row parser or an Always
+// Encrypted key provider forwards the reader context's error) is returned by
+// nextToken wrapped in StreamError, not as the bare context error. This is what
+// lets every caller distinguish it from the clean context error the confirmed-
+// attention path returns and evict the connection. See issue #407.
+func TestNextToken_TokenChannelContextErrorIsFatal(t *testing.T) {
+	for _, ctxErr := range []error{context.Canceled, context.DeadlineExceeded} {
+		tokChan := make(chan tokenStruct, 1)
+		tokChan <- ctxErr
+		reader := &tokenProcessor{
+			tokChan: tokChan,
+			// A non-cancelled ctx proves the value came from the channel, not
+			// from the confirmed-attention path.
+			ctx:  context.Background(),
+			sess: &tdsSession{logger: optionalLogger{}},
+		}
+		tok, err := reader.nextToken()
+		assert.Nil(t, tok)
+		var se StreamError
+		assert.ErrorAs(t, err, &se,
+			"a token-channel context error must be wrapped in StreamError")
+		assert.ErrorIs(t, err, ctxErr,
+			"the wrapped error must still unwrap to the original context error")
+	}
+}
+
+// TestRowsClose_TokenChannelContextErrorEvictsConnection covers the caller the
+// reviewer flagged: Rows.Close compares the nextToken error against
+// reader.ctx.Err() and returns cleanly on a match. Before the fix, an Always
+// Encrypted provider (or row parser) returning context.Canceled after Close
+// cancels the context looked identical to a confirmed clean cancellation, so
+// Close returned nil and left the connection reusable with unread TDS bytes on
+// the wire. It must now evict the connection instead. See issue #407.
+func TestRowsClose_TokenChannelContextErrorEvictsConnection(t *testing.T) {
+	tokChan := make(chan tokenStruct, 1)
+	tokChan <- context.Canceled
+	ctx, cancel := context.WithCancel(context.Background())
+	conn := &Conn{
+		connectionGood: true,
+		connector:      &Connector{params: msdsn.Config{}},
+	}
+	reader := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     ctx,
+		sess:    &tdsSession{logger: optionalLogger{}},
+	}
+	rc := &Rows{stmt: &Stmt{c: conn}, reader: reader, cancel: cancel}
+
+	err := rc.Close()
+	assert.Error(t, err,
+		"Close must not treat a parse-produced context error as a clean cancellation")
+	assert.False(t, conn.connectionGood,
+		"Close must evict the connection when a context error arrives mid-stream")
+}
+
+// TestRowsqClose_TokenChannelContextErrorEvictsConnection covers the same
+// misclassification on the experimental Rowsq.Close path. See issue #407.
+func TestRowsqClose_TokenChannelContextErrorEvictsConnection(t *testing.T) {
+	tokChan := make(chan tokenStruct, 1)
+	tokChan <- context.Canceled
+	ctx, cancel := context.WithCancel(context.Background())
+	conn := &Conn{
+		connectionGood: true,
+		connector:      &Connector{params: msdsn.Config{}},
+	}
+	reader := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     ctx,
+		sess:    &tdsSession{logger: optionalLogger{}},
+	}
+	rc := &Rowsq{stmt: &Stmt{c: conn}, reader: reader, cancel: cancel}
+
+	err := rc.Close()
+	assert.Error(t, err,
+		"Rowsq.Close must not treat a parse-produced context error as a clean cancellation")
+	assert.False(t, conn.connectionGood,
+		"Rowsq.Close must evict the connection when a context error arrives mid-stream")
+}
+
+// TestSimpleProcessResp_TokenChannelContextErrorEvictsConnection covers the
+// message-loop caller of nextToken via iterateResponse: a context error
+// forwarded as a token means the response was abandoned mid-stream, so the
+// connection must be evicted rather than reused. See issue #407.
+func TestSimpleProcessResp_TokenChannelContextErrorEvictsConnection(t *testing.T) {
+	tokChan := make(chan tokenStruct, 1)
+	tokChan <- context.Canceled
+	conn := &Conn{
+		sess:           &tdsSession{logger: optionalLogger{}},
+		connectionGood: true,
+		connector:      &Connector{params: msdsn.Config{}},
+	}
+	reader := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     context.Background(),
+		sess:    conn.sess,
+	}
+
+	err := reader.iterateResponse()
+	require.Error(t, err)
+	// iterateResponse's callers (simpleProcessResp, processExec) route the
+	// error through checkBadConn; the wrapped StreamError makes that evict.
+	returned := conn.checkBadConn(context.Background(), err, false)
+	assert.False(t, conn.connectionGood,
+		"a parse-produced context error must evict the connection in the message loop")
+	assert.Error(t, returned)
+}

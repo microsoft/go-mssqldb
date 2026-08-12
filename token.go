@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -1346,6 +1347,27 @@ func (t tokenProcessor) markCancelConfirmed() {
 	}
 }
 
+// wrapTokenChannelError normalizes an error that arrived over the token channel
+// (produced by processSingleResponse / token parsing) so that every nextToken
+// caller can act on it uniformly. A token-channel error that is exactly, or
+// wraps, context.Canceled/context.DeadlineExceeded — for example a row parser or
+// an Always Encrypted key provider returning the reader context's error after
+// Close cancels it — is indistinguishable by value from the clean context error
+// that the confirmed-attention path returns directly from t.ctx.Err(). But a
+// context error delivered as a token means the response was abandoned mid-stream
+// with unread TDS bytes still on the wire, so the connection must not be reused.
+// Wrapping it in StreamError makes checkBadConn treat it as fatal and stops
+// "err == ctx.Err()" comparisons in Rows/Rowsq.Close from misclassifying it as a
+// clean cancellation, so the connection is evicted. The confirmed-attention path
+// is unaffected because it never routes its context error through here. See
+// issue #407.
+func wrapTokenChannelError(err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return StreamError{InnerError: err}
+	}
+	return err
+}
+
 func (t tokenProcessor) nextToken() (tokenStruct, error) {
 	// we do this separate non-blocking check on token channel to
 	// prioritize it over cancellation channel
@@ -1355,7 +1377,7 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		if more {
 			t.sess.LogF(t.ctx, msdsn.LogDebug, "%s", "nextToken returned an error:"+err.Error())
 			// this is an error and not a token
-			return nil, err
+			return nil, wrapTokenChannelError(err)
 		} else {
 			return tok, nil
 		}
@@ -1368,7 +1390,7 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		if more {
 			err, ok := tok.(error)
 			if ok {
-				return nil, err
+				return nil, wrapTokenChannelError(err)
 			} else {
 				return tok, nil
 			}
