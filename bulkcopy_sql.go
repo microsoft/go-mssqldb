@@ -51,6 +51,12 @@ func (c *Conn) prepareCopyIn(ctx context.Context, query string) (_ driver.Stmt, 
 // as in "schema.table" or "database.schema.table", and individual parts may be
 // delimited, as in "[my schema].[my table]".
 //
+// Because the destination is always an object name, a value that relied on
+// being spliced into the statement as raw text no longer resolves. Pass
+// "table" and options.Tablock rather than "table WITH (TABLOCK)". A name that
+// cannot identify an object, because it is empty or has more than four parts,
+// is reported before any statement is sent.
+//
 // columns are the destination column names, in the order their values are
 // passed to Exec.
 //

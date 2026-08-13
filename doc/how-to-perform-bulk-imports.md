@@ -22,6 +22,8 @@ The table name is treated as an object name and is quoted before it is sent to t
 bulkImportStr := mssql.CopyIn("[my schema].[my table]", mssql.BulkOptions{}, "column1")
 ```
 
+Because the destination is always an object name, a value that relied on being spliced into the statement as raw text no longer resolves. Pass the table name and the matching option instead of appending the clause to the name, for example `mssql.CopyIn("tablename", mssql.BulkOptions{Tablock: true}, "column1")` rather than `mssql.CopyIn("tablename WITH (TABLOCK)", ...)`. A name that cannot identify an object, because it is empty or has more than the four parts SQL Server allows, is reported before any statement is sent.
+
 Bulk options can be specified using the `mssql.BulkOptions` type. The following is how the `BulkOptions` type is defined:
 
 ```

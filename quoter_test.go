@@ -195,6 +195,87 @@ func TestQuoteMultiPartID(t *testing.T) {
 	}
 }
 
+func TestQuoteObjectName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple name",
+			input:    "table",
+			expected: "[table]",
+		},
+		{
+			name:     "qualified name",
+			input:    "dbo.table",
+			expected: "[dbo].[table]",
+		},
+		{
+			name:     "the maximum number of parts",
+			input:    "server.db.dbo.table",
+			expected: "[server].[db].[dbo].[table]",
+		},
+		{
+			name:     "an omitted qualifier is kept",
+			input:    "db..table",
+			expected: "[db]..[table]",
+		},
+		{
+			name:     "a separator inside a delimited part is not a separator",
+			input:    "[a.b.c.d.e]",
+			expected: "[a.b.c.d.e]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := quoteObjectName(tt.input)
+			assert.NoError(t, err, "quoteObjectName(%q)", tt.input)
+			assert.Equal(t, tt.expected, result, "quoteObjectName(%q)", tt.input)
+		})
+	}
+}
+
+func TestQuoteObjectNameRejectsNamesWithoutAnObject(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "empty", input: ""},
+		{name: "whitespace only", input: "   "},
+		{name: "qualifier without an object", input: "dbo."},
+		{name: "separator only", input: "."},
+		{name: "delimited but empty", input: "[]"},
+		{name: "trailing separator after a delimited part", input: "[my schema]."},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := quoteObjectName(tt.input)
+			assert.ErrorContains(t, err, "does not name an object", "quoteObjectName(%q)", tt.input)
+		})
+	}
+}
+
+func TestQuoteObjectNameRejectsTooManyParts(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "five parts", input: "a.b.c.d.e"},
+		{name: "six parts", input: "a.b.c.d.e.f"},
+		{name: "five parts with delimited parts", input: "[a].[b].[c].[d].[e]"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := quoteObjectName(tt.input)
+			assert.ErrorContains(t, err, "at most 4 are allowed", "quoteObjectName(%q)", tt.input)
+		})
+	}
+}
+
 func TestQuoteBulkOrder(t *testing.T) {
 	tests := []struct {
 		name     string

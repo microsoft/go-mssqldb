@@ -667,6 +667,20 @@ func TestBulkcopyIdentifierQuoting(t *testing.T) {
 	}
 }
 
+// errInvalidObjectName is the SQL Server error number for "Invalid object
+// name". Matching the number rather than the message keeps these tests working
+// against a server that reports messages in another language.
+const errInvalidObjectName = 208
+
+// assertSQLErrorNumber asserts err carries the given SQL Server error number.
+func assertSQLErrorNumber(t *testing.T, err error, number int32) {
+	t.Helper()
+	var sqlErr Error
+	if assert.ErrorAs(t, err, &sqlErr) {
+		assert.Equal(t, number, sqlErr.Number, "unexpected error: %v", err)
+	}
+}
+
 // TestBulkcopyDestinationIsASingleObject makes sure a destination name is only
 // ever treated as an object name, so trailing text cannot turn the statements
 // the bulk copy builds into a batch of several statements.
@@ -700,13 +714,57 @@ func TestBulkcopyDestinationIsASingleObject(t *testing.T) {
 	defer func() { _ = stmt.Close() }()
 
 	_, err = stmt.ExecContext(ctx, 1)
-	assert.ErrorContains(t, err, "Invalid object name")
+	assertSQLErrorNumber(t, err, errInvalidObjectName)
 
 	var created int
 	err = conn.QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM sys.tables WHERE name = 'bulk_second_statement'").Scan(&created)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, created, "the trailing text must not run as a separate statement")
+}
+
+// TestBulkcopyRejectsUnusableDestination makes sure a destination that cannot
+// name an object is reported by the driver, and that the session is still
+// usable afterwards because no statement was sent.
+func TestBulkcopyRejectsUnusableDestination(t *testing.T) {
+	pool, logger := open(t)
+	defer func() { _ = pool.Close() }()
+	defer logger.StopLogging()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	conn, err := pool.Conn(ctx)
+	assert.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	tests := []struct {
+		name     string
+		table    string
+		contains string
+	}{
+		{name: "empty", table: "", contains: "does not name an object"},
+		{name: "whitespace only", table: "   ", contains: "does not name an object"},
+		{name: "qualifier without an object", table: "dbo.", contains: "does not name an object"},
+		{name: "too many parts", table: "a.b.c.d.e", contains: "at most 4 are allowed"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt, err := conn.PrepareContext(ctx, CopyIn(tt.table, BulkOptions{}, "id"))
+			assert.NoError(t, err)
+			defer func() { _ = stmt.Close() }()
+
+			_, err = stmt.ExecContext(ctx, 1)
+			assert.ErrorContains(t, err, tt.contains)
+
+			// FMTONLY is only ever switched on after the destination has been
+			// checked, so this still returns a row.
+			var one int
+			assert.NoError(t, conn.QueryRowContext(ctx, "SELECT 1").Scan(&one))
+			assert.Equal(t, 1, one)
+		})
+	}
 }
 
 func TestBulkcopyFailure(t *testing.T) {
@@ -732,7 +790,9 @@ func TestBulkcopyFailure(t *testing.T) {
 	_, err = stmt.ExecContext(ctx, "")
 	// But of course, it fails. Previously this would not SET FMTONLY OFF in the case
 	// of a failure, so the next statement would be nullified.
-	assert.ErrorContains(t, err, "Invalid object name 'thistabledoesnotexist'")
+	assertSQLErrorNumber(t, err, errInvalidObjectName)
+	assert.ErrorContains(t, err, "thistabledoesnotexist")
+
 
 	_, err = stmt.ExecContext(ctx)
 	assert.NoError(t, err)

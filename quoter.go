@@ -1,8 +1,13 @@
 package mssql
 
 import (
+	"fmt"
 	"strings"
 )
+
+// maxIDParts is the number of parts SQL Server allows in an object name:
+// server.database.schema.object.
+const maxIDParts = 4
 
 // TSQLQuoter implements sqlexp.Quoter
 type TSQLQuoter struct {
@@ -115,19 +120,27 @@ func unquoteID(part string) (string, bool) {
 	return name.String(), true
 }
 
+// idPartName returns the identifier one part of a multi-part name holds, with
+// any delimiters removed. It is empty when the part names nothing, whether it
+// was written as "", "  " or "[]".
+func idPartName(part string) string {
+	part = strings.TrimSpace(part)
+	if name, ok := unquoteID(part); ok {
+		return name
+	}
+	return part
+}
+
 // quoteIDPart quotes one part of a multi-part name. A part the caller already
 // delimited with [] or "" keeps its identifier, everything else is escaped.
 // An empty part is preserved so a name such as "db..table" keeps deferring to
 // the server's default schema.
 func quoteIDPart(part string) string {
-	part = strings.TrimSpace(part)
-	if part == "" {
+	name := idPartName(part)
+	if name == "" {
 		return ""
 	}
-	if name, ok := unquoteID(part); ok {
-		return TSQLQuoter{}.ID(name)
-	}
-	return TSQLQuoter{}.ID(part)
+	return TSQLQuoter{}.ID(name)
 }
 
 // quoteMultiPartID quotes a possibly multi-part object name such as "table",
@@ -138,6 +151,27 @@ func quoteMultiPartID(name string) string {
 		parts[i] = quoteIDPart(part)
 	}
 	return strings.Join(parts, ".")
+}
+
+// quoteObjectName quotes a possibly multi-part object name the same way
+// quoteMultiPartID does, but rejects a name that cannot identify an object so
+// the caller reports the problem itself instead of leaving the server to fail
+// on the query text it produced.
+func quoteObjectName(name string) (string, error) {
+	parts := splitMultiPartID(name)
+	if len(parts) > maxIDParts {
+		return "", fmt.Errorf("object name %q has %d parts, at most %d are allowed", name, len(parts), maxIDParts)
+	}
+	// The last part names the object itself. An empty one means there is no
+	// object to name, as in "", "dbo." or "dbo.[]", while an earlier empty
+	// part is a qualifier left out on purpose, as in "db..table".
+	if idPartName(parts[len(parts)-1]) == "" {
+		return "", fmt.Errorf("object name %q does not name an object", name)
+	}
+	for i, part := range parts {
+		parts[i] = quoteIDPart(part)
+	}
+	return strings.Join(parts, "."), nil
 }
 
 // quoteBulkOrder quotes the column names in a BulkOptions.Order entry so they
