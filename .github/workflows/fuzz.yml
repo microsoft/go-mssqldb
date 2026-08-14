@@ -1,0 +1,66 @@
+name: fuzz
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # nightly 07:00 UTC
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: 'Duration per fuzz target (Go duration, e.g. 180s, 10m)'
+        required: false
+        default: '180s'
+
+permissions: {}
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - '.'
+          - './batch'
+          - './integratedauth/ntlm'
+          - './internal/querytext'
+          - './msdsn'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.7'
+      - name: Run fuzz targets
+        shell: bash
+        env:
+          FUZZTIME: ${{ github.event.inputs.fuzztime || '180s' }}
+          PKG: ${{ matrix.package }}
+        run: |
+          go version
+          set -euo pipefail
+          mapfile -t TARGETS < <(go test "$PKG" -list '^Fuzz' 2>/dev/null | grep '^Fuzz' || true)
+          if [ ${#TARGETS[@]} -eq 0 ]; then
+            echo "No fuzz targets in $PKG; skipping."
+            exit 0
+          fi
+          echo "Targets in $PKG: ${TARGETS[*]}"
+          rc=0
+          for t in "${TARGETS[@]}"; do
+            echo "::group::fuzz $PKG $t ($FUZZTIME)"
+            if ! go test "$PKG" -run '^$' -fuzz "^${t}$" -fuzztime "$FUZZTIME" -parallel 4; then
+              echo "::error::fuzz target $t in $PKG failed"
+              rc=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $rc
+      - name: Upload crashers
+        if: failure()
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: fuzz-crashers-${{ strategy.job-index }}
+          path: '**/testdata/fuzz/**'
+          if-no-files-found: ignore
