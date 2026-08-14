@@ -500,8 +500,18 @@ type fedAuthInfoOpt struct {
 	dataLength, dataOffset uint32
 }
 
+// _MAX_FEDAUTHINFO_LEN bounds the total FEDAUTHINFO token size. The token only
+// carries a small STSURL and SPN, so any larger advertised size is a malformed
+// or hostile stream rather than something we should allocate for. The cap keeps
+// an attacker-controlled length prefix from driving an unbounded allocation
+// (OOM DoS, issue #420); a violation fails the stream as a StreamError.
+const _MAX_FEDAUTHINFO_LEN = 1 << 20
+
 func parseFedAuthInfo(r *tdsBuffer) fedAuthInfoStruct {
 	size := r.uint32()
+	if size > _MAX_FEDAUTHINFO_LEN {
+		badStreamPanicf("federated authentication info size %d exceeds maximum of %d bytes", size, _MAX_FEDAUTHINFO_LEN)
+	}
 
 	var STSURL, SPN string
 	var err error
@@ -510,6 +520,12 @@ func parseFedAuthInfo(r *tdsBuffer) fedAuthInfoStruct {
 	// then a four byte offset and a four byte length.
 	count := r.uint32()
 	offset := uint32(4)
+	// The option headers (9 bytes each) plus the trailing data must all fit
+	// within the advertised token size. Reject a count that cannot fit before
+	// allocating, so a bogus count cannot pre-allocate gigabytes of options.
+	if uint64(count)*9+uint64(offset) > uint64(size) {
+		badStreamPanicf("federated authentication info advertised %d options that do not fit in %d bytes", count, size)
+	}
 	opts := make([]fedAuthInfoOpt, count)
 
 	for i := uint32(0); i < count; i++ {

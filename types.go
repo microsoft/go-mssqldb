@@ -574,6 +574,11 @@ func readLongLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msd
 	if size == -1 {
 		return nil
 	}
+	// The advertised size is attacker-controlled; reject anything a real server
+	// cannot produce before using it as an allocation size (OOM DoS, issue #420).
+	if size < 0 || int64(size) > _MAX_PLP_LEN {
+		badStreamPanicf("TEXT/NTEXT/IMAGE length %d exceeds the maximum LOB size of %d bytes", size, int64(_MAX_PLP_LEN))
+	}
 	buf := make([]byte, size)
 	r.ReadFull(buf)
 	switch ti.TypeId {
@@ -655,6 +660,13 @@ func readVariantTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 	}
 	vartype := r.byte()
 	propbytes := int32(r.byte())
+	// size-2-propbytes is the trailing data length and is used below as an
+	// allocation size. It is derived from an attacker-controlled size prefix,
+	// so reject an underflowed (negative) or implausibly large value before any
+	// make() to avoid an OOM DoS (issue #420).
+	if datalen := size - 2 - propbytes; datalen < 0 || int64(datalen) > _MAX_PLP_LEN {
+		badStreamPanicf("sql_variant data length %d is invalid", datalen)
+	}
 	switch vartype {
 	case typeGuid:
 		buf := make([]byte, size-2-propbytes)
