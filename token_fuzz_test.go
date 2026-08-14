@@ -31,10 +31,12 @@ func (t *fuzzTransport) Write(p []byte) (int, error) { return len(p), nil }
 func (t *fuzzTransport) Close() error                { return nil }
 
 // frameReplyPackets wraps an arbitrary token stream into one or more packReply
-// TDS packets. frag selects how many packets the logical stream is split into
-// (1..8), letting the same stream be fragmented at different byte boundaries so
-// the parser is exercised across packet seams. Every non-final packet clears
-// the final status bit; only the last packet sets it.
+// TDS packets. frag selects a target fragment count in the range 1..8, so the
+// same stream is fragmented at different byte boundaries and the parser is
+// exercised across packet seams. The target is only a lower bound: any fragment
+// larger than fuzzMaxPacketPayload is split further, so a stream longer than
+// 8*fuzzMaxPacketPayload can produce more than 8 packets. Every non-final packet
+// clears the final status bit; only the last packet sets it.
 //
 // It returns ok=false when the stream cannot be framed within the uint16 packet
 // size limit (which, given the input bound in the fuzz body, never happens but
@@ -96,12 +98,14 @@ func newFuzzSession(framed []byte) *tdsSession {
 
 // drainSingleResponse runs processSingleResponse against a framed stream and
 // fully drains the token channel so the reader goroutine never blocks on the
-// size-5 buffered channel. It returns the ordered list of token Go types that
-// were produced (used for the packet-boundary determinism invariant) and
-// whether any error/panic token was emitted. processSingleResponse installs its
-// own recover(), so a malformed stream surfaces as an error token here rather
-// than crashing the harness.
-func drainSingleResponse(stream []byte, frag byte) (tokenTypes []string, sawError bool, framed bool) {
+// size-5 buffered channel. When collect is true it returns the ordered list of
+// token Go types that were produced (used for the packet-boundary determinism
+// invariant); the fuzz target passes collect=false to avoid the per-token
+// fmt.Sprintf allocations in the hot path. It also reports whether any
+// error/panic token was emitted. processSingleResponse installs its own
+// recover(), so a malformed stream surfaces as an error token here rather than
+// crashing the harness.
+func drainSingleResponse(stream []byte, frag byte, collect bool) (tokenTypes []string, sawError bool, framed bool) {
 	packets, ok := frameReplyPackets(stream, frag)
 	if !ok {
 		return nil, false, false
@@ -113,7 +117,9 @@ func drainSingleResponse(stream []byte, frag byte) (tokenTypes []string, sawErro
 	go processSingleResponse(context.Background(), sess, ch, outputs{})
 
 	for tok := range ch {
-		tokenTypes = append(tokenTypes, fmt.Sprintf("%T", tok))
+		if collect {
+			tokenTypes = append(tokenTypes, fmt.Sprintf("%T", tok))
+		}
 		if _, isErr := tok.(error); isErr {
 			sawError = true
 		}
@@ -123,7 +129,7 @@ func drainSingleResponse(stream []byte, frag byte) (tokenTypes []string, sawErro
 
 // --- synthetic token-stream builders -------------------------------------
 
-// buildDone returns a DONE/DONEPROC/DONEINPROC token body (status, curcmd,
+// doneBody returns a DONE/DONEPROC/DONEINPROC token body (status, curcmd,
 // rowcount). The caller supplies the leading token byte.
 func doneBody(status uint16) []byte {
 	b := make([]byte, 1+2+2+8)
@@ -164,11 +170,11 @@ func nbcRowNull() []byte {
 	return []byte{byte(tokenNbcRow), 0x01}
 }
 
-// infoLikeToken builds an ERROR/INFO token body (they share a layout).
+// infoLikeToken builds an ERROR/INFO token body (they share a layout). The
+// Length field is set to the true byte length of the token data that follows
+// it, so the seed is spec-faithful even though the current parser ignores it.
 func infoLikeToken(tok token) []byte {
-	return []byte{
-		byte(tok),
-		0x00, 0x00, // Length (ignored)
+	body := []byte{
 		0x00, 0x00, 0x00, 0x00, // Number
 		0x01,       // State
 		0x01,       // Class
@@ -177,6 +183,9 @@ func infoLikeToken(tok token) []byte {
 		0x00,                   // ProcName BVarChar length = 0
 		0x00, 0x00, 0x00, 0x00, // LineNo
 	}
+	out := []byte{byte(tok), 0x00, 0x00} // token id + Length placeholder
+	binary.LittleEndian.PutUint16(out[1:3], uint16(len(body)))
+	return append(out, body...)
 }
 
 // envChangeDatabase builds an ENVCHANGE token announcing a database change.
@@ -206,10 +215,10 @@ func concat(parts ...[]byte) []byte {
 	return out
 }
 
-// fuzzResponseSeeds returns complete, valid synthetic response streams plus a
-// few deliberately malformed ones. These double as the packet-boundary
-// determinism corpus (see TestProcessSingleResponsePacketBoundary).
-func fuzzResponseSeeds() [][]byte {
+// validResponseSeeds returns complete, well-formed synthetic response streams.
+// Each parses to a deterministic token sequence, so these double as the
+// packet-boundary determinism corpus (see TestProcessSingleResponsePacketBoundary).
+func validResponseSeeds() [][]byte {
 	return [][]byte{
 		// empty result set + DONE
 		doneToken(tokenDone, doneFinal),
@@ -238,28 +247,45 @@ func fuzzResponseSeeds() [][]byte {
 			[]byte{byte(tokenOrder), 0x00, 0x00},
 			doneToken(tokenDone, doneFinal),
 		),
+		// valid final DONE followed by trailing garbage: the parser returns on
+		// the final DONE before reading the garbage, so this still parses cleanly
+		// and deterministically regardless of packet boundaries.
+		concat(doneToken(tokenDone, doneFinal), []byte{0xDE, 0xAD, 0xBE, 0xEF}),
+	}
+}
+
+// malformedResponseSeeds returns deliberately broken streams. Each is expected
+// to be converted into an error token by processSingleResponse's recover().
+// These are NOT part of the packet-boundary determinism corpus because where the
+// parser trips can legitimately depend on how the bytes are split into packets.
+func malformedResponseSeeds() [][]byte {
+	return [][]byte{
 		// unknown token id -> handled via recover into an error token
 		{0x00},
 		// truncated DONE token (missing bytes) -> recovered error token
 		{byte(tokenDone), 0x00},
-		// valid final DONE followed by trailing garbage (ignored after return)
-		concat(doneToken(tokenDone, doneFinal), []byte{0xDE, 0xAD, 0xBE, 0xEF}),
 	}
+}
+
+// fuzzResponseSeeds returns every synthetic seed (valid and malformed) for use
+// as the fuzz corpus.
+func fuzzResponseSeeds() [][]byte {
+	return append(validResponseSeeds(), malformedResponseSeeds()...)
 }
 
 // TestProcessSingleResponsePacketBoundary asserts that, for known-valid seeds,
 // the sequence of token types produced by the parser is independent of how the
 // stream is fragmented across TDS packets.
 func TestProcessSingleResponsePacketBoundary(t *testing.T) {
-	for i, seed := range fuzzResponseSeeds() {
+	for i, seed := range validResponseSeeds() {
 		seed := seed
 		t.Run(fmt.Sprintf("seed_%d", i), func(t *testing.T) {
-			single, _, ok := drainSingleResponse(seed, 0) // one packet
+			single, _, ok := drainSingleResponse(seed, 0, true) // one packet
 			if !ok {
 				t.Fatal("failed to frame seed as a single packet")
 			}
 			for _, frag := range []byte{1, 3, 7, 255} {
-				fragmented, _, ok := drainSingleResponse(seed, frag)
+				fragmented, _, ok := drainSingleResponse(seed, frag, true)
 				if !ok {
 					t.Fatalf("failed to frame seed with frag=%d", frag)
 				}
@@ -309,7 +335,8 @@ func FuzzProcessSingleResponse(f *testing.F) {
 		}
 		// The invariant: this must return normally (no panic escaping the
 		// parser's recover, no goroutine leak/deadlock). The returned values
-		// are intentionally unused beyond confirming completion.
-		_, _, _ = drainSingleResponse(stream, frag)
+		// are intentionally unused beyond confirming completion, so collect is
+		// false to avoid per-token allocations in the hot fuzzing path.
+		_, _, _ = drainSingleResponse(stream, frag, false)
 	})
 }
