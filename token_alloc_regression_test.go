@@ -128,16 +128,33 @@ func TestReadLongLenType_MalformedLengthPanics(t *testing.T) {
 
 // TestReadVariantType_UnderflowPanics is a regression test for issue #420:
 // readVariantTypeWithEncoding allocated make([]byte, size-2-propbytes) which
-// underflowed to a huge value when propbytes exceeded size-2.
+// underflowed to a huge value when propbytes exceeded size-2, and also allowed
+// an implausibly large size (a sql_variant is capped at ~8 KB on the wire).
 func TestReadVariantType_UnderflowPanics(t *testing.T) {
-	// size=3, vartype=typeGuid, propbytes=250 -> 3-2-250 = -249
-	stream := []byte{0x03, 0x00, 0x00, 0x00, typeGuid, 0xFA}
-	ti := typeInfo{}
-	err := recoverErr(func() {
-		readVariantTypeWithEncoding(&ti, bufFromBytes(stream), nil, msdsn.EncodeParameters{})
-	})
-	assertStreamError(t, err)
-	assert.Contains(t, err.Error(), "sql_variant data length")
+	build := func(size int32, vartype byte, propbytes byte) []byte {
+		b := make([]byte, 4)
+		binary.LittleEndian.PutUint32(b, uint32(size))
+		return append(b, vartype, propbytes)
+	}
+
+	cases := map[string][]byte{
+		// size=3, propbytes=250 -> 3-2-250 = -249 (underflow)
+		"underflow": build(3, typeGuid, 250),
+		// size just past the sql_variant ceiling -> a bounded but multi-KB+
+		// datalen that must still be rejected, not allocated.
+		"oversize": build(_MAX_VARIANT_LEN+3, typeGuid, 0),
+	}
+	for name, stream := range cases {
+		stream := stream
+		t.Run(name, func(t *testing.T) {
+			ti := typeInfo{}
+			err := recoverErr(func() {
+				readVariantTypeWithEncoding(&ti, bufFromBytes(stream), nil, msdsn.EncodeParameters{})
+			})
+			assertStreamError(t, err)
+			assert.Contains(t, err.Error(), "sql_variant data length")
+		})
+	}
 }
 
 // TestProcessSingleResponse_MalformedNoOOM feeds crafted malformed token streams

@@ -82,6 +82,14 @@ const _PLP_TERMINATOR = 0x00000000
 // malformed stream rather than a value we should try to read.
 const _MAX_PLP_LEN = 0x7FFFFFFF
 
+// _MAX_VARIANT_LEN is the largest data length a sql_variant value can
+// legitimately advertise. A sql_variant is capped at 8016 bytes of storage on
+// SQL Server (8000 bytes of data plus metadata) and is never a (max)/LOB type,
+// so any larger length is a malformed stream. Bounding it well below
+// _MAX_PLP_LEN keeps an attacker-controlled size prefix from driving a
+// multi-gigabyte allocation (issue #420).
+const _MAX_VARIANT_LEN = 8016
+
 // TVP COLUMN FLAGS
 const _TVP_END_TOKEN = 0x00
 const _TVP_ROW_TOKEN = 0x01
@@ -663,8 +671,9 @@ func readVariantTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 	// size-2-propbytes is the trailing data length and is used below as an
 	// allocation size. It is derived from an attacker-controlled size prefix,
 	// so reject an underflowed (negative) or implausibly large value before any
-	// make() to avoid an OOM DoS (issue #420).
-	if datalen := size - 2 - propbytes; datalen < 0 || int64(datalen) > _MAX_PLP_LEN {
+	// make() to avoid an OOM DoS (issue #420). A sql_variant tops out at ~8 KB
+	// on the wire, so it is bounded far below the LOB ceiling.
+	if datalen := size - 2 - propbytes; datalen < 0 || datalen > _MAX_VARIANT_LEN {
 		badStreamPanic(fmt.Errorf("sql_variant data length %d is invalid", datalen))
 	}
 	switch vartype {
