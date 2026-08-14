@@ -21,8 +21,8 @@ func bufFromBytes(stream []byte) *tdsBuffer {
 }
 
 // recoverErr runs fn and returns any panic value coerced to an error. Token
-// parsers signal a malformed stream by panicking (badStreamPanic/badStreamPanicf)
-// which processSingleResponse recovers into an error token.
+// parsers signal a malformed stream by panicking (badStreamPanic) which
+// processSingleResponse recovers into an error token.
 func recoverErr(fn func()) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -35,6 +35,19 @@ func recoverErr(fn func()) (err error) {
 	}()
 	fn()
 	return nil
+}
+
+// assertStreamError fails unless err is a StreamError. The allocation guards
+// must panic StreamError (not a plain error) so Conn.checkBadConn marks the
+// connection bad and drops it from the pool on a malformed stream.
+func assertStreamError(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected a StreamError, got none")
+	}
+	if _, ok := err.(StreamError); !ok {
+		t.Fatalf("expected StreamError, got %T: %v", err, err)
+	}
 }
 
 // TestParseFedAuthInfo_MalformedAllocations is a regression test for issue #420:
@@ -78,9 +91,7 @@ func TestParseFedAuthInfo_MalformedAllocations(t *testing.T) {
 		tc := tc
 		t.Run(name, func(t *testing.T) {
 			err := recoverErr(func() { parseFedAuthInfo(bufFromBytes(tc.stream)) })
-			if err == nil {
-				t.Fatalf("expected a stream error, got none")
-			}
+			assertStreamError(t, err)
 			assert.Contains(t, err.Error(), tc.wantSub)
 		})
 	}
@@ -109,9 +120,7 @@ func TestReadLongLenType_MalformedLengthPanics(t *testing.T) {
 			err := recoverErr(func() {
 				readLongLenType(&ti, bufFromBytes(build(size)), nil, msdsn.EncodeParameters{})
 			})
-			if err == nil {
-				t.Fatalf("expected a stream error, got none")
-			}
+			assertStreamError(t, err)
 			assert.Contains(t, err.Error(), "maximum LOB size")
 		})
 	}
@@ -127,9 +136,7 @@ func TestReadVariantType_UnderflowPanics(t *testing.T) {
 	err := recoverErr(func() {
 		readVariantTypeWithEncoding(&ti, bufFromBytes(stream), nil, msdsn.EncodeParameters{})
 	})
-	if err == nil {
-		t.Fatalf("expected a stream error, got none")
-	}
+	assertStreamError(t, err)
 	assert.Contains(t, err.Error(), "sql_variant data length")
 }
 

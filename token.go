@@ -510,7 +510,7 @@ const _MAX_FEDAUTHINFO_LEN = 1 << 20
 func parseFedAuthInfo(r *tdsBuffer) fedAuthInfoStruct {
 	size := r.uint32()
 	if size > _MAX_FEDAUTHINFO_LEN {
-		badStreamPanicf("federated authentication info size %d exceeds maximum of %d bytes", size, _MAX_FEDAUTHINFO_LEN)
+		badStreamPanic(fmt.Errorf("federated authentication info size %d exceeds maximum of %d bytes", size, _MAX_FEDAUTHINFO_LEN))
 	}
 
 	var STSURL, SPN string
@@ -524,7 +524,7 @@ func parseFedAuthInfo(r *tdsBuffer) fedAuthInfoStruct {
 	// within the advertised token size. Reject a count that cannot fit before
 	// allocating, so a bogus count cannot pre-allocate gigabytes of options.
 	if uint64(count)*9+uint64(offset) > uint64(size) {
-		badStreamPanicf("federated authentication info advertised %d options that do not fit in %d bytes", count, size)
+		badStreamPanic(fmt.Errorf("federated authentication info advertised %d options that do not fit in %d bytes", count, size))
 	}
 	opts := make([]fedAuthInfoOpt, count)
 
