@@ -589,10 +589,19 @@ func parseLoginAck(r *tdsBuffer) loginAckStruct {
 	size := r.uint16()
 	buf := make([]byte, size)
 	r.ReadFull(buf)
+	sz := int(size)
+	// Minimum fixed layout: Interface(1) + TDSVersion(4) + prognamelen(1) + ProgVer(4) = 10 bytes.
+	if sz < 1+4+1+4 {
+		badStreamPanicf("LOGINACK token too short: %d", sz)
+	}
 	var res loginAckStruct
 	res.Interface = buf[0]
 	res.TDSVersion = binary.BigEndian.Uint32(buf[1:])
-	prognamelen := buf[1+4]
+	prognamelen := int(buf[1+4])
+	// Ensure the variable-length program name plus the trailing ProgVer fit within the token.
+	if 1+4+1+prognamelen*2+4 > sz {
+		badStreamPanicf("LOGINACK program name length %d exceeds token size %d", prognamelen, sz)
+	}
 	var err error
 	if res.ProgName, err = ucs22str(buf[1+4+1 : 1+4+1+prognamelen*2]); err != nil {
 		badStreamPanic(err)
