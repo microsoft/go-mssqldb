@@ -12,10 +12,6 @@ import (
 // payload. It mirrors the helper style in types_test.go so a token parser can be
 // exercised directly without a live connection.
 func bufFromBytes(stream []byte) *tdsBuffer {
-	size := len(stream)
-	if size == 0 {
-		size = 1
-	}
 	buf := newTdsBuffer(uint16(1<<15), nil)
 	copy(buf.rbuf[:len(stream)], stream)
 	buf.rpos = 0
