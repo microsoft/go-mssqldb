@@ -156,7 +156,7 @@ func TestProcessSingleResponse_MalformedNoOOM(t *testing.T) {
 	for name, stream := range streams {
 		stream := stream
 		t.Run(name, func(t *testing.T) {
-			_, sawError, framed := drainSingleResponse(stream, 0)
+			_, sawError, framed := drainSingleResponse(stream, 0, false)
 			if !framed {
 				t.Fatalf("failed to frame stream")
 			}
