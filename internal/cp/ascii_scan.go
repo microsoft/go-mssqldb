@@ -14,7 +14,7 @@ const asciiMask64 uint64 = 0x8080808080808080
 // parent package.
 func isASCII(s []byte) bool {
 	// how many 8 byte chunks are in the input buffer
-	nlen8 := len(s) & 0xFFFFFFF8
+	nlen8 := len(s) &^ 7
 	for i := 0; i < nlen8; i += 8 {
 		// dereference directly into the array as a uint64
 		ui64 := *(*uint64)(unsafe.Pointer(&s[i]))
