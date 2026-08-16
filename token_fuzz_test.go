@@ -31,21 +31,26 @@ func (t *fuzzTransport) Write(p []byte) (int, error) { return len(p), nil }
 func (t *fuzzTransport) Close() error                { return nil }
 
 // frameReplyPackets wraps an arbitrary token stream into one or more packReply
-// TDS packets. frag selects a target fragment count in the range 1..8, so the
-// same stream is fragmented at different byte boundaries and the parser is
-// exercised across packet seams. The target is only a lower bound: any fragment
-// larger than fuzzMaxPacketPayload is split further, so a stream longer than
-// 8*fuzzMaxPacketPayload can produce more than 8 packets. Every non-final packet
-// clears the final status bit; only the last packet sets it.
+// TDS packets. chunk is the maximum payload carried by each packet, so it
+// directly selects where the packet seams fall: chunk==1 puts a boundary after
+// every byte, and a chunk >= len(stream) yields a single packet. A chunk <= 0
+// means "one packet" (subject to the size limit). chunk is clamped to
+// fuzzMaxPacketPayload so a packet never exceeds the read buffer. Every
+// non-final packet clears the final status bit; only the last packet sets it.
+//
+// Exposing the payload size (rather than a fixed fragment count) lets callers
+// exercise arbitrary seam offsets: the fuzz body derives chunk from a fuzzed
+// byte, and the determinism test enumerates every boundary for the valid seeds.
 //
 // It returns ok=false when the stream cannot be framed within the uint16 packet
 // size limit (which, given the input bound in the fuzz body, never happens but
 // is guarded defensively).
-func frameReplyPackets(stream []byte, frag byte) (framed []byte, ok bool) {
+func frameReplyPackets(stream []byte, chunk int) (framed []byte, ok bool) {
 	const headerLen = 8
 
-	numFrags := 1 + int(frag)%8
-	chunk := (len(stream) + numFrags - 1) / numFrags
+	if chunk <= 0 || chunk > len(stream) {
+		chunk = len(stream)
+	}
 	if chunk < 1 {
 		chunk = 1
 	}
@@ -98,15 +103,16 @@ func newFuzzSession(framed []byte) *tdsSession {
 
 // drainSingleResponse runs processSingleResponse against a framed stream and
 // fully drains the token channel so the reader goroutine never blocks on the
-// size-5 buffered channel. When collect is true it returns the ordered list of
-// token Go types that were produced (used for the packet-boundary determinism
-// invariant); the fuzz target passes collect=false to avoid the per-token
-// fmt.Sprintf allocations in the hot path. It also reports whether any
-// error/panic token was emitted. processSingleResponse installs its own
-// recover(), so a malformed stream surfaces as an error token here rather than
-// crashing the harness.
-func drainSingleResponse(stream []byte, frag byte, collect bool) (tokenTypes []string, sawError bool, framed bool) {
-	packets, ok := frameReplyPackets(stream, frag)
+// size-5 buffered channel. chunk is the per-packet payload size passed to
+// frameReplyPackets (chunk <= 0 means a single packet). When collect is true it
+// returns the ordered list of token Go types that were produced (used for the
+// packet-boundary determinism invariant); the fuzz target passes collect=false
+// to avoid the per-token fmt.Sprintf allocations in the hot path. It also
+// reports whether any error/panic token was emitted. processSingleResponse
+// installs its own recover(), so a malformed stream surfaces as an error token
+// here rather than crashing the harness.
+func drainSingleResponse(stream []byte, chunk int, collect bool) (tokenTypes []string, sawError bool, framed bool) {
+	packets, ok := frameReplyPackets(stream, chunk)
 	if !ok {
 		return nil, false, false
 	}
@@ -228,8 +234,9 @@ func validResponseSeeds() [][]byte {
 		concat(colMetadataInt4(), nbcRowNull(), doneToken(tokenDone, doneFinal)),
 		// multiple result sets: DONE(doneMore) then final DONE
 		concat(doneToken(tokenDone, doneMore), doneToken(tokenDone, doneFinal)),
-		// ERROR -> DONE
-		concat(infoLikeToken(tokenError), doneToken(tokenDone, doneFinal)),
+		// ERROR -> DONE(doneError): a statement that completed with an error,
+		// so the terminating DONE carries the doneError status bit per MS-TDS.
+		concat(infoLikeToken(tokenError), doneToken(tokenDone, doneError)),
 		// INFO -> DONE
 		concat(infoLikeToken(tokenInfo), doneToken(tokenDone, doneFinal)),
 		// RETURNSTATUS -> DONE
@@ -310,17 +317,17 @@ func TestProcessSingleResponsePacketBoundary(t *testing.T) {
 			if singleErr {
 				t.Fatalf("valid seed %d produced an error token as a single packet", i)
 			}
-			for _, frag := range []byte{1, 3, 7, 255} {
-				fragmented, fragErr, ok := drainSingleResponse(seed, frag, true)
+			for chunk := 1; chunk < len(seed); chunk++ {
+				fragmented, fragErr, ok := drainSingleResponse(seed, chunk, true)
 				if !ok {
-					t.Fatalf("failed to frame seed with frag=%d", frag)
+					t.Fatalf("failed to frame seed with chunk=%d", chunk)
 				}
 				if fragErr {
-					t.Fatalf("valid seed %d produced an error token with frag=%d", i, frag)
+					t.Fatalf("valid seed %d produced an error token with chunk=%d", i, chunk)
 				}
 				if !reflect.DeepEqual(single, fragmented) {
-					t.Fatalf("token sequence differs by packet boundary (frag=%d):\n single=%v\n frag  =%v",
-						frag, single, fragmented)
+					t.Fatalf("token sequence differs by packet boundary (chunk=%d):\n single=%v\n frag  =%v",
+						chunk, single, fragmented)
 				}
 			}
 		})
@@ -362,10 +369,14 @@ func FuzzProcessSingleResponse(f *testing.F) {
 		if len(stream) > 64*1024 {
 			t.Skip()
 		}
+		// Interpret the fuzzed byte as a packet payload size (1..256) so the
+		// engine can drive the seam to arbitrary offsets rather than a fixed
+		// set of even splits.
+		chunk := 1 + int(frag)
 		// The invariant: this must return normally (no panic escaping the
 		// parser's recover, no goroutine leak/deadlock). The returned values
 		// are intentionally unused beyond confirming completion, so collect is
 		// false to avoid per-token allocations in the hot fuzzing path.
-		_, _, _ = drainSingleResponse(stream, frag, false)
+		_, _, _ = drainSingleResponse(stream, chunk, false)
 	})
 }
