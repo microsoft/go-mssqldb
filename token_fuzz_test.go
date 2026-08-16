@@ -273,21 +273,50 @@ func fuzzResponseSeeds() [][]byte {
 	return append(validResponseSeeds(), malformedResponseSeeds()...)
 }
 
+// TestProcessSingleResponseMalformedSeeds asserts that each deliberately broken
+// seed is actually rejected: the parser must surface an error token (a
+// StreamError produced by its internal recover()) rather than silently
+// accepting the unknown or truncated token. Without this, a regression that
+// stopped detecting bad streams would go unnoticed, since the fuzz target only
+// checks for panics and the boundary test excludes these seeds.
+func TestProcessSingleResponseMalformedSeeds(t *testing.T) {
+	for i, seed := range malformedResponseSeeds() {
+		seed := seed
+		t.Run(fmt.Sprintf("seed_%d", i), func(t *testing.T) {
+			_, sawErr, ok := drainSingleResponse(seed, 0, false)
+			if !ok {
+				t.Fatal("failed to frame malformed seed as a single packet")
+			}
+			if !sawErr {
+				t.Fatalf("malformed seed %d did not produce an error token", i)
+			}
+		})
+	}
+}
+
 // TestProcessSingleResponsePacketBoundary asserts that, for known-valid seeds,
 // the sequence of token types produced by the parser is independent of how the
-// stream is fragmented across TDS packets.
+// stream is fragmented across TDS packets. It also asserts that no parse fails,
+// so a seed that errors identically for every fragmentation cannot pass the
+// determinism comparison unnoticed.
 func TestProcessSingleResponsePacketBoundary(t *testing.T) {
 	for i, seed := range validResponseSeeds() {
 		seed := seed
 		t.Run(fmt.Sprintf("seed_%d", i), func(t *testing.T) {
-			single, _, ok := drainSingleResponse(seed, 0, true) // one packet
+			single, singleErr, ok := drainSingleResponse(seed, 0, true) // one packet
 			if !ok {
 				t.Fatal("failed to frame seed as a single packet")
 			}
+			if singleErr {
+				t.Fatalf("valid seed %d produced an error token as a single packet", i)
+			}
 			for _, frag := range []byte{1, 3, 7, 255} {
-				fragmented, _, ok := drainSingleResponse(seed, frag, true)
+				fragmented, fragErr, ok := drainSingleResponse(seed, frag, true)
 				if !ok {
 					t.Fatalf("failed to frame seed with frag=%d", frag)
+				}
+				if fragErr {
+					t.Fatalf("valid seed %d produced an error token with frag=%d", i, frag)
 				}
 				if !reflect.DeepEqual(single, fragmented) {
 					t.Fatalf("token sequence differs by packet boundary (frag=%d):\n single=%v\n frag  =%v",
