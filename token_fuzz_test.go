@@ -193,15 +193,15 @@ func normalizeToken(tok tokenStruct) string {
 // (used for the packet-boundary determinism invariant) together with the
 // database name recorded on the session, which is the observable side effect of
 // an ENVCHANGE token and is not otherwise visible on the channel. Collection
-// runs also wire a return-message queue into outs.msgq and append its drained
-// contents (INFO/ERROR/rows-affected), because those decoded values are exposed
-// only through the queue and never on the token channel; including them makes
-// the INFO and ERROR seeds actually verify their parsed values across packet
-// boundaries. The fuzz target passes collect=false to avoid the per-token
-// formatting allocations and the queue plumbing in the hot path. It also reports
-// whether any error/panic token was emitted. processSingleResponse installs its
-// own recover(), so a malformed stream surfaces as an error token here rather
-// than crashing the harness.
+// runs also wire a return-message queue into outs.msgq and drain it (see below)
+// to append its contents (INFO/ERROR/rows-affected), because those decoded
+// values are exposed only through the queue and never on the token channel;
+// including them makes the INFO and ERROR seeds actually verify their parsed
+// values across packet boundaries. The fuzz target passes collect=false to
+// avoid the per-token formatting allocations and the queue plumbing in the hot
+// path. It also reports whether any error/panic token was emitted.
+// processSingleResponse installs its own recover(), so a malformed stream
+// surfaces as an error token here rather than crashing the harness.
 func drainSingleResponse(stream []byte, chunk int, collect bool) (tokens []string, dbState string, sawError bool, framed bool) {
 	packets, ok := frameReplyPackets(stream, chunk)
 	if !ok {
@@ -214,13 +214,29 @@ func drainSingleResponse(stream []byte, chunk int, collect bool) (tokens []strin
 
 	var outs outputs
 	var msgq *sqlexp.ReturnMessage
+	var msgs []string
+	var msgDone chan struct{}
 	if collect {
-		// The queue is buffered (15) and each valid seed enqueues only a
-		// handful of messages, so it never fills before the parser returns
-		// and the post-run drain below cannot deadlock.
 		msgq = &sqlexp.ReturnMessage{}
 		sqlexp.ReturnMessageInit(msgq)
 		outs.msgq = msgq
+		// Drain the queue concurrently with the parser: ReturnMessageEnqueue
+		// blocks once the 15-slot buffer fills, so a response with enough
+		// notices/result-sets/row-count messages would otherwise stall the
+		// parser before it closes ch and hang this reusable harness. The
+		// goroutine writes msgs and is joined (via msgDone) before msgs is
+		// read below, so there is no data race.
+		msgDone = make(chan struct{})
+		go func() {
+			defer close(msgDone)
+			for {
+				m := msgq.Message(context.Background())
+				if _, stop := m.(msgSentinel); stop {
+					return
+				}
+				msgs = append(msgs, "msg:"+normalizeMsg(m))
+			}
+		}()
 	}
 
 	go processSingleResponse(context.Background(), sess, ch, outs)
@@ -236,17 +252,11 @@ func drainSingleResponse(stream []byte, chunk int, collect bool) (tokens []strin
 
 	if collect {
 		// ch is closed (its close is deferred in processSingleResponse and runs
-		// on every exit path), so the parser goroutine has returned and every
-		// message it will enqueue is already buffered. Push a sentinel and drain
-		// up to it to capture the messages in order without blocking on empty.
+		// on every exit path), so the parser has enqueued every message it will.
+		// The sentinel makes the drain goroutine stop once it has consumed them.
 		_ = sqlexp.ReturnMessageEnqueue(context.Background(), msgq, msgSentinel{})
-		for {
-			m := msgq.Message(context.Background())
-			if _, done := m.(msgSentinel); done {
-				break
-			}
-			tokens = append(tokens, "msg:"+normalizeMsg(m))
-		}
+		<-msgDone
+		tokens = append(tokens, msgs...)
 	}
 
 	// sess.database is mutated by processEnvChg while the goroutine runs; the
