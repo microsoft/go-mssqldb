@@ -2,6 +2,7 @@ package mssql
 
 import (
 	"encoding/binary"
+	"fmt"
 	"testing"
 
 	"github.com/microsoft/go-mssqldb/msdsn"
@@ -13,6 +14,9 @@ import (
 // exercised directly without a live connection.
 func bufFromBytes(stream []byte) *tdsBuffer {
 	buf := newTdsBuffer(uint16(1<<15), nil)
+	if len(stream) > len(buf.rbuf) {
+		panic(fmt.Sprintf("bufFromBytes: stream of %d bytes exceeds read buffer of %d bytes", len(stream), len(buf.rbuf)))
+	}
 	copy(buf.rbuf[:len(stream)], stream)
 	buf.rpos = 0
 	buf.rsize = len(stream)
@@ -34,7 +38,8 @@ func recoverErr(fn func()) (err error) {
 		}
 	}()
 	fn()
-	return nil
+	// err is set by the deferred recover above; a normal return leaves it nil.
+	return
 }
 
 // assertStreamError fails unless err is a StreamError. The allocation guards
