@@ -309,9 +309,14 @@ func validResponseSeeds() [][]byte {
 			[]byte{byte(tokenOrder), 0x00, 0x00},
 			doneToken(tokenDone, doneFinal),
 		),
-		// valid final DONE followed by trailing garbage: the parser returns on
-		// the final DONE before reading the garbage, so this still parses cleanly
-		// and deterministically regardless of packet boundaries.
+		// final DONE followed by extra bytes within the same logical stream.
+		// processSingleResponse returns on the terminating DONE (doneMore==0)
+		// before reading anything after it, so these trailing bytes are never
+		// consumed. This seed is NOT trailing-garbage coverage (arbitrary
+		// trailing bytes are exercised by FuzzProcessSingleResponse itself);
+		// it pins the invariant that bytes following the terminating DONE do
+		// not alter the parsed token stream or its determinism across packet
+		// boundaries -- the parser stops cleanly at the final DONE.
 		concat(doneToken(tokenDone, doneFinal), []byte{0xDE, 0xAD, 0xBE, 0xEF}),
 	}
 }
