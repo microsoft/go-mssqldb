@@ -242,7 +242,9 @@ go test ./msdsn -v
 
 ## Go Version Upgrades
 
-Two different numbers live in `go.mod`, and they move for different reasons.
+Two different Go versions matter here and they move for different reasons: the
+floor we promise consumers, which lives in `go.mod`, and the versions CI tests
+against, which live in the workflows.
 
 ### The `go` directive is the consumer floor
 
@@ -254,20 +256,16 @@ There is no `toolchain` directive, deliberately. Toolchain selection only switch
 
 ### CI versions track Go's support policy
 
-Go supports the two most recent majors. `pr-validation.yml` runs the floor plus both supported releases, using `1.2N.x` so security patches are picked up automatically:
+Go supports the two most recent majors. `pr-validation.yml` runs the floor plus both supported releases against every SQL image, using `1.2N.x` so security patches are picked up automatically:
 
 ```yaml
-include:
-  - go: '1.27.x'   # newest supported, crossed with every SQL image
-    sqlImage: '2017-latest'
-  ...
-  - go: '1.26.x'   # supported
-    sqlImage: '2025-latest'
-  - go: '1.25.x'   # floor from the go directive
-    sqlImage: '2025-latest'
+go: ['1.25.x', '1.26.x', '1.27.x']
+sqlImage: ['2017-latest','2019-latest','2022-latest','2025-latest']
 ```
 
-The `build` job sets `GOTOOLCHAIN: local` so the floor leg actually tests the floor. Without it, a `toolchain` line re-added by `go get` would silently upgrade the job.
+`1.25.x` is the floor from the `go` directive; `1.26.x` and `1.27.x` are the supported releases. The full cross product is deliberate: all three Go versions compile identical code (every build constraint in the driver is `go1.9` through `go1.18`), so the only version-dependent behaviour is stdlib runtime, principally `crypto/tls` — and that is exactly where the server version is not orthogonal, since 2017 negotiates TLS 1.2 with older cipher suites and 2025 does TLS 1.3.
+
+The `build` job sets `GOTOOLCHAIN: local` so the floor legs actually test the floor. Without it, a `toolchain` line re-added by `go get` would silently upgrade the job.
 
 ### Places a Go version appears
 
