@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -101,20 +102,57 @@ func newFuzzSession(framed []byte) *tdsSession {
 	}
 }
 
+// normalizeToken renders a token's parsed *contents* (not just its Go type) as
+// a stable string, so the packet-boundary invariant can assert that
+// fragmentation preserves the decoded values rather than merely the dispatch
+// order. Recording only "%T" would let a regression in a cross-packet value
+// path (for example the uint32 read behind rowInt4) change 42 to some other
+// number while both runs still produced a []interface{}. The representation
+// deliberately excludes non-deterministic fields (function pointers inside
+// typeInfo, *cryptoMetadata) and keeps only the decoded, comparable values.
+func normalizeToken(tok tokenStruct) string {
+	switch v := tok.(type) {
+	case doneStruct:
+		return fmt.Sprintf("done{status=%d curcmd=%d rows=%d errs=%d}",
+			v.Status, v.CurCmd, v.RowCount, len(v.errors))
+	case []columnStruct:
+		parts := make([]string, len(v))
+		for i, c := range v {
+			parts[i] = fmt.Sprintf("{name=%q type=%d usertype=%d flags=%d}",
+				c.ColName, c.ti.TypeId, c.UserType, c.Flags)
+		}
+		return "cols[" + strings.Join(parts, ",") + "]"
+	case []interface{}:
+		return fmt.Sprintf("row%v", v)
+	case ReturnStatus:
+		return fmt.Sprintf("returnstatus=%d", int32(v))
+	case orderStruct:
+		return fmt.Sprintf("order%v", v.ColIds)
+	case error:
+		// Value irrelevant here: valid seeds never emit an error token, and
+		// the boundary test already asserts that separately.
+		return fmt.Sprintf("error:%T", v)
+	default:
+		return fmt.Sprintf("%T:%v", tok, tok)
+	}
+}
+
 // drainSingleResponse runs processSingleResponse against a framed stream and
 // fully drains the token channel so the reader goroutine never blocks on the
 // size-5 buffered channel. chunk is the per-packet payload size passed to
 // frameReplyPackets (chunk <= 0 means a single packet). When collect is true it
-// returns the ordered list of token Go types that were produced (used for the
-// packet-boundary determinism invariant); the fuzz target passes collect=false
-// to avoid the per-token fmt.Sprintf allocations in the hot path. It also
-// reports whether any error/panic token was emitted. processSingleResponse
-// installs its own recover(), so a malformed stream surfaces as an error token
-// here rather than crashing the harness.
-func drainSingleResponse(stream []byte, chunk int, collect bool) (tokenTypes []string, sawError bool, framed bool) {
+// returns the ordered list of normalized token contents that were produced
+// (used for the packet-boundary determinism invariant) together with the
+// database name recorded on the session, which is the observable side effect of
+// an ENVCHANGE token and is not otherwise visible on the channel. The fuzz
+// target passes collect=false to avoid the per-token formatting allocations in
+// the hot path. It also reports whether any error/panic token was emitted.
+// processSingleResponse installs its own recover(), so a malformed stream
+// surfaces as an error token here rather than crashing the harness.
+func drainSingleResponse(stream []byte, chunk int, collect bool) (tokens []string, dbState string, sawError bool, framed bool) {
 	packets, ok := frameReplyPackets(stream, chunk)
 	if !ok {
-		return nil, false, false
+		return nil, "", false, false
 	}
 	sess := newFuzzSession(packets)
 	defer sess.buf.bufClose()
@@ -124,13 +162,16 @@ func drainSingleResponse(stream []byte, chunk int, collect bool) (tokenTypes []s
 
 	for tok := range ch {
 		if collect {
-			tokenTypes = append(tokenTypes, fmt.Sprintf("%T", tok))
+			tokens = append(tokens, normalizeToken(tok))
 		}
 		if _, isErr := tok.(error); isErr {
 			sawError = true
 		}
 	}
-	return tokenTypes, sawError, true
+	// sess.database is mutated by processEnvChg while the goroutine runs; the
+	// range loop above has returned only after ch is closed, which the parser
+	// does after it finishes, so this read is safe and final.
+	return tokens, sess.database, sawError, true
 }
 
 // --- synthetic token-stream builders -------------------------------------
@@ -290,7 +331,7 @@ func TestProcessSingleResponseMalformedSeeds(t *testing.T) {
 	for i, seed := range malformedResponseSeeds() {
 		seed := seed
 		t.Run(fmt.Sprintf("seed_%d", i), func(t *testing.T) {
-			_, sawErr, ok := drainSingleResponse(seed, 0, false)
+			_, _, sawErr, ok := drainSingleResponse(seed, 0, false)
 			if !ok {
 				t.Fatal("failed to frame malformed seed as a single packet")
 			}
@@ -302,15 +343,17 @@ func TestProcessSingleResponseMalformedSeeds(t *testing.T) {
 }
 
 // TestProcessSingleResponsePacketBoundary asserts that, for known-valid seeds,
-// the sequence of token types produced by the parser is independent of how the
-// stream is fragmented across TDS packets. It also asserts that no parse fails,
-// so a seed that errors identically for every fragmentation cannot pass the
-// determinism comparison unnoticed.
+// the parser output is independent of how the stream is fragmented across TDS
+// packets. It compares the normalized token *contents* (so a cross-packet value
+// regression is caught, not just a change in dispatch order) as well as the
+// database name recorded on the session (the observable ENVCHANGE side effect).
+// It also asserts that no parse fails, so a seed that errors identically for
+// every fragmentation cannot pass the determinism comparison unnoticed.
 func TestProcessSingleResponsePacketBoundary(t *testing.T) {
 	for i, seed := range validResponseSeeds() {
 		seed := seed
 		t.Run(fmt.Sprintf("seed_%d", i), func(t *testing.T) {
-			single, singleErr, ok := drainSingleResponse(seed, 0, true) // one packet
+			single, singleDB, singleErr, ok := drainSingleResponse(seed, 0, true) // one packet
 			if !ok {
 				t.Fatal("failed to frame seed as a single packet")
 			}
@@ -318,7 +361,7 @@ func TestProcessSingleResponsePacketBoundary(t *testing.T) {
 				t.Fatalf("valid seed %d produced an error token as a single packet", i)
 			}
 			for chunk := 1; chunk < len(seed); chunk++ {
-				fragmented, fragErr, ok := drainSingleResponse(seed, chunk, true)
+				fragmented, fragDB, fragErr, ok := drainSingleResponse(seed, chunk, true)
 				if !ok {
 					t.Fatalf("failed to frame seed with chunk=%d", chunk)
 				}
@@ -326,8 +369,12 @@ func TestProcessSingleResponsePacketBoundary(t *testing.T) {
 					t.Fatalf("valid seed %d produced an error token with chunk=%d", i, chunk)
 				}
 				if !reflect.DeepEqual(single, fragmented) {
-					t.Fatalf("token sequence differs by packet boundary (chunk=%d):\n single=%v\n frag  =%v",
+					t.Fatalf("token contents differ by packet boundary (chunk=%d):\n single=%v\n frag  =%v",
 						chunk, single, fragmented)
+				}
+				if singleDB != fragDB {
+					t.Fatalf("session database differs by packet boundary (chunk=%d): single=%q frag=%q",
+						chunk, singleDB, fragDB)
 				}
 			}
 		})
@@ -377,6 +424,6 @@ func FuzzProcessSingleResponse(f *testing.F) {
 		// parser's recover, no goroutine leak/deadlock). The returned values
 		// are intentionally unused beyond confirming completion, so collect is
 		// false to avoid per-token allocations in the hot fuzzing path.
-		_, _, _ = drainSingleResponse(stream, chunk, false)
+		_, _, _, _ = drainSingleResponse(stream, chunk, false)
 	})
 }
