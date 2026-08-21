@@ -21,20 +21,10 @@ jobs:
       fail-fast: false
       matrix:
         # 1.27 and 1.26 are the supported Go releases; 1.25 is the floor declared
-        # by the go directive. Only the newest is crossed with every SQL image.
-        include:
-          - go: '1.27.x'
-            sqlImage: '2017-latest'
-          - go: '1.27.x'
-            sqlImage: '2019-latest'
-          - go: '1.27.x'
-            sqlImage: '2022-latest'
-          - go: '1.27.x'
-            sqlImage: '2025-latest'
-          - go: '1.26.x'
-            sqlImage: '2025-latest'
-          - go: '1.25.x'
-            sqlImage: '2025-latest'
+        # by the go directive. Crossed with every SQL image because crypto/tls
+        # changes between Go releases and TLS negotiation differs by server version.
+        go: ['1.25.x', '1.26.x', '1.27.x']
+        sqlImage: ['2017-latest','2019-latest','2022-latest','2025-latest']
     steps:
       # actions/checkout v6
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
