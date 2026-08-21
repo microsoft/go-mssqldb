@@ -242,36 +242,45 @@ go test ./msdsn -v
 
 ## Go Version Upgrades
 
-When upgrading Go versions, the following files need to be updated:
+Two different numbers live in `go.mod`, and they move for different reasons.
 
-### Files to Update
-1. **`.github/workflows/pr-validation.yml`** - GitHub Actions workflow for pull request validation
-2. **`appveyor.yml`** - AppVeyor configuration for Windows testing
+### The `go` directive is the consumer floor
 
-### GitHub Actions Workflow (.github/workflows/pr-validation.yml)
-Update the Go version in the strategy matrix:
+`go 1.25.0` is the oldest Go anyone importing this driver may use. Raising it is a breaking change for consumers, so it moves only when a dependency forces it or when the driver needs a newer language or stdlib feature. Never set it to a patch version (`go 1.25.7`) — patch releases add no language surface, and a patch floor breaks consumers on distro-packaged Go with `GOTOOLCHAIN=local`.
+
+The floor cannot go below the highest `go` directive of any direct dependency. `azcore` and `azidentity` currently sit at `1.25.0`.
+
+There is no `toolchain` directive, deliberately. Toolchain selection only switches upward, so contributors on any Go >= the floor are unaffected, and there is one fewer version to keep current.
+
+### CI versions track Go's support policy
+
+Go supports the two most recent majors. `pr-validation.yml` runs the floor plus both supported releases, using `1.2N.x` so security patches are picked up automatically:
+
 ```yaml
-strategy:
-  matrix:
-    go: ['1.XX']  # Update this version number
-    sqlImage: ['2019-latest','2022-latest']
+include:
+  - go: '1.27.x'   # newest supported, crossed with every SQL image
+    sqlImage: '2017-latest'
+  ...
+  - go: '1.26.x'   # supported
+    sqlImage: '2025-latest'
+  - go: '1.25.x'   # floor from the go directive
+    sqlImage: '2025-latest'
 ```
 
-### AppVeyor Configuration (appveyor.yml)
-Update multiple `GOVERSION` entries:
-1. **Default GOVERSION** (line ~14): `GOVERSION: 125` (remove dots)
-2. **Matrix entries** (lines ~20-35): Update all GOVERSION values
+The `build` job sets `GOTOOLCHAIN: local` so the floor leg actually tests the floor. Without it, a `toolchain` line re-added by `go get` would silently upgrade the job.
 
-**Version Format Difference:**
-- **GitHub Actions**: Use full version with dots (e.g., `'1.25.7'`)
-- **AppVeyor**: Remove dots and use just numbers (e.g., `125` for Go 1.25)
+### Places a Go version appears
 
-### Complete Upgrade Checklist
-- [ ] Update `.github/workflows/pr-validation.yml`: go version in matrix strategy
-- [ ] Update `appveyor.yml`: default GOVERSION and all matrix entries (typically 4 locations)
-- [ ] Ensure the x86 version maintains its `-x86` suffix
-- [ ] Test changes: verify GitHub Actions and AppVeyor builds complete successfully
-- [ ] Consider updating `go.mod` if using newer Go version than currently required
+| File | What it controls | Moves when |
+|---|---|---|
+| `go.mod` `go` directive | Consumer floor | A dependency forces it |
+| `.github/workflows/pr-validation.yml` | Tested versions | Go releases a new major |
+| `.devcontainer/Dockerfile` | Dev environment | Any time; must be >= the floor |
+| `appveyor.yml` `GOVERSION` | Windows test toolchain | Constrained by the AppVeyor image |
+
+AppVeyor uses no dots (`125` for Go 1.25), and the 32-bit entry keeps its `-x86` suffix. The AppVeyor worker image only carries certain Go versions, so check the image contents before bumping it.
+
+The `Verify Go version alignment` job in `devcontainer.yml` asserts the devcontainer image is at least the `go` directive. Newer is fine and expected.
 
 ## Common Commands and Expected Output
 
