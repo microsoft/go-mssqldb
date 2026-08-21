@@ -103,9 +103,11 @@ func TestParseFedAuthInfo_MalformedAllocations(t *testing.T) {
 }
 
 // TestReadLongLenType_MalformedLengthPanics is a regression test for issue #420:
-// readLongLenType used the untrusted int32 length as the buffer size, so a
-// negative length aborted with an out-of-range make() and a huge one allocated
-// gigabytes. Both must fail the stream cleanly instead.
+// readLongLenType used the untrusted int32 length directly as the buffer size,
+// so a negative length aborted with an out-of-range make(). The guard now
+// rejects a negative length as a clean StreamError. A non-negative length is
+// inherently bounded by the protocol LOB maximum (_MAX_PLP_LEN == max int32),
+// so this test exercises the negative case that the guard must reject.
 func TestReadLongLenType_MalformedLengthPanics(t *testing.T) {
 	build := func(size int32) []byte {
 		// textptrsize=1, textptr(1 byte), timestamp(8 bytes), size(int32)
