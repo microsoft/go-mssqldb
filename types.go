@@ -585,7 +585,7 @@ func readLongLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msd
 	// The advertised size is attacker-controlled; reject anything a real server
 	// cannot produce before using it as an allocation size (OOM DoS, issue #420).
 	if size < 0 || int64(size) > _MAX_PLP_LEN {
-		badStreamPanic(fmt.Errorf("TEXT/NTEXT/IMAGE length %d exceeds the maximum LOB size of %d bytes", size, int64(_MAX_PLP_LEN)))
+		badStreamPanic(fmt.Errorf("invalid TEXT/NTEXT/IMAGE length %d: must be between 0 and the maximum LOB size of %d bytes", size, int64(_MAX_PLP_LEN)))
 	}
 	buf := make([]byte, size)
 	r.ReadFull(buf)
