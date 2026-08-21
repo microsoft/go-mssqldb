@@ -582,13 +582,29 @@ func readLongLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msd
 	if size == -1 {
 		return nil
 	}
-	// The advertised size is attacker-controlled; reject anything a real server
-	// cannot produce before using it as an allocation size (OOM DoS, issue #420).
-	if size < 0 || int64(size) > _MAX_PLP_LEN {
-		badStreamPanic(fmt.Errorf("invalid TEXT/NTEXT/IMAGE length %d: must be between 0 and the maximum LOB size of %d bytes", size, int64(_MAX_PLP_LEN)))
+	// The advertised size is attacker-controlled; reject a negative length
+	// before using it (issue #420). A non-negative int32 is inherently within
+	// the protocol LOB maximum (_MAX_PLP_LEN == max int32).
+	if size < 0 {
+		badStreamPanic(fmt.Errorf("invalid TEXT/NTEXT/IMAGE length %d: must be non-negative and within the maximum LOB size of %d bytes", size, int64(_MAX_PLP_LEN)))
 	}
-	buf := make([]byte, size)
-	r.ReadFull(buf)
+	// Grow the buffer with the bytes actually received rather than
+	// preallocating the full advertised size, so a hostile server cannot force
+	// a multi-GiB allocation by advertising a huge length and then truncating
+	// the stream (OOM DoS, issue #420). A short read fails the stream cleanly
+	// as an unexpected EOF.
+	var bb bytes.Buffer
+	if initialCap := int64(size); initialCap > 0 {
+		const maxInitialCap = 1 << 16
+		if initialCap > maxInitialCap {
+			initialCap = maxInitialCap
+		}
+		bb.Grow(int(initialCap))
+	}
+	if _, err := io.CopyN(&bb, r, int64(size)); err != nil {
+		badStreamPanic(fmt.Errorf("reading %d-byte TEXT/NTEXT/IMAGE value failed: %w", size, err))
+	}
+	buf := bb.Bytes()
 	switch ti.TypeId {
 	case typeText:
 		return decodeChar(ti.Collation, buf)

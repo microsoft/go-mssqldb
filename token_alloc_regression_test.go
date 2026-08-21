@@ -103,32 +103,45 @@ func TestParseFedAuthInfo_MalformedAllocations(t *testing.T) {
 }
 
 // TestReadLongLenType_MalformedLengthPanics is a regression test for issue #420:
-// readLongLenType used the untrusted int32 length directly as the buffer size,
-// so a negative length aborted with an out-of-range make(). The guard now
-// rejects a negative length as a clean StreamError. A non-negative length is
-// inherently bounded by the protocol LOB maximum (_MAX_PLP_LEN == max int32),
-// so this test exercises the negative case that the guard must reject.
+// readLongLenType used the untrusted int32 length directly as the make() size,
+// so a negative length aborted with an out-of-range make() and a huge length
+// preallocated gigabytes before any data arrived. The reader now rejects a
+// negative length and grows the buffer with the bytes actually received, so a
+// truncated huge length fails the stream cleanly instead of preallocating.
 func TestReadLongLenType_MalformedLengthPanics(t *testing.T) {
-	build := func(size int32) []byte {
-		// textptrsize=1, textptr(1 byte), timestamp(8 bytes), size(int32)
+	build := func(size int32, data []byte) []byte {
+		// textptrsize=1, textptr(1 byte), timestamp(8 bytes), size(int32), data
 		b := []byte{0x01, 0x00, 0, 0, 0, 0, 0, 0, 0, 0}
 		var s [4]byte
 		binary.LittleEndian.PutUint32(s[:], uint32(size))
-		return append(b, s[:]...)
+		b = append(b, s[:]...)
+		return append(b, data...)
 	}
 
-	sizes := map[string]int32{
-		"negative length": -2,
+	cases := map[string]struct {
+		stream  []byte
+		wantSub string
+	}{
+		"negative length": {
+			stream:  build(-2, nil),
+			wantSub: "maximum LOB size",
+		},
+		"truncated huge length": {
+			// Advertise ~2 GiB but supply only a few bytes: the reader must fail
+			// the stream instead of preallocating gigabytes (issue #420).
+			stream:  build(0x7FFFFFFF, []byte{0x01, 0x02, 0x03}),
+			wantSub: "failed",
+		},
 	}
-	for name, size := range sizes {
-		size := size
+	for name, tc := range cases {
+		tc := tc
 		t.Run(name, func(t *testing.T) {
 			ti := typeInfo{TypeId: typeImage}
 			err := recoverErr(func() {
-				readLongLenType(&ti, bufFromBytes(build(size)), nil, msdsn.EncodeParameters{})
+				readLongLenType(&ti, bufFromBytes(tc.stream), nil, msdsn.EncodeParameters{})
 			})
 			assertStreamError(t, err)
-			assert.Contains(t, err.Error(), "maximum LOB size")
+			assert.Contains(t, err.Error(), tc.wantSub)
 		})
 	}
 }
