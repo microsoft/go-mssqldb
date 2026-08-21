@@ -354,6 +354,21 @@ func infoLikeToken(tok token) []byte {
 	return append(out, body...)
 }
 
+// tabNameToken builds a spec-faithful TDS 7.2 TABNAME token for a single-part
+// table name. Per MS-TDS the token value is NumParts (BYTE) followed by that
+// many US_VARCHAR name parts (USHORT char count + UCS-2 chars). The Length
+// field is the true byte length of the value, so the seed stays valid even if
+// parseTabName is later strengthened to actually decode the parts.
+func tabNameToken(name string) []byte {
+	part := make([]byte, 2)
+	binary.LittleEndian.PutUint16(part, uint16(len(name)))
+	part = append(part, ucs2(name)...)
+	body := append([]byte{0x01}, part...) // NumParts = 1
+	out := []byte{byte(tokenTabName), 0x00, 0x00}
+	binary.LittleEndian.PutUint16(out[1:3], uint16(len(body)))
+	return append(out, body...)
+}
+
 // envChangeDatabase builds an ENVCHANGE token announcing a database change.
 func envChangeDatabase() []byte {
 	// payload: type(1) + new BVarChar("x") + old BVarChar("")
@@ -412,9 +427,9 @@ func validResponseSeeds() [][]byte {
 		// parseOrder's element loop across packet seams (an ORDER with one
 		// column id), not just the token dispatch.
 		concat(
-			[]byte{byte(tokenTabName), 0x04, 0x00, 't', 'a', 'b', 'l'}, // length=4, "tabl"
-			[]byte{byte(tokenColInfo), 0x03, 0x00, 0x01, 0x01, 0x00},   // length=3, ColNum=1, TableNum=1, Status=0
-			[]byte{byte(tokenOrder), 0x02, 0x00, 0x01, 0x00},           // length=2 bytes, one ColId=1
+			tabNameToken("t"), // TDS 7.2 TABNAME: NumParts=1, one US_VARCHAR "t"
+			[]byte{byte(tokenColInfo), 0x03, 0x00, 0x01, 0x01, 0x00}, // length=3, ColNum=1, TableNum=1, Status=0
+			[]byte{byte(tokenOrder), 0x02, 0x00, 0x01, 0x00},         // length=2 bytes, one ColId=1
 			doneToken(tokenDone, doneFinal),
 		),
 	}
