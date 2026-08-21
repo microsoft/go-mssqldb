@@ -17,17 +17,17 @@ environment:
 
   TAGS:
   matrix:
-      # Default protocol negotiation, 64bit, SQL auth
+    # Default protocol negotiation, 64bit, SQL auth
     - GOVERSION: 125
-      # Always Encrypted
+    # Always Encrypted
     - GOVERSION: 125
       COLUMNENCRYPTION: 1
-      # Cover 32bit and named pipes protocol
+    # 32bit and named pipes protocol
     - GOVERSION: 125-x86
       GOARCH: 386
       PROTOCOL: np
       TAGS: -tags np
-      # Cover SSPI and lpc protocol
+    # SSPI and lpc protocol
     - GOVERSION: 125
       PROTOCOL: lpc
       TAGS: -tags sm
@@ -35,8 +35,12 @@ environment:
       SQLPASSWORD:
 
 init:
-  # AppVeyor does not document instance names past SQL2019; print what is installed.
-  - ps: Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL' -ErrorAction SilentlyContinue | Out-String
+  # AppVeyor does not document instance names past SQL2019; list what is installed.
+  - ps: |
+      $key = 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL'
+      (Get-ItemProperty $key -ErrorAction SilentlyContinue).PSObject.Properties |
+        Where-Object Name -notlike 'PS*' |
+        ForEach-Object { "instance: $($_.Name) -> $($_.Value)" }
 
 install:
   - set GOROOT=c:\go%GOVERSION%
