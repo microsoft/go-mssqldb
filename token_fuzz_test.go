@@ -283,6 +283,19 @@ func doneToken(tok token, status uint16) []byte {
 	return b
 }
 
+// doneCountToken builds a DONE-family token that reports a row count. The
+// doneCount status bit is set and CurCmd/RowCount carry distinct non-zero
+// values, so the boundary test exercises those multi-byte cross-packet reads
+// and (when collecting messages) the MsgRowsAffected normalization path, which
+// a zero-valued DONE would leave untested.
+func doneCountToken(tok token, status, curcmd uint16, rowcount uint64) []byte {
+	b := doneBody(status | doneCount)
+	b[0] = byte(tok)
+	binary.LittleEndian.PutUint16(b[3:5], curcmd)
+	binary.LittleEndian.PutUint64(b[5:13], rowcount)
+	return b
+}
+
 // colMetadataInt4 returns a COLMETADATA token for a single, unnamed int4 column.
 func colMetadataInt4() []byte {
 	return []byte{
@@ -403,8 +416,10 @@ func validResponseSeeds() [][]byte {
 	return [][]byte{
 		// empty result set + DONE
 		doneToken(tokenDone, doneFinal),
-		// COLMETADATA -> ROW -> DONE
-		concat(colMetadataInt4(), rowInt4(42), doneToken(tokenDone, doneFinal)),
+		// COLMETADATA -> ROW -> DONE. The terminating DONE sets doneCount and
+		// carries non-zero CurCmd/RowCount so the content comparison exercises
+		// those reads and the MsgRowsAffected path, not just status.
+		concat(colMetadataInt4(), rowInt4(42), doneCountToken(tokenDone, doneFinal, 0x00C1, 7)),
 		// COLMETADATA -> NBCROW(null) -> DONE
 		concat(colMetadataInt4(), nbcRowNull(), doneToken(tokenDone, doneFinal)),
 		// multiple result sets: DONE(doneMore) then final DONE
@@ -414,19 +429,23 @@ func validResponseSeeds() [][]byte {
 		concat(infoLikeToken(tokenError), doneToken(tokenDone, doneError)),
 		// INFO -> DONE
 		concat(infoLikeToken(tokenInfo), doneToken(tokenDone, doneFinal)),
-		// RETURNSTATUS -> DONE
-		concat(returnStatusToken(0), doneToken(tokenDone, doneFinal)),
+		// RETURNSTATUS -> DONE. Non-zero multi-byte status so the seed validates
+		// four-byte decoding across packet seams, not just token dispatch.
+		concat(returnStatusToken(0x12345678), doneToken(tokenDone, doneFinal)),
 		// DONEPROC (final)
 		doneToken(tokenDoneProc, doneFinal),
 		// DONEINPROC (final)
 		doneToken(tokenDoneInProc, doneFinal),
 		// ENVCHANGE(database) -> DONE
 		concat(envChangeDatabase(), doneToken(tokenDone, doneFinal)),
-		// TABNAME + COLINFO + ORDER -> DONE. Non-empty bodies so the boundary
-		// test exercises parseTabName/parseColInfo payload reads and
+		// COLMETADATA + TABNAME + COLINFO + ORDER -> DONE. The metadata defines
+		// column 1 that COLINFO/ORDER reference, so this is an actual result-set
+		// token sequence; the non-empty browse-token bodies also make the
+		// boundary test exercise parseTabName/parseColInfo payload reads and
 		// parseOrder's element loop across packet seams (an ORDER with one
-		// column id), not just the token dispatch.
+		// column id), not just token dispatch.
 		concat(
+			colMetadataInt4(),
 			tabNameToken("t"), // TDS 7.2 TABNAME: NumParts=1, one US_VARCHAR "t"
 			[]byte{byte(tokenColInfo), 0x03, 0x00, 0x01, 0x01, 0x00}, // length=3, ColNum=1, TableNum=1, Status=0
 			[]byte{byte(tokenOrder), 0x02, 0x00, 0x01, 0x00},         // length=2 bytes, one ColId=1
