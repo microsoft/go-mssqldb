@@ -597,9 +597,9 @@ func readLongLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msd
 	case typeNText:
 		return decodeNChar(buf)
 	default:
-		badStreamPanicf("Invalid typeid")
+		badStreamPanic(fmt.Errorf("invalid type id %d for variable-length type", ti.TypeId))
 	}
-	panic("shoulnd't get here")
+	panic("shouldn't get here")
 }
 func writeLongLenType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error) {
 	if buf == nil {
