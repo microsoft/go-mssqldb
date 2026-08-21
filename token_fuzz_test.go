@@ -102,6 +102,20 @@ func newFuzzSession(framed []byte) *tdsSession {
 	}
 }
 
+// normalizeErrors renders the deterministic contents of the ERROR tokens
+// accumulated onto a DONE token. Recording only the count would let a
+// packet-boundary regression that corrupts a decoded ERROR field (Number,
+// State, Class, Message, ServerName, ProcName, LineNo) slip through while the
+// token count stayed the same, so the full decoded values are compared here.
+func normalizeErrors(errs []Error) string {
+	parts := make([]string, len(errs))
+	for i, e := range errs {
+		parts[i] = fmt.Sprintf("{num=%d state=%d class=%d msg=%q server=%q proc=%q line=%d}",
+			e.Number, e.State, e.Class, e.Message, e.ServerName, e.ProcName, e.LineNo)
+	}
+	return "[" + strings.Join(parts, ",") + "]"
+}
+
 // normalizeToken renders a token's parsed *contents* (not just its Go type) as
 // a stable string, so the packet-boundary invariant can assert that
 // fragmentation preserves the decoded values rather than merely the dispatch
@@ -113,8 +127,8 @@ func newFuzzSession(framed []byte) *tdsSession {
 func normalizeToken(tok tokenStruct) string {
 	switch v := tok.(type) {
 	case doneStruct:
-		return fmt.Sprintf("done{status=%d curcmd=%d rows=%d errs=%d}",
-			v.Status, v.CurCmd, v.RowCount, len(v.errors))
+		return fmt.Sprintf("done{status=%d curcmd=%d rows=%d errs=%s}",
+			v.Status, v.CurCmd, v.RowCount, normalizeErrors(v.errors))
 	case []columnStruct:
 		parts := make([]string, len(v))
 		for i, c := range v {
