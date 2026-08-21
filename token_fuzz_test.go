@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/golang-sql/sqlexp"
 )
 
 // fuzzPacketSize is the TDS buffer size used by the response fuzz harness.
@@ -102,6 +104,38 @@ func newFuzzSession(framed []byte) *tdsSession {
 	}
 }
 
+// msgSentinel is a private RawMessage used only to mark the end of the return
+// message queue when draining it after the parser goroutine has finished.
+type msgSentinel struct{}
+
+// normalizeMsg renders the deterministic contents of a return-message queue
+// entry. INFO/ERROR values and rows-affected counts are exposed by the parser
+// only through outs.msgq (never on the token channel), so folding them into the
+// packet-boundary comparison is what makes the INFO/ERROR seeds actually verify
+// their decoded values rather than merely the surrounding DONE.
+func normalizeMsg(m sqlexp.RawMessage) string {
+	switch v := m.(type) {
+	case sqlexp.MsgNotice:
+		if e, ok := v.Message.(Error); ok {
+			return "notice" + normalizeErrors([]Error{e})
+		}
+		return fmt.Sprintf("notice{%v}", v.Message)
+	case sqlexp.MsgError:
+		if e, ok := v.Error.(Error); ok {
+			return "error" + normalizeErrors([]Error{e})
+		}
+		return fmt.Sprintf("error{%v}", v.Error)
+	case sqlexp.MsgRowsAffected:
+		return fmt.Sprintf("rowsaffected=%d", v.Count)
+	case sqlexp.MsgNext:
+		return "next"
+	case sqlexp.MsgNextResultSet:
+		return "nextresultset"
+	default:
+		return fmt.Sprintf("%T", m)
+	}
+}
+
 // normalizeErrors renders the deterministic contents of the ERROR tokens
 // accumulated onto a DONE token. Recording only the count would let a
 // packet-boundary regression that corrupts a decoded ERROR field (Number,
@@ -158,11 +192,16 @@ func normalizeToken(tok tokenStruct) string {
 // returns the ordered list of normalized token contents that were produced
 // (used for the packet-boundary determinism invariant) together with the
 // database name recorded on the session, which is the observable side effect of
-// an ENVCHANGE token and is not otherwise visible on the channel. The fuzz
-// target passes collect=false to avoid the per-token formatting allocations in
-// the hot path. It also reports whether any error/panic token was emitted.
-// processSingleResponse installs its own recover(), so a malformed stream
-// surfaces as an error token here rather than crashing the harness.
+// an ENVCHANGE token and is not otherwise visible on the channel. Collection
+// runs also wire a return-message queue into outs.msgq and append its drained
+// contents (INFO/ERROR/rows-affected), because those decoded values are exposed
+// only through the queue and never on the token channel; including them makes
+// the INFO and ERROR seeds actually verify their parsed values across packet
+// boundaries. The fuzz target passes collect=false to avoid the per-token
+// formatting allocations and the queue plumbing in the hot path. It also reports
+// whether any error/panic token was emitted. processSingleResponse installs its
+// own recover(), so a malformed stream surfaces as an error token here rather
+// than crashing the harness.
 func drainSingleResponse(stream []byte, chunk int, collect bool) (tokens []string, dbState string, sawError bool, framed bool) {
 	packets, ok := frameReplyPackets(stream, chunk)
 	if !ok {
@@ -172,7 +211,19 @@ func drainSingleResponse(stream []byte, chunk int, collect bool) (tokens []strin
 	defer sess.buf.bufClose()
 
 	ch := make(chan tokenStruct, 5)
-	go processSingleResponse(context.Background(), sess, ch, outputs{})
+
+	var outs outputs
+	var msgq *sqlexp.ReturnMessage
+	if collect {
+		// The queue is buffered (15) and each valid seed enqueues only a
+		// handful of messages, so it never fills before the parser returns
+		// and the post-run drain below cannot deadlock.
+		msgq = &sqlexp.ReturnMessage{}
+		sqlexp.ReturnMessageInit(msgq)
+		outs.msgq = msgq
+	}
+
+	go processSingleResponse(context.Background(), sess, ch, outs)
 
 	for tok := range ch {
 		if collect {
@@ -182,6 +233,22 @@ func drainSingleResponse(stream []byte, chunk int, collect bool) (tokens []strin
 			sawError = true
 		}
 	}
+
+	if collect {
+		// ch is closed (its close is deferred in processSingleResponse and runs
+		// on every exit path), so the parser goroutine has returned and every
+		// message it will enqueue is already buffered. Push a sentinel and drain
+		// up to it to capture the messages in order without blocking on empty.
+		_ = sqlexp.ReturnMessageEnqueue(context.Background(), msgq, msgSentinel{})
+		for {
+			m := msgq.Message(context.Background())
+			if _, done := m.(msgSentinel); done {
+				break
+			}
+			tokens = append(tokens, "msg:"+normalizeMsg(m))
+		}
+	}
+
 	// sess.database is mutated by processEnvChg while the goroutine runs; the
 	// range loop above has returned only after ch is closed, which the parser
 	// does after it finishes, so this read is safe and final.
