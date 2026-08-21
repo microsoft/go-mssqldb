@@ -445,6 +445,11 @@ func malformedResponseSeeds() [][]byte {
 		{0x00},
 		// truncated DONE token (missing bytes) -> recovered error token
 		{byte(tokenDone), 0x00},
+		// valid non-final DONE (doneMore) followed by trailing garbage: the
+		// doneMore status keeps the parser looping past the DONE (a final DONE
+		// would return first, leaving the garbage unread), so the trailing byte
+		// is read as an unknown token id and recovered into an error token.
+		concat(doneToken(tokenDone, doneMore), []byte{0xFF}),
 	}
 }
 
