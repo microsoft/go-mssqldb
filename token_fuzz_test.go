@@ -308,19 +308,47 @@ func nbcRowNull() []byte {
 	return []byte{byte(tokenNbcRow), 0x01}
 }
 
-// infoLikeToken builds an ERROR/INFO token body (they share a layout). The
-// Length field is set to the true byte length of the token data that follows
-// it, so the seed is spec-faithful even though the current parser ignores it.
-func infoLikeToken(tok token) []byte {
-	body := []byte{
-		0x00, 0x00, 0x00, 0x00, // Number
-		0x01,       // State
-		0x01,       // Class
-		0x00, 0x00, // Message UsVarChar length = 0
-		0x00,                   // ServerName BVarChar length = 0
-		0x00,                   // ProcName BVarChar length = 0
-		0x00, 0x00, 0x00, 0x00, // LineNo
+// ucs2 encodes an ASCII string as little-endian UCS-2, the on-the-wire form of
+// TDS (B|Us)VarChar payloads used by the ERROR/INFO seeds.
+func ucs2(s string) []byte {
+	b := make([]byte, 0, len(s)*2)
+	for i := 0; i < len(s); i++ {
+		b = append(b, s[i], 0x00)
 	}
+	return b
+}
+
+// infoLikeToken builds an ERROR/INFO token body (they share a layout). Every
+// field carries a distinct non-zero value so the packet-boundary test actually
+// verifies each decoded field across seams: a fragmented-read regression that
+// dropped any one of them to its zero value would change the normalized output.
+// The Length field is set to the true byte length of the token data that
+// follows it, so the seed is spec-faithful even though the current parser
+// ignores it.
+func infoLikeToken(tok token) []byte {
+	var body []byte
+	num := make([]byte, 4)
+	binary.LittleEndian.PutUint32(num, 0x11223344)
+	body = append(body, num...) // Number
+	body = append(body, 0x07)   // State
+	body = append(body, 0x0E)   // Class
+	// Message: UsVarChar (uint16 char count + UCS2).
+	msg := "hi"
+	ml := make([]byte, 2)
+	binary.LittleEndian.PutUint16(ml, uint16(len(msg)))
+	body = append(body, ml...)
+	body = append(body, ucs2(msg)...)
+	// ServerName: BVarChar (byte char count + UCS2).
+	body = append(body, 0x01)
+	body = append(body, ucs2("s")...)
+	// ProcName: BVarChar (byte char count + UCS2).
+	body = append(body, 0x01)
+	body = append(body, ucs2("p")...)
+	// LineNo.
+	ln := make([]byte, 4)
+	binary.LittleEndian.PutUint32(ln, 0x0000007B)
+	body = append(body, ln...)
+
 	out := []byte{byte(tok), 0x00, 0x00} // token id + Length placeholder
 	binary.LittleEndian.PutUint16(out[1:3], uint16(len(body)))
 	return append(out, body...)
@@ -379,11 +407,14 @@ func validResponseSeeds() [][]byte {
 		doneToken(tokenDoneInProc, doneFinal),
 		// ENVCHANGE(database) -> DONE
 		concat(envChangeDatabase(), doneToken(tokenDone, doneFinal)),
-		// TABNAME + COLINFO + ORDER -> DONE
+		// TABNAME + COLINFO + ORDER -> DONE. Non-empty bodies so the boundary
+		// test exercises parseTabName/parseColInfo payload reads and
+		// parseOrder's element loop across packet seams (an ORDER with one
+		// column id), not just the token dispatch.
 		concat(
-			[]byte{byte(tokenTabName), 0x00, 0x00},
-			[]byte{byte(tokenColInfo), 0x00, 0x00},
-			[]byte{byte(tokenOrder), 0x00, 0x00},
+			[]byte{byte(tokenTabName), 0x04, 0x00, 't', 'a', 'b', 'l'}, // length=4, "tabl"
+			[]byte{byte(tokenColInfo), 0x03, 0x00, 0x01, 0x01, 0x00},   // length=3, ColNum=1, TableNum=1, Status=0
+			[]byte{byte(tokenOrder), 0x02, 0x00, 0x01, 0x00},           // length=2 bytes, one ColId=1
 			doneToken(tokenDone, doneFinal),
 		),
 	}
