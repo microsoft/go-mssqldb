@@ -554,8 +554,8 @@ func parseFedAuthInfo(r *tdsBuffer) fedAuthInfoStruct {
 		// Compute in uint64 so an attacker-controlled offset+length cannot
 		// overflow uint32 and slip past this bounds check (issue #420).
 		if uint64(opts[i].dataOffset)+uint64(opts[i].dataLength) > uint64(size) {
-			badStreamPanic(fmt.Errorf("fed auth info opt stated data length %d added to stated offset exceeds token size %d",
-				uint64(opts[i].dataOffset)+uint64(opts[i].dataLength), size))
+			badStreamPanic(fmt.Errorf("fed auth info opt data offset %d plus length %d exceeds token size %d",
+				opts[i].dataOffset, opts[i].dataLength, size))
 			// returns via panic
 		}
 
