@@ -173,6 +173,21 @@ func TestProcessQueryResponse_ErrorTokenDoesNotLeakReader(t *testing.T) {
 }
 
 func TestSendAttentionWithTimeout_BoundsWrite(t *testing.T) {
+	t.Run("deadline does not wake write", func(t *testing.T) {
+		transport := &deadlineIgnoringTransport{closed: make(chan struct{})}
+		start := time.Now()
+		err := sendAttentionWithTimeout(transport, 20*time.Millisecond)
+
+		require.Error(t, err)
+		assert.Less(t, time.Since(start), time.Second,
+			"the attention timeout must not wait for an in-flight write")
+		select {
+		case <-transport.closed:
+		case <-time.After(time.Second):
+			t.Fatal("timed-out attention did not close the transport")
+		}
+	})
+
 	t.Run("connection timeout", func(t *testing.T) {
 		client, server := net.Pipe()
 		defer client.Close()
@@ -199,6 +214,29 @@ func TestSendAttentionWithTimeout_BoundsWrite(t *testing.T) {
 		assert.Less(t, time.Since(start), time.Second,
 			"a stalled TLS attention write must return within its timeout")
 	})
+}
+
+type deadlineIgnoringTransport struct {
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (*deadlineIgnoringTransport) Read([]byte) (int, error) {
+	return 0, errors.New("unexpected read")
+}
+
+func (t *deadlineIgnoringTransport) Write([]byte) (int, error) {
+	<-t.closed
+	return 0, net.ErrClosed
+}
+
+func (t *deadlineIgnoringTransport) Close() error {
+	t.once.Do(func() { close(t.closed) })
+	return nil
+}
+
+func (*deadlineIgnoringTransport) SetWriteDeadline(time.Time) error {
+	return nil
 }
 
 func newTLSPipe(t *testing.T) (*tls.Conn, *tls.Conn) {

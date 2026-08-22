@@ -142,14 +142,7 @@ func sendAttentionWithTimeout(transport io.ReadWriteCloser, timeout time.Duratio
 		return err
 	case <-timer.C:
 		if deadlineTransport, ok := transport.(writeDeadlineSetter); ok {
-			if err := deadlineTransport.SetWriteDeadline(time.Now()); err == nil {
-				writeErr := <-result
-				go transport.Close()
-				if writeErr != nil {
-					return fmt.Errorf("attention write timed out after %s: %w", timeout, writeErr)
-				}
-				return fmt.Errorf("attention write timed out after %s", timeout)
-			}
+			_ = deadlineTransport.SetWriteDeadline(time.Now())
 		}
 		go transport.Close()
 		return fmt.Errorf("attention write timed out after %s", timeout)
