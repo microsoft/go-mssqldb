@@ -239,6 +239,38 @@ func (*deadlineIgnoringTransport) SetWriteDeadline(time.Time) error {
 	return nil
 }
 
+func TestConnClose_DefersBufferPoolUntilReaderDone(t *testing.T) {
+	transport := &deadlineIgnoringTransport{closed: make(chan struct{})}
+	readDone := make(chan struct{})
+	bufferReturned := make(chan struct{})
+	conn := &Conn{sess: &tdsSession{
+		buf: &tdsBuffer{
+			transport: transport,
+			bufClose:  func() { close(bufferReturned) },
+		},
+		readDone: readDone,
+	}}
+
+	require.NoError(t, conn.Close())
+	select {
+	case <-transport.closed:
+	default:
+		t.Fatal("Conn.Close must close the transport synchronously")
+	}
+	select {
+	case <-bufferReturned:
+		t.Fatal("Conn.Close returned the TDS buffer while the reader was active")
+	default:
+	}
+
+	close(readDone)
+	select {
+	case <-bufferReturned:
+	case <-time.After(time.Second):
+		t.Fatal("TDS buffer was not returned after the reader exited")
+	}
+}
+
 func newTLSPipe(t *testing.T) (*tls.Conn, *tls.Conn) {
 	t.Helper()
 

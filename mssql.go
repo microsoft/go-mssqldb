@@ -444,7 +444,6 @@ func (d *Driver) open(ctx context.Context, dsn string) (*Conn, error) {
 	return d.connect(ctx, c, params)
 }
 
-
 func failoverPartnerParams(params msdsn.Config) *msdsn.Config {
 	if params.FailOverPartner == "" {
 		return nil
@@ -488,8 +487,22 @@ func (d *Driver) connect(ctx context.Context, c *Connector, params msdsn.Config)
 }
 
 func (c *Conn) Close() error {
-	c.sess.buf.bufClose()
-	return c.sess.buf.transport.Close()
+	err := c.sess.buf.transport.Close()
+	if c.sess.readDone == nil {
+		c.sess.buf.bufClose()
+		return err
+	}
+
+	select {
+	case <-c.sess.readDone:
+		c.sess.buf.bufClose()
+	default:
+		go func() {
+			<-c.sess.readDone
+			c.sess.buf.bufClose()
+		}()
+	}
+	return err
 }
 
 type Stmt struct {
