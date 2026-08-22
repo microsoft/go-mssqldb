@@ -1183,8 +1183,8 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				if ov, has := outs.params[name]; has {
 					err = scanIntoOut(name, nv.Value, ov)
 					if err != nil {
-						fmt.Println("scan error", err)
 						ch <- err
+						return
 					}
 				}
 			}

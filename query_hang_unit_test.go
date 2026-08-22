@@ -47,6 +47,46 @@ func wrapReplyPacketStatus(tokenStream []byte, status byte) []byte {
 	return packet
 }
 
+func TestProcessSingleResponse_OutputConversionErrorStopsReader(t *testing.T) {
+	var stream bytes.Buffer
+	stream.WriteByte(byte(tokenReturnValue))
+	require.NoError(t, binary.Write(&stream, binary.LittleEndian, uint16(0)))
+	require.NoError(t, writeBVarChar(&stream, "@p"))
+	stream.WriteByte(0)
+	require.NoError(t, binary.Write(&stream, binary.LittleEndian, uint32(0)))
+	require.NoError(t, binary.Write(&stream, binary.LittleEndian, uint16(0)))
+	stream.WriteByte(typeInt4)
+	require.NoError(t, binary.Write(&stream, binary.LittleEndian, int32(42)))
+	stream.Write(appendDoneToken(nil, tokenDone, doneFinal))
+
+	transport := &countingTransport{reader: bytes.NewReader(wrapReplyPacket(stream.Bytes()))}
+	sess := &tdsSession{
+		buf:    newTdsBuffer(defaultPacketSize, transport),
+		logger: optionalLogger{},
+	}
+	tokChan := make(chan tokenStruct, 1)
+	done := make(chan struct{})
+	go func() {
+		processSingleResponse(context.Background(), sess, tokChan, outputs{
+			params: map[string]interface{}{"p": &struct{}{}},
+		})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("output conversion error left the response reader blocked")
+	}
+
+	tokens := make([]tokenStruct, 0, 1)
+	for tok := range tokChan {
+		tokens = append(tokens, tok)
+	}
+	require.Len(t, tokens, 1, "the reader must stop after sending the conversion error")
+	assert.Error(t, tokens[0].(error))
+}
+
 // TestProcessQueryResponse_ErrorTokenDoesNotLeakReader reproduces issue #407.
 //
 // When a query response contains an error DONE token that is followed by more
