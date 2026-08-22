@@ -93,7 +93,10 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          if docker ps -a --format '{{.Names}}' | grep -Fxq sqlserver; then
+          # Distinguish "docker could not tell us" from "the container is absent".
+          if ! NAMES=$(docker ps -a --format '{{.Names}}'); then
+            echo "::warning::docker ps failed; cannot determine whether the sqlserver container exists"
+          elif echo "$NAMES" | grep -Fxq sqlserver; then
             docker logs sqlserver || echo "Unable to read logs from sqlserver."
           else
             echo "SQL Server container 'sqlserver' was not found."
@@ -113,6 +116,13 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.27.x'
+      - name: Install benchstat
+        shell: bash
+        # Before the benchmark runs, not after: they take ~46 minutes and this
+        # reaches outside the repo, so a fetch failure should surface at once.
+        run: |
+          go install golang.org/x/perf/cmd/benchstat@latest
+          command -v benchstat
       - name: Install sqlcmd
         run: |
           curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
@@ -129,14 +139,20 @@ jobs:
             -p 1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD \
             mcr.microsoft.com/mssql/server:2025-latest
           # Wait for SQL Server to be ready
+          READY=0
           for i in {1..30}; do
             if sqlcmd -S localhost -U sa -P "$SQLCMDPASSWORD" -C -Q "SELECT 1" > /dev/null 2>&1; then
               echo "SQL Server is ready (attempt $i)"
+              READY=1
               break
             fi
             echo "Waiting for SQL Server... (attempt $i/30)"
             sleep 2
           done
+          if [ "$READY" -eq 0 ]; then
+            echo "::error::SQL Server did not become ready; aborting benchmarks."
+            exit 1
+          fi
       - name: Warmup run (stabilize CPU/caches)
         shell: bash
         run: |
@@ -148,9 +164,14 @@ jobs:
           BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
           # Throwaway run to warm CPU caches, prime the Go runtime, and settle
           # the OS scheduler. Results are discarded — ensures both measurement
-          # runs start from the same steady-state conditions.
-          go test -run='^$' -bench="$BENCH_PATTERN" \
-            -benchtime=100ms -count=1 -timeout=10m . ./msdsn > /dev/null 2>&1
+          # runs start from the same steady-state conditions. Output is kept so a
+          # failure here is diagnosable rather than a bare exit code.
+          if ! go test -run='^$' -bench="$BENCH_PATTERN" \
+              -benchtime=100ms -count=1 -timeout=10m . ./msdsn > warmup.log 2>&1; then
+            echo "::error::warmup run failed"
+            tail -50 warmup.log
+            exit 1
+          fi
       - name: Run baseline benchmarks (main)
         shell: bash
         run: |
@@ -186,7 +207,6 @@ jobs:
       - name: Compare benchmarks
         shell: bash
         run: |
-          go install golang.org/x/perf/cmd/benchstat@latest
           echo "## Benchmark Comparison (main vs PR)" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           benchstat -alpha=0.01 bench_old.txt bench_new.txt | tee -a "$GITHUB_STEP_SUMMARY"
@@ -195,12 +215,28 @@ jobs:
       - name: Check for regressions
         shell: bash
         run: |
-          if [ ! -f bench_diff.txt ]; then
-            echo "No comparison available, skipping regression check."
-            exit 0
+          # grep exits 1 for "no match" and 2 for a real error. Only the first is
+          # expected here, so mask it alone and let errors surface.
+          grep_ok() { grep "$@" || [ $? -eq 1 ]; }
+
+          # A "no regression" verdict is only meaningful if we actually recognised
+          # benchstat's table. Treat unparseable output as a failure, not a pass.
+          if [ ! -s bench_diff.txt ]; then
+            echo "::error::benchstat produced no output; cannot evaluate regressions"
+            exit 1
           fi
+          if ! ROWS=$(grep_ok -cE '^\S+\s+.+(±|~|[+-][0-9])' bench_diff.txt); then
+            echo "::error::failed to scan benchstat output; cannot evaluate regressions"
+            exit 1
+          fi
+          if [ "$ROWS" -eq 0 ]; then
+            echo "::error::benchstat output not recognised; cannot evaluate regressions"
+            cat bench_diff.txt
+            exit 1
+          fi
+          echo "Parsed $ROWS benchmark rows."
           # Report statistically significant improvements (real %, not ~)
-          if grep -v '~' bench_diff.txt | grep -E '^\S+\s+.+\s+-[0-9]+\.[0-9]+%'; then
+          if grep_ok -v '~' bench_diff.txt | grep -E '^\S+\s+.+\s+-[0-9]+(\.[0-9]+)?%'; then
             echo ""
             echo "::notice::Performance improvements detected (see above)"
           fi
@@ -209,7 +245,15 @@ jobs:
           # both statistical significance (no ~ marker) AND >15% magnitude.
           # Exclude TdsBuffer_Write_Large: ~120ns operation with multi-flush path
           # shows 30-46% swings between sequential CI runs due to cache sensitivity.
-          REGRESSED=$(grep -v '~' bench_diff.txt | grep -v 'TdsBuffer_Write_Large' | grep -E '^\S+\s+.+\s+\+[0-9]+\.[0-9]+%' | awk -F'+' '{split($2,a,"%"); if (a[1]+0 >= 15) print}')
+          # Every stage can legitimately match nothing, so each needs grep_ok; a
+          # failure here means we could not evaluate, which must not read as a pass.
+          if ! REGRESSED=$(grep_ok -v '~' bench_diff.txt \
+                | grep_ok -v 'TdsBuffer_Write_Large' \
+                | grep_ok -E '^\S+\s+.+\s+\+[0-9]+(\.[0-9]+)?%' \
+                | awk -F'+' '{split($2,a,"%"); if (a[1]+0 >= 15) print}'); then
+            echo "::error::failed to evaluate benchmark comparison"
+            exit 1
+          fi
           if [ -n "$REGRESSED" ]; then
             echo "$REGRESSED"
             echo "::error::Statistically significant regression detected (>15%, p<0.01)"
@@ -255,4 +299,16 @@ jobs:
           else
             gh pr comment "${{ github.event.pull_request.number }}" --body "$BODY"
             echo "Posted new benchmark comment."
+          fi
+      - name: Show SQL Server logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          # Distinguish "docker could not tell us" from "the container is absent".
+          if ! NAMES=$(docker ps -a --format '{{.Names}}'); then
+            echo "::warning::docker ps failed; cannot determine whether the sqlserver container exists"
+          elif echo "$NAMES" | grep -Fxq sqlserver; then
+            docker logs sqlserver || echo "Unable to read logs from sqlserver."
+          else
+            echo "SQL Server container 'sqlserver' was not found."
           fi
