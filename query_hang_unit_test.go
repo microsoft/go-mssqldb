@@ -472,6 +472,57 @@ func TestNextToken_TokenChannelContextErrorIsFatal(t *testing.T) {
 	}
 }
 
+// TestNextToken_TokenChannelOrdinaryErrorIsFatal verifies that a token-channel
+// error that is NOT context-shaped — for example an Always Encrypted decryption
+// or key-provider failure returned by parseRow, or a badStreamPanicf stream
+// corruption — is also promoted to StreamError so checkBadConn evicts the
+// connection. processSingleResponse abandons the response and returns whenever it
+// forwards such an error, leaving unread TDS bytes on the wire, so the connection
+// must never be reused regardless of the error's concrete type. errors.Is still
+// unwraps to the original error. See issue #407.
+func TestNextToken_TokenChannelOrdinaryErrorIsFatal(t *testing.T) {
+	sentinel := errors.New("always encrypted: failed to decrypt column encryption key")
+	tokChan := make(chan tokenStruct, 1)
+	tokChan <- sentinel
+	conn := &Conn{
+		connectionGood: true,
+		connector:      &Connector{params: msdsn.Config{}},
+	}
+	reader := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     context.Background(),
+		sess:    &tdsSession{logger: optionalLogger{}},
+	}
+
+	tok, err := reader.nextToken()
+	assert.Nil(t, tok)
+	var se StreamError
+	assert.ErrorAs(t, err, &se,
+		"an ordinary token-channel error must be wrapped in StreamError")
+	assert.ErrorIs(t, err, sentinel,
+		"the wrapped error must still unwrap to the original error")
+
+	returned := conn.checkBadConn(context.Background(), err, false)
+	assert.False(t, conn.connectionGood,
+		"an ordinary parse error abandoned mid-stream must evict the connection")
+	assert.ErrorIs(t, returned, sentinel)
+}
+
+// TestWrapTokenChannelError_DoesNotDoubleWrap verifies an error that already is a
+// StreamError (for example the attention-write failure the branch below returns
+// directly) is passed through unchanged rather than nested inside another
+// StreamError. See issue #407.
+func TestWrapTokenChannelError_DoesNotDoubleWrap(t *testing.T) {
+	inner := errors.New("boom")
+	original := StreamError{InnerError: inner}
+	got := wrapTokenChannelError(original)
+	se, ok := got.(StreamError)
+	require.True(t, ok, "result must be a StreamError")
+	assert.Equal(t, inner, se.InnerError,
+		"an existing StreamError must not be re-wrapped")
+	assert.Nil(t, wrapTokenChannelError(nil), "nil must pass through unchanged")
+}
+
 // TestRowsClose_TokenChannelContextErrorEvictsConnection covers the caller the
 // reviewer flagged: Rows.Close compares the nextToken error against
 // reader.ctx.Err() and returns cleanly on a match. Before the fix, an Always

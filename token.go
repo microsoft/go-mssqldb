@@ -1349,23 +1349,35 @@ func (t tokenProcessor) markCancelConfirmed() {
 
 // wrapTokenChannelError normalizes an error that arrived over the token channel
 // (produced by processSingleResponse / token parsing) so that every nextToken
-// caller can act on it uniformly. A token-channel error that is exactly, or
-// wraps, context.Canceled/context.DeadlineExceeded — for example a row parser or
-// an Always Encrypted key provider returning the reader context's error after
-// Close cancels it — is indistinguishable by value from the clean context error
-// that the confirmed-attention path returns directly from t.ctx.Err(). But a
-// context error delivered as a token means the response was abandoned mid-stream
-// with unread TDS bytes still on the wire, so the connection must not be reused.
-// Wrapping it in StreamError makes checkBadConn treat it as fatal and stops
-// "err == ctx.Err()" comparisons in Rows/Rowsq.Close from misclassifying it as a
-// clean cancellation, so the connection is evicted. The confirmed-attention path
-// is unaffected because it never routes its context error through here. See
-// issue #407.
+// caller evicts the connection. Any error delivered as a token means
+// processSingleResponse stopped mid-response and returned, leaving the abandoned
+// response's unread TDS bytes on the wire: a row/NBC-row parse failure, an
+// Always Encrypted key provider or decryption error, a badStreamPanicf stream
+// corruption, or the reader context's own context.Canceled/DeadlineExceeded.
+// None of those leave the connection in a reusable state.
+//
+// checkBadConn, however, only recognizes a subset of error types as fatal (net
+// errors, ServerError, and an already-wrapped StreamError), so an ordinary error
+// such as an Always Encrypted decryption failure would otherwise pass through
+// with connectionGood still true and let the pool reuse a connection whose
+// response was abandoned. Conservatively wrapping every token-channel error in
+// StreamError makes checkBadConn treat it as fatal regardless of its concrete
+// type, and also stops the "err == ctx.Err()" comparisons in Rows/Rowsq.Close
+// from misclassifying a channel-delivered context error as a clean cancellation.
+// StreamError.Unwrap preserves errors.Is/errors.As on the original error, so
+// callers can still inspect the underlying cause. An error that already is (or
+// wraps) a StreamError is returned unchanged to avoid double wrapping. The
+// confirmed-attention path is unaffected because it returns its context error
+// directly from t.ctx.Err() without routing through here. See issue #407.
 func wrapTokenChannelError(err error) error {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return StreamError{InnerError: err}
+	if err == nil {
+		return nil
 	}
-	return err
+	var se StreamError
+	if errors.As(err, &se) {
+		return err
+	}
+	return StreamError{InnerError: err}
 }
 
 func (t tokenProcessor) nextToken() (tokenStruct, error) {
