@@ -468,7 +468,10 @@ func malformedResponseSeeds() [][]byte {
 		// doneMore status keeps the parser looping past the DONE (a final DONE
 		// would return first, leaving the garbage unread), so the trailing byte
 		// is read as an unknown token id and recovered into an error token.
-		concat(doneToken(tokenDone, doneMore), []byte{0xFF}),
+		// 0xAF is not a defined token id (unlike 0xFF, which is tokenDoneInProc),
+		// so it genuinely exercises the unsupported-token path after a non-final
+		// DONE rather than a second DONE-family token.
+		concat(doneToken(tokenDone, doneMore), []byte{0xAF}),
 	}
 }
 
