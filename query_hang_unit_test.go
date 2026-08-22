@@ -170,7 +170,8 @@ func TestSendAttentionWithTimeout_BoundsWrite(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 
-	buf := newTdsBuffer(defaultPacketSize, client)
+	transport := newTimeoutConn(client, time.Second)
+	buf := newTdsBuffer(defaultPacketSize, transport)
 	start := time.Now()
 	err := sendAttentionWithTimeout(buf, 20*time.Millisecond)
 

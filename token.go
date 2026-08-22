@@ -118,22 +118,7 @@ const (
 // the connection is marked bad via checkBadConn.
 const cancelDrainTimeout = 5 * time.Second
 
-type writeDeadlineSetter interface {
-	SetWriteDeadline(time.Time) error
-}
-
 func sendAttentionWithTimeout(buf *tdsBuffer, timeout time.Duration) error {
-	if transport, ok := buf.transport.(writeDeadlineSetter); ok {
-		if err := transport.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
-			return err
-		}
-		err := sendAttention(buf)
-		if resetErr := transport.SetWriteDeadline(time.Time{}); err == nil {
-			err = resetErr
-		}
-		return err
-	}
-
 	result := make(chan error, 1)
 	go func() {
 		result <- sendAttention(buf)
