@@ -197,13 +197,20 @@ jobs:
       - name: Check for regressions
         shell: bash
         run: |
+          # grep exits 1 for "no match" and 2 for a real error. Only the first is
+          # expected here, so mask it alone and let errors surface.
+          grep_ok() { grep "$@" || [ $? -eq 1 ]; }
+
           # A "no regression" verdict is only meaningful if we actually recognised
           # benchstat's table. Treat unparseable output as a failure, not a pass.
           if [ ! -s bench_diff.txt ]; then
             echo "::error::benchstat produced no output; cannot evaluate regressions"
             exit 1
           fi
-          ROWS=$(grep -cE '^\S+\s+.+(±|~|[+-][0-9])' bench_diff.txt || true)
+          if ! ROWS=$(grep_ok -cE '^\S+\s+.+(±|~|[+-][0-9])' bench_diff.txt); then
+            echo "::error::failed to scan benchstat output; cannot evaluate regressions"
+            exit 1
+          fi
           if [ "$ROWS" -eq 0 ]; then
             echo "::error::benchstat output not recognised; cannot evaluate regressions"
             cat bench_diff.txt
@@ -211,7 +218,7 @@ jobs:
           fi
           echo "Parsed $ROWS benchmark rows."
           # Report statistically significant improvements (real %, not ~)
-          if grep -v '~' bench_diff.txt | grep -E '^\S+\s+.+\s+-[0-9]+(\.[0-9]+)?%'; then
+          if grep_ok -v '~' bench_diff.txt | grep -E '^\S+\s+.+\s+-[0-9]+(\.[0-9]+)?%'; then
             echo ""
             echo "::notice::Performance improvements detected (see above)"
           fi
@@ -220,9 +227,15 @@ jobs:
           # both statistical significance (no ~ marker) AND >15% magnitude.
           # Exclude TdsBuffer_Write_Large: ~120ns operation with multi-flush path
           # shows 30-46% swings between sequential CI runs due to cache sensitivity.
-          # The trailing || true matters: grep exits 1 when nothing regressed, and
-          # under `set -eo pipefail` that would abort the step instead of passing.
-          REGRESSED=$(grep -v '~' bench_diff.txt | grep -v 'TdsBuffer_Write_Large' | grep -E '^\S+\s+.+\s+\+[0-9]+(\.[0-9]+)?%' | awk -F'+' '{split($2,a,"%"); if (a[1]+0 >= 15) print}' || true)
+          # Every stage can legitimately match nothing, so each needs grep_ok; a
+          # failure here means we could not evaluate, which must not read as a pass.
+          if ! REGRESSED=$(grep_ok -v '~' bench_diff.txt \
+                | grep_ok -v 'TdsBuffer_Write_Large' \
+                | grep_ok -E '^\S+\s+.+\s+\+[0-9]+(\.[0-9]+)?%' \
+                | awk -F'+' '{split($2,a,"%"); if (a[1]+0 >= 15) print}'); then
+            echo "::error::failed to evaluate benchmark comparison"
+            exit 1
+          fi
           if [ -n "$REGRESSED" ]; then
             echo "$REGRESSED"
             echo "::error::Statistically significant regression detected (>15%, p<0.01)"
