@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"encoding/binary"
 	"errors"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -508,10 +509,10 @@ func TestNextToken_TokenChannelOrdinaryErrorIsFatal(t *testing.T) {
 	assert.ErrorIs(t, returned, sentinel)
 }
 
-// TestWrapTokenChannelError_PreservesOnlyTopLevelStreamError verifies a direct
-// StreamError is not nested, while an error that merely wraps one is promoted to
-// a top-level StreamError that checkBadConn can recognize. See issue #407.
-func TestWrapTokenChannelError_PreservesOnlyTopLevelStreamError(t *testing.T) {
+// TestWrapTokenChannelError_PreservesTopLevelFatalErrors verifies errors already
+// recognized by checkBadConn keep their concrete types, while an error that
+// merely wraps a StreamError is promoted to a top-level fatal signal.
+func TestWrapTokenChannelError_PreservesTopLevelFatalErrors(t *testing.T) {
 	inner := errors.New("boom")
 	original := StreamError{InnerError: inner}
 	got := wrapTokenChannelError(original)
@@ -525,6 +526,15 @@ func TestWrapTokenChannelError_PreservesOnlyTopLevelStreamError(t *testing.T) {
 	se, ok = got.(StreamError)
 	require.True(t, ok, "a wrapped StreamError must be promoted to the top level")
 	assert.Equal(t, wrapped, se.InnerError)
+
+	serverErr := ServerError{sqlError: Error{Message: "fatal"}}
+	assert.IsType(t, ServerError{}, wrapTokenChannelError(serverErr),
+		"a direct ServerError must preserve its public concrete type")
+
+	netErr := &net.OpError{Op: "read", Err: inner}
+	assert.Same(t, netErr, wrapTokenChannelError(netErr),
+		"a direct net.Error must preserve its public concrete type")
+
 	assert.Nil(t, wrapTokenChannelError(nil), "nil must pass through unchanged")
 }
 
