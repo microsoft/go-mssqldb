@@ -2231,6 +2231,17 @@ func TestCancelWithNoResults(t *testing.T) {
 	if r.Err() != context.Canceled {
 		t.Fatalf("Unexpected error: %v", r.Err())
 	}
+
+	assertCtx, assertCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer assertCancel()
+	row := conn.QueryRowContext(assertCtx, "select 1")
+	var val int64
+	if err := row.Scan(&val); err != nil {
+		t.Fatal("Scan failed with", err)
+	}
+	if val != 1 {
+		t.Fatalf("query returned wrong value: %d", val)
+	}
 }
 
 const DropSprocWithCursor = `DROP PROCEDURE IF EXISTS [dbo].[TestSqlCmd]`

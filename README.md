@@ -11,9 +11,9 @@ A pure Go database/sql driver for Microsoft SQL Server and Azure SQL Database. T
 
 ## Install
 
-Requires Go 1.17 or above.
+Requires Go 1.25 or above.
 
-Install with `go install github.com/microsoft/go-mssqldb@latest`.
+Install with `go get github.com/microsoft/go-mssqldb@latest`.
 
 ## Connection Parameters and DSN
 
@@ -180,6 +180,8 @@ For further information on usage:
 * `sqlserver://username@host/instance?krb5-configfile=path/to/file&krb5-credcachefile=/path/to/cache`
     * `sqlserver://username@host/instance?krb5-configfile=path/to/file&krb5-realm=domain.com&krb5-keytabfile=/path/to/keytabfile`
 
+  For URL connection strings, percent-encode special characters in the username or password. Windows authentication usernames use `%5C` for the domain separator, for example `sqlserver://DOMAIN%5Cusername:password@host`. In ADO and ODBC connection strings, use the literal `DOMAIN\username` form.
+
 2. ADO: `key=value` pairs separated by `;`. Values can contain `;` and other special characters by enclosing them in double quotes. Leading and trailing whitespace is ignored.
      Examples:
 
@@ -191,11 +193,23 @@ For further information on usage:
     * `server=localhost;user id=sa;database=master;app name=MyAppName;krb5-configfile=path/to/file;krb5-realm=domain.com;krb5-keytabfile=path/to/keytabfile;authenticator=krb5`
 
 
-    ADO strings support synonyms for database, app name, user id, and server
+    ADO strings support synonyms for common connection parameters:
     * server <= addr, address, network address, data source
     * user id <= user, uid
+    * password <= pwd
     * database <= initial catalog
-    * app name <= application name
+    * app name <= application name, app
+    * connection timeout <= connect timeout, timeout
+    * failoverpartner <= failover partner
+    * failoverpartnerspn <= failover partner spn
+    * applicationintent <= application intent
+    * trustservercertificate <= trust server certificate
+    * multisubnetfailover <= multi subnet failover
+    * hostnameincertificate <= host name in certificate
+    * serverspn <= server spn
+    * servercertificate <= server certificate
+    * workstation id <= wsid
+    * columnencryption <= column encryption setting
 
 3. ODBC: Prefix with `odbc`, `key=value` pairs separated by `;`. Allow `;` by wrapping
     values in `{}`. Examples:

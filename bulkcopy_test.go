@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"reflect"
 	"strings"
@@ -509,6 +510,263 @@ func setupTable(ctx context.Context, t *testing.T, conn *sql.Conn, tableName str
 	return
 }
 
+// TestBulkcopyIdentifierQuoting covers destination names and BulkOptions.Order
+// entries that have to be delimited, either because they contain characters
+// that are not valid in a regular identifier or because they collide with a
+// reserved word.
+func TestBulkcopyIdentifierQuoting(t *testing.T) {
+	tests := []struct {
+		name string
+		// table is the destination name as it is stored in the database.
+		table string
+		// copyName is the name handed to CopyIn, which may be delimited or
+		// qualified differently than table.
+		copyName string
+		columns  []string
+		order    []string
+	}{
+		{
+			name:     "regular identifier",
+			table:    "bulk_quote_plain",
+			copyName: "bulk_quote_plain",
+			columns:  []string{"id", "name"},
+		},
+		{
+			name:     "name containing a space",
+			table:    "bulk quote space",
+			copyName: "bulk quote space",
+			columns:  []string{"id", "name"},
+		},
+		{
+			name:     "name containing a closing bracket",
+			table:    "bulk]quote",
+			copyName: "bulk]quote",
+			columns:  []string{"id", "name"},
+		},
+		{
+			name:     "reserved word",
+			table:    "Order",
+			copyName: "Order",
+			columns:  []string{"id", "name"},
+		},
+		{
+			name:     "caller delimited the name",
+			table:    "bulk quote delimited",
+			copyName: "[bulk quote delimited]",
+			columns:  []string{"id", "name"},
+		},
+		{
+			name:     "schema qualified",
+			table:    "bulk_quote_schema",
+			copyName: "dbo.bulk_quote_schema",
+			columns:  []string{"id", "name"},
+		},
+		{
+			name:     "schema qualified and delimited",
+			table:    "bulk quote schema delimited",
+			copyName: "[dbo].[bulk quote schema delimited]",
+			columns:  []string{"id", "name"},
+		},
+		{
+			name:     "default schema",
+			table:    "bulk_quote_default_schema",
+			copyName: "..bulk_quote_default_schema",
+			columns:  []string{"id", "name"},
+		},
+		{
+			name:     "order option",
+			table:    "bulk_quote_order",
+			copyName: "bulk_quote_order",
+			columns:  []string{"id", "name"},
+			order:    []string{"id"},
+		},
+		{
+			name:     "order option needing delimiters",
+			table:    "bulk quote order delimited",
+			copyName: "bulk quote order delimited",
+			columns:  []string{"id", "order name"},
+			order:    []string{"order name DESC"},
+		},
+		{
+			name:     "several order columns in one entry",
+			table:    "bulk_quote_order_multi",
+			copyName: "bulk_quote_order_multi",
+			columns:  []string{"id", "name"},
+			order:    []string{"id ASC, name DESC"},
+		},
+	}
+
+	pool, logger := open(t)
+	defer func() { _ = pool.Close() }()
+	defer logger.StopLogging()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	q := TSQLQuoter{}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn, err := pool.Conn(ctx)
+			if err != nil {
+				t.Fatal("failed to pull connection from pool", err)
+			}
+			defer func() { _ = conn.Close() }()
+
+			quoted := q.ID(tt.table)
+			columnDefs := make([]string, len(tt.columns))
+			for i, col := range tt.columns {
+				columnDefs[i] = q.ID(col) + " nvarchar(50) NULL"
+			}
+
+			drop := "IF OBJECT_ID('dbo." + quoted + "') IS NOT NULL DROP TABLE dbo." + quoted
+			if _, err := conn.ExecContext(ctx, drop); err != nil {
+				t.Fatal("drop table failed: ", err)
+			}
+			defer func() {
+				if _, err := conn.ExecContext(ctx, drop); err != nil {
+					t.Error("drop table failed: ", err)
+				}
+			}()
+
+			create := "CREATE TABLE dbo." + quoted + " (" + strings.Join(columnDefs, ", ") + ")"
+			if _, err := conn.ExecContext(ctx, create); err != nil {
+				t.Fatal("create table failed: ", err)
+			}
+
+			stmt, err := conn.PrepareContext(ctx, CopyIn(tt.copyName, BulkOptions{Order: tt.order}, tt.columns...))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = stmt.Close() }()
+
+			values := make([]interface{}, len(tt.columns))
+			for i := range values {
+				values[i] = fmt.Sprintf("value%d", i)
+			}
+			if _, err := stmt.ExecContext(ctx, values...); err != nil {
+				t.Fatal("AddRow failed: ", err)
+			}
+
+			result, err := stmt.ExecContext(ctx)
+			if err != nil {
+				t.Fatal("bulkcopy failed: ", err)
+			}
+			if rows, _ := result.RowsAffected(); rows != 1 {
+				t.Fatalf("expected 1 row inserted, got %d", rows)
+			}
+
+			var rowCount int
+			if err := conn.QueryRowContext(ctx, "select count(*) from dbo."+quoted).Scan(&rowCount); err != nil {
+				t.Fatal(err)
+			}
+			if rowCount != 1 {
+				t.Errorf("unexpected row count %d", rowCount)
+			}
+		})
+	}
+}
+
+// errInvalidObjectName is the SQL Server error number for "Invalid object
+// name". Matching the number rather than the message keeps these tests working
+// against a server that reports messages in another language.
+const errInvalidObjectName = 208
+
+// assertSQLErrorNumber asserts err carries the given SQL Server error number.
+func assertSQLErrorNumber(t *testing.T, err error, number int32) {
+	t.Helper()
+	var sqlErr Error
+	if assert.ErrorAs(t, err, &sqlErr) {
+		assert.Equal(t, number, sqlErr.Number, "unexpected error: %v", err)
+	}
+}
+
+// TestBulkcopyDestinationIsASingleObject makes sure a destination name is only
+// ever treated as an object name, so trailing text cannot turn the statements
+// the bulk copy builds into a batch of several statements.
+func TestBulkcopyDestinationIsASingleObject(t *testing.T) {
+	pool, logger := open(t)
+	defer func() { _ = pool.Close() }()
+	defer logger.StopLogging()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	conn, err := pool.Conn(ctx)
+	assert.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	_, err = conn.ExecContext(ctx, "IF OBJECT_ID('dbo.bulk_single_object') IS NOT NULL DROP TABLE dbo.bulk_single_object")
+	assert.NoError(t, err)
+	_, err = conn.ExecContext(ctx, "CREATE TABLE dbo.bulk_single_object (id int)")
+	assert.NoError(t, err)
+	defer func() {
+		_, err := conn.ExecContext(ctx, "DROP TABLE dbo.bulk_single_object")
+		assert.NoError(t, err)
+	}()
+
+	_, err = conn.ExecContext(ctx, "IF OBJECT_ID('dbo.bulk_second_statement') IS NOT NULL DROP TABLE dbo.bulk_second_statement")
+	assert.NoError(t, err)
+
+	table := "dbo.bulk_single_object SET FMTONLY OFF; CREATE TABLE dbo.bulk_second_statement (id int);--"
+	stmt, err := conn.PrepareContext(ctx, CopyIn(table, BulkOptions{}, "id"))
+	assert.NoError(t, err)
+	defer func() { _ = stmt.Close() }()
+
+	_, err = stmt.ExecContext(ctx, 1)
+	assertSQLErrorNumber(t, err, errInvalidObjectName)
+
+	var created int
+	err = conn.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM sys.tables WHERE name = 'bulk_second_statement'").Scan(&created)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, created, "the trailing text must not run as a separate statement")
+}
+
+// TestBulkcopyRejectsUnusableDestination makes sure a destination that cannot
+// name an object is reported by the driver, and that the session is still
+// usable afterwards because no statement was sent.
+func TestBulkcopyRejectsUnusableDestination(t *testing.T) {
+	pool, logger := open(t)
+	defer func() { _ = pool.Close() }()
+	defer logger.StopLogging()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	conn, err := pool.Conn(ctx)
+	assert.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	tests := []struct {
+		name     string
+		table    string
+		contains string
+	}{
+		{name: "empty", table: "", contains: "does not name an object"},
+		{name: "whitespace only", table: "   ", contains: "does not name an object"},
+		{name: "qualifier without an object", table: "dbo.", contains: "does not name an object"},
+		{name: "too many parts", table: "a.b.c.d.e", contains: "at most 4 are allowed"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt, err := conn.PrepareContext(ctx, CopyIn(tt.table, BulkOptions{}, "id"))
+			assert.NoError(t, err)
+			defer func() { _ = stmt.Close() }()
+
+			_, err = stmt.ExecContext(ctx, 1)
+			assert.ErrorContains(t, err, tt.contains)
+
+			// FMTONLY is only ever switched on after the destination has been
+			// checked, so this still returns a row.
+			var one int
+			assert.NoError(t, conn.QueryRowContext(ctx, "SELECT 1").Scan(&one))
+			assert.Equal(t, 1, one)
+		})
+	}
+}
+
 func TestBulkcopyFailure(t *testing.T) {
 	// Regression test.
 	pool, logger := open(t)
@@ -532,7 +790,9 @@ func TestBulkcopyFailure(t *testing.T) {
 	_, err = stmt.ExecContext(ctx, "")
 	// But of course, it fails. Previously this would not SET FMTONLY OFF in the case
 	// of a failure, so the next statement would be nullified.
-	assert.ErrorContains(t, err, "Invalid object name 'thistabledoesnotexist'")
+	assertSQLErrorNumber(t, err, errInvalidObjectName)
+	assert.ErrorContains(t, err, "thistabledoesnotexist")
+
 
 	_, err = stmt.ExecContext(ctx)
 	assert.NoError(t, err)

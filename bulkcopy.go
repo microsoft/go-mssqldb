@@ -133,7 +133,11 @@ func (b *Bulk) sendBulkCommand(ctx context.Context) (err error) {
 		with_opts = append(with_opts, fmt.Sprintf("ROWS_PER_BATCH = %d", b.Options.RowsPerBatch))
 	}
 	if len(b.Options.Order) > 0 {
-		with_opts = append(with_opts, fmt.Sprintf("ORDER(%s)", strings.Join(b.Options.Order, ",")))
+		order := make([]string, len(b.Options.Order))
+		for i, entry := range b.Options.Order {
+			order[i] = quoteBulkOrder(entry)
+		}
+		with_opts = append(with_opts, fmt.Sprintf("ORDER(%s)", strings.Join(order, ",")))
 	}
 	if b.Options.Tablock {
 		with_opts = append(with_opts, "TABLOCK")
@@ -143,7 +147,11 @@ func (b *Bulk) sendBulkCommand(ctx context.Context) (err error) {
 		with_part = fmt.Sprintf("WITH (%s)", strings.Join(with_opts, ","))
 	}
 
-	query := fmt.Sprintf("INSERT BULK %s (%s) %s", b.tablename, col_defs.String(), with_part)
+	quotedTable, err := quoteObjectName(b.tablename)
+	if err != nil {
+		return err
+	}
+	query := fmt.Sprintf("INSERT BULK %s (%s) %s", quotedTable, col_defs.String(), with_part)
 
 	stmt, err := b.cn.PrepareContext(ctx, query)
 	if err != nil {
@@ -292,6 +300,12 @@ func (b *Bulk) createColMetadata() []byte {
 }
 
 func (b *Bulk) getMetadata(ctx context.Context) (err error) {
+	// Check the destination before touching the session's FMTONLY setting.
+	quotedTable, err := quoteObjectName(b.tablename)
+	if err != nil {
+		return err
+	}
+
 	stmt, err := b.cn.prepareContext(ctx, "SET FMTONLY ON")
 	if err != nil {
 		return
@@ -327,13 +341,13 @@ func (b *Bulk) getMetadata(ctx context.Context) (err error) {
 	}()
 
 	// Get columns info.
-	stmt, err = b.cn.prepareContext(ctx, fmt.Sprintf("select * from %s SET FMTONLY OFF", b.tablename))
+	stmt, err = b.cn.prepareContext(ctx, fmt.Sprintf("select * from %s SET FMTONLY OFF", quotedTable))
 	if err != nil {
 		return
 	}
 	rows, err := stmt.QueryContext(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("get columns info failed: %v", err)
+		return fmt.Errorf("get columns info failed: %w", err)
 	}
 	resetFmtonly = false
 	b.metadata = rows.(*Rows).cols

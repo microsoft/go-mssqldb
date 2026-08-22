@@ -7,7 +7,7 @@ import (
 
 // This value is automatically updated by Release Please during the release process.
 // It is written to the prelogin and login7 packets during a new connection.
-const driverVersion = "v1.9.8" // x-release-please-version
+const driverVersion = "v1.10.0" // x-release-please-version
 
 func getDriverVersion(ver string) uint32 {
 	var majorVersion uint32
