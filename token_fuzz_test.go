@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/golang-sql/sqlexp"
 )
 
 // fuzzPacketSize is the TDS buffer size used by the response fuzz harness.
@@ -102,6 +104,38 @@ func newFuzzSession(framed []byte) *tdsSession {
 	}
 }
 
+// msgSentinel is a private RawMessage used only to mark the end of the return
+// message queue when draining it after the parser goroutine has finished.
+type msgSentinel struct{}
+
+// normalizeMsg renders the deterministic contents of a return-message queue
+// entry. INFO/ERROR values and rows-affected counts are exposed by the parser
+// only through outs.msgq (never on the token channel), so folding them into the
+// packet-boundary comparison is what makes the INFO/ERROR seeds actually verify
+// their decoded values rather than merely the surrounding DONE.
+func normalizeMsg(m sqlexp.RawMessage) string {
+	switch v := m.(type) {
+	case sqlexp.MsgNotice:
+		if e, ok := v.Message.(Error); ok {
+			return "notice" + normalizeErrors([]Error{e})
+		}
+		return fmt.Sprintf("notice{%v}", v.Message)
+	case sqlexp.MsgError:
+		if e, ok := v.Error.(Error); ok {
+			return "error" + normalizeErrors([]Error{e})
+		}
+		return fmt.Sprintf("error{%v}", v.Error)
+	case sqlexp.MsgRowsAffected:
+		return fmt.Sprintf("rowsaffected=%d", v.Count)
+	case sqlexp.MsgNext:
+		return "next"
+	case sqlexp.MsgNextResultSet:
+		return "nextresultset"
+	default:
+		return fmt.Sprintf("%T", m)
+	}
+}
+
 // normalizeErrors renders the deterministic contents of the ERROR tokens
 // accumulated onto a DONE token. Recording only the count would let a
 // packet-boundary regression that corrupts a decoded ERROR field (Number,
@@ -158,9 +192,14 @@ func normalizeToken(tok tokenStruct) string {
 // returns the ordered list of normalized token contents that were produced
 // (used for the packet-boundary determinism invariant) together with the
 // database name recorded on the session, which is the observable side effect of
-// an ENVCHANGE token and is not otherwise visible on the channel. The fuzz
-// target passes collect=false to avoid the per-token formatting allocations in
-// the hot path. It also reports whether any error/panic token was emitted.
+// an ENVCHANGE token and is not otherwise visible on the channel. Collection
+// runs also wire a return-message queue into outs.msgq and drain it (see below)
+// to append its contents (INFO/ERROR/rows-affected), because those decoded
+// values are exposed only through the queue and never on the token channel;
+// including them makes the INFO and ERROR seeds actually verify their parsed
+// values across packet boundaries. The fuzz target passes collect=false to
+// avoid the per-token formatting allocations and the queue plumbing in the hot
+// path. It also reports whether any error/panic token was emitted.
 // processSingleResponse installs its own recover(), so a malformed stream
 // surfaces as an error token here rather than crashing the harness.
 func drainSingleResponse(stream []byte, chunk int, collect bool) (tokens []string, dbState string, sawError bool, framed bool) {
@@ -172,7 +211,35 @@ func drainSingleResponse(stream []byte, chunk int, collect bool) (tokens []strin
 	defer sess.buf.bufClose()
 
 	ch := make(chan tokenStruct, 5)
-	go processSingleResponse(context.Background(), sess, ch, outputs{})
+
+	var outs outputs
+	var msgq *sqlexp.ReturnMessage
+	var msgs []string
+	var msgDone chan struct{}
+	if collect {
+		msgq = &sqlexp.ReturnMessage{}
+		sqlexp.ReturnMessageInit(msgq)
+		outs.msgq = msgq
+		// Drain the queue concurrently with the parser: ReturnMessageEnqueue
+		// blocks once the 15-slot buffer fills, so a response with enough
+		// notices/result-sets/row-count messages would otherwise stall the
+		// parser before it closes ch and hang this reusable harness. The
+		// goroutine writes msgs and is joined (via msgDone) before msgs is
+		// read below, so there is no data race.
+		msgDone = make(chan struct{})
+		go func() {
+			defer close(msgDone)
+			for {
+				m := msgq.Message(context.Background())
+				if _, stop := m.(msgSentinel); stop {
+					return
+				}
+				msgs = append(msgs, "msg:"+normalizeMsg(m))
+			}
+		}()
+	}
+
+	go processSingleResponse(context.Background(), sess, ch, outs)
 
 	for tok := range ch {
 		if collect {
@@ -182,6 +249,16 @@ func drainSingleResponse(stream []byte, chunk int, collect bool) (tokens []strin
 			sawError = true
 		}
 	}
+
+	if collect {
+		// ch is closed (its close is deferred in processSingleResponse and runs
+		// on every exit path), so the parser has enqueued every message it will.
+		// The sentinel makes the drain goroutine stop once it has consumed them.
+		_ = sqlexp.ReturnMessageEnqueue(context.Background(), msgq, msgSentinel{})
+		<-msgDone
+		tokens = append(tokens, msgs...)
+	}
+
 	// sess.database is mutated by processEnvChg while the goroutine runs; the
 	// range loop above has returned only after ch is closed, which the parser
 	// does after it finishes, so this read is safe and final.
@@ -203,6 +280,19 @@ func doneBody(status uint16) []byte {
 func doneToken(tok token, status uint16) []byte {
 	b := doneBody(status)
 	b[0] = byte(tok)
+	return b
+}
+
+// doneCountToken builds a DONE-family token that reports a row count. The
+// doneCount status bit is set and CurCmd/RowCount carry distinct non-zero
+// values, so the boundary test exercises those multi-byte cross-packet reads
+// and (when collecting messages) the MsgRowsAffected normalization path, which
+// a zero-valued DONE would leave untested.
+func doneCountToken(tok token, status, curcmd uint16, rowcount uint64) []byte {
+	b := doneBody(status | doneCount)
+	b[0] = byte(tok)
+	binary.LittleEndian.PutUint16(b[3:5], curcmd)
+	binary.LittleEndian.PutUint64(b[5:13], rowcount)
 	return b
 }
 
@@ -231,20 +321,63 @@ func nbcRowNull() []byte {
 	return []byte{byte(tokenNbcRow), 0x01}
 }
 
-// infoLikeToken builds an ERROR/INFO token body (they share a layout). The
-// Length field is set to the true byte length of the token data that follows
-// it, so the seed is spec-faithful even though the current parser ignores it.
-func infoLikeToken(tok token) []byte {
-	body := []byte{
-		0x00, 0x00, 0x00, 0x00, // Number
-		0x01,       // State
-		0x01,       // Class
-		0x00, 0x00, // Message UsVarChar length = 0
-		0x00,                   // ServerName BVarChar length = 0
-		0x00,                   // ProcName BVarChar length = 0
-		0x00, 0x00, 0x00, 0x00, // LineNo
+// ucs2 encodes an ASCII string as little-endian UCS-2, the on-the-wire form of
+// TDS (B|Us)VarChar payloads used by the ERROR/INFO seeds.
+func ucs2(s string) []byte {
+	b := make([]byte, 0, len(s)*2)
+	for i := 0; i < len(s); i++ {
+		b = append(b, s[i], 0x00)
 	}
+	return b
+}
+
+// infoLikeToken builds an ERROR/INFO token body (they share a layout). Every
+// field carries a distinct non-zero value so the packet-boundary test actually
+// verifies each decoded field across seams: a fragmented-read regression that
+// dropped any one of them to its zero value would change the normalized output.
+// The Length field is set to the true byte length of the token data that
+// follows it, so the seed is spec-faithful even though the current parser
+// ignores it.
+func infoLikeToken(tok token) []byte {
+	var body []byte
+	num := make([]byte, 4)
+	binary.LittleEndian.PutUint32(num, 0x11223344)
+	body = append(body, num...) // Number
+	body = append(body, 0x07)   // State
+	body = append(body, 0x0E)   // Class
+	// Message: UsVarChar (uint16 char count + UCS2).
+	msg := "hi"
+	ml := make([]byte, 2)
+	binary.LittleEndian.PutUint16(ml, uint16(len(msg)))
+	body = append(body, ml...)
+	body = append(body, ucs2(msg)...)
+	// ServerName: BVarChar (byte char count + UCS2).
+	body = append(body, 0x01)
+	body = append(body, ucs2("s")...)
+	// ProcName: BVarChar (byte char count + UCS2).
+	body = append(body, 0x01)
+	body = append(body, ucs2("p")...)
+	// LineNo.
+	ln := make([]byte, 4)
+	binary.LittleEndian.PutUint32(ln, 0x0000007B)
+	body = append(body, ln...)
+
 	out := []byte{byte(tok), 0x00, 0x00} // token id + Length placeholder
+	binary.LittleEndian.PutUint16(out[1:3], uint16(len(body)))
+	return append(out, body...)
+}
+
+// tabNameToken builds a spec-faithful TDS 7.2 TABNAME token for a single-part
+// table name. Per MS-TDS the token value is NumParts (BYTE) followed by that
+// many US_VARCHAR name parts (USHORT char count + UCS-2 chars). The Length
+// field is the true byte length of the value, so the seed stays valid even if
+// parseTabName is later strengthened to actually decode the parts.
+func tabNameToken(name string) []byte {
+	part := make([]byte, 2)
+	binary.LittleEndian.PutUint16(part, uint16(len(name)))
+	part = append(part, ucs2(name)...)
+	body := append([]byte{0x01}, part...) // NumParts = 1
+	out := []byte{byte(tokenTabName), 0x00, 0x00}
 	binary.LittleEndian.PutUint16(out[1:3], uint16(len(body)))
 	return append(out, body...)
 }
@@ -283,8 +416,10 @@ func validResponseSeeds() [][]byte {
 	return [][]byte{
 		// empty result set + DONE
 		doneToken(tokenDone, doneFinal),
-		// COLMETADATA -> ROW -> DONE
-		concat(colMetadataInt4(), rowInt4(42), doneToken(tokenDone, doneFinal)),
+		// COLMETADATA -> ROW -> DONE. The terminating DONE sets doneCount and
+		// carries non-zero CurCmd/RowCount so the content comparison exercises
+		// those reads and the MsgRowsAffected path, not just status.
+		concat(colMetadataInt4(), rowInt4(42), doneCountToken(tokenDone, doneFinal, 0x00C1, 7)),
 		// COLMETADATA -> NBCROW(null) -> DONE
 		concat(colMetadataInt4(), nbcRowNull(), doneToken(tokenDone, doneFinal)),
 		// multiple result sets: DONE(doneMore) then final DONE
@@ -294,30 +429,28 @@ func validResponseSeeds() [][]byte {
 		concat(infoLikeToken(tokenError), doneToken(tokenDone, doneError)),
 		// INFO -> DONE
 		concat(infoLikeToken(tokenInfo), doneToken(tokenDone, doneFinal)),
-		// RETURNSTATUS -> DONE
-		concat(returnStatusToken(0), doneToken(tokenDone, doneFinal)),
+		// RETURNSTATUS -> DONE. Non-zero multi-byte status so the seed validates
+		// four-byte decoding across packet seams, not just token dispatch.
+		concat(returnStatusToken(0x12345678), doneToken(tokenDone, doneFinal)),
 		// DONEPROC (final)
 		doneToken(tokenDoneProc, doneFinal),
 		// DONEINPROC (final)
 		doneToken(tokenDoneInProc, doneFinal),
 		// ENVCHANGE(database) -> DONE
 		concat(envChangeDatabase(), doneToken(tokenDone, doneFinal)),
-		// TABNAME + COLINFO + ORDER -> DONE
+		// COLMETADATA + TABNAME + COLINFO + ORDER -> DONE. The metadata defines
+		// column 1 that COLINFO/ORDER reference, so this is an actual result-set
+		// token sequence; the non-empty browse-token bodies also make the
+		// boundary test exercise parseTabName/parseColInfo payload reads and
+		// parseOrder's element loop across packet seams (an ORDER with one
+		// column id), not just token dispatch.
 		concat(
-			[]byte{byte(tokenTabName), 0x00, 0x00},
-			[]byte{byte(tokenColInfo), 0x00, 0x00},
-			[]byte{byte(tokenOrder), 0x00, 0x00},
+			colMetadataInt4(),
+			tabNameToken("t"), // TDS 7.2 TABNAME: NumParts=1, one US_VARCHAR "t"
+			[]byte{byte(tokenColInfo), 0x03, 0x00, 0x01, 0x01, 0x00}, // length=3, ColNum=1, TableNum=1, Status=0
+			[]byte{byte(tokenOrder), 0x02, 0x00, 0x01, 0x00},         // length=2 bytes, one ColId=1
 			doneToken(tokenDone, doneFinal),
 		),
-		// final DONE followed by extra bytes within the same logical stream.
-		// processSingleResponse returns on the terminating DONE (doneMore==0)
-		// before reading anything after it, so these trailing bytes are never
-		// consumed. This seed is NOT trailing-garbage coverage (arbitrary
-		// trailing bytes are exercised by FuzzProcessSingleResponse itself);
-		// it pins the invariant that bytes following the terminating DONE do
-		// not alter the parsed token stream or its determinism across packet
-		// boundaries -- the parser stops cleanly at the final DONE.
-		concat(doneToken(tokenDone, doneFinal), []byte{0xDE, 0xAD, 0xBE, 0xEF}),
 	}
 }
 
@@ -331,6 +464,11 @@ func malformedResponseSeeds() [][]byte {
 		{0x00},
 		// truncated DONE token (missing bytes) -> recovered error token
 		{byte(tokenDone), 0x00},
+		// valid non-final DONE (doneMore) followed by trailing garbage: the
+		// doneMore status keeps the parser looping past the DONE (a final DONE
+		// would return first, leaving the garbage unread), so the trailing byte
+		// is read as an unknown token id and recovered into an error token.
+		concat(doneToken(tokenDone, doneMore), []byte{0xFF}),
 	}
 }
 
