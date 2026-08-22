@@ -557,33 +557,34 @@ func TestProcessSingleResponsePacketBoundary(t *testing.T) {
 // pinned as seeds above.
 func FuzzProcessSingleResponse(f *testing.F) {
 	for _, seed := range fuzzResponseSeeds() {
-		f.Add(seed, byte(0))
-		f.Add(seed, byte(3))
+		f.Add(seed, uint16(0))
+		f.Add(seed, uint16(3))
 	}
 	// A couple of raw single-token seeds for extra coverage.
-	f.Add([]byte{byte(tokenColMetadata)}, byte(0))
-	f.Add([]byte{}, byte(0))
+	f.Add([]byte{byte(tokenColMetadata)}, uint16(0))
+	f.Add([]byte{}, uint16(0))
 
 	// Regression seeds for issue #420: token streams whose length prefixes drove
 	// unbounded allocations before they were bounded. They must now parse into an
 	// error token without OOMing.
 	// FEDAUTHINFO underflow repro from the issue (EE 00*8): size=0,count=0.
-	f.Add([]byte{byte(tokenFedAuthInfo), 0, 0, 0, 0, 0, 0, 0, 0}, byte(0))
+	f.Add([]byte{byte(tokenFedAuthInfo), 0, 0, 0, 0, 0, 0, 0, 0}, uint16(0))
 	// FEDAUTHINFO with a bogus-huge option count.
-	f.Add([]byte{byte(tokenFedAuthInfo), 8, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF}, byte(0))
+	f.Add([]byte{byte(tokenFedAuthInfo), 8, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF}, uint16(0))
 	// COLMETADATA with a bogus-huge column count (0xFFFE) and no column data.
-	f.Add([]byte{byte(tokenColMetadata), 0xFE, 0xFF}, byte(0))
+	f.Add([]byte{byte(tokenColMetadata), 0xFE, 0xFF}, uint16(0))
 
-	f.Fuzz(func(t *testing.T, stream []byte, frag byte) {
+	f.Fuzz(func(t *testing.T, stream []byte, frag uint16) {
 		// Bound input size to keep framing and allocations reasonable. A TDS
 		// packet length is a uint16, and the read buffer is 32 KiB, so very
 		// large inputs would either fail to frame or blow the buffer.
 		if len(stream) > 64*1024 {
 			t.Skip()
 		}
-		// Interpret the fuzzed byte as a packet payload size (1..256) so the
-		// engine can drive the seam to arbitrary offsets rather than a fixed
-		// set of even splits.
+		// Interpret the fuzzed value as a packet payload size (1..65536) so the
+		// engine can drive the seam to any offset across the full payload range
+		// that frameReplyPackets supports, not just the first 256 bytes.
+		// frameReplyPackets clamps chunk to fuzzMaxPacketPayload.
 		chunk := 1 + int(frag)
 		// The invariant: this must return normally (no panic escaping the
 		// parser's recover, no goroutine leak/deadlock). The returned values

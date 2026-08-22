@@ -1,7 +1,11 @@
 version: 1.0.{build}
 
-image:
-  - Visual Studio 2015
+# SQL Server 2022 and 2025 are only available on the Visual Studio 2026 image.
+image: Visual Studio 2026
+
+# Every push to a branch with an open PR otherwise queues two builds, and the
+# project runs one build at a time. Only the PR build is a required check.
+skip_branch_with_pr: true
 
 clone_folder: c:\gopath\src\github.com\microsoft\go-mssqldb
 
@@ -12,30 +16,36 @@ environment:
   SQLPASSWORD: Password12!
   DATABASE: test
   GOVERSION: 125
+  SQLINSTANCE: SQL2025
   COLUMNENCRYPTION:
-  APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
 
   TAGS:
   matrix:
-    - SQLINSTANCE: SQL2017
+    # Default protocol negotiation, 64bit, SQL auth
     - GOVERSION: 125
-      SQLINSTANCE: SQL2017
+    # Always Encrypted
     - GOVERSION: 125
-      SQLINSTANCE: SQL2019
       COLUMNENCRYPTION: 1
-      # Cover 32bit and named pipes protocol
+    # 32bit and named pipes protocol
     - GOVERSION: 125-x86
-      SQLINSTANCE: SQL2017
       GOARCH: 386
       PROTOCOL: np
       TAGS: -tags np
-      # Cover SSPI and lpc protocol
+    # SSPI and lpc protocol
     - GOVERSION: 125
-      SQLINSTANCE: SQL2019
       PROTOCOL: lpc
       TAGS: -tags sm
       SQLUSER:
       SQLPASSWORD:
+
+init:
+  # AppVeyor does not document instance names past SQL2019; list what is installed.
+  - ps: |
+      $key = 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL'
+      (Get-ItemProperty $key -ErrorAction SilentlyContinue).PSObject.Properties |
+        Where-Object Name -notlike 'PS*' |
+        ForEach-Object { "instance: $($_.Name) -> $($_.Value)" }
+
 install:
   - set GOROOT=c:\go%GOVERSION%
   - set PATH=%GOPATH%\bin;%GOROOT%\bin;%PATH%
