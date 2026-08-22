@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -1365,16 +1364,15 @@ func (t tokenProcessor) markCancelConfirmed() {
 // type, and also stops the "err == ctx.Err()" comparisons in Rows/Rowsq.Close
 // from misclassifying a channel-delivered context error as a clean cancellation.
 // StreamError.Unwrap preserves errors.Is/errors.As on the original error, so
-// callers can still inspect the underlying cause. An error that already is (or
-// wraps) a StreamError is returned unchanged to avoid double wrapping. The
+// callers can still inspect the underlying cause. A top-level StreamError is
+// returned unchanged to avoid double wrapping. The
 // confirmed-attention path is unaffected because it returns its context error
 // directly from t.ctx.Err() without routing through here. See issue #407.
 func wrapTokenChannelError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var se StreamError
-	if errors.As(err, &se) {
+	if _, ok := err.(StreamError); ok {
 		return err
 	}
 	return StreamError{InnerError: err}

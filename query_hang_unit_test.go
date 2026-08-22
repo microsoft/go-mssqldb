@@ -508,11 +508,10 @@ func TestNextToken_TokenChannelOrdinaryErrorIsFatal(t *testing.T) {
 	assert.ErrorIs(t, returned, sentinel)
 }
 
-// TestWrapTokenChannelError_DoesNotDoubleWrap verifies an error that already is a
-// StreamError (for example the attention-write failure the branch below returns
-// directly) is passed through unchanged rather than nested inside another
-// StreamError. See issue #407.
-func TestWrapTokenChannelError_DoesNotDoubleWrap(t *testing.T) {
+// TestWrapTokenChannelError_PreservesOnlyTopLevelStreamError verifies a direct
+// StreamError is not nested, while an error that merely wraps one is promoted to
+// a top-level StreamError that checkBadConn can recognize. See issue #407.
+func TestWrapTokenChannelError_PreservesOnlyTopLevelStreamError(t *testing.T) {
 	inner := errors.New("boom")
 	original := StreamError{InnerError: inner}
 	got := wrapTokenChannelError(original)
@@ -520,6 +519,12 @@ func TestWrapTokenChannelError_DoesNotDoubleWrap(t *testing.T) {
 	require.True(t, ok, "result must be a StreamError")
 	assert.Equal(t, inner, se.InnerError,
 		"an existing StreamError must not be re-wrapped")
+
+	wrapped := errors.Join(errors.New("outer"), original)
+	got = wrapTokenChannelError(wrapped)
+	se, ok = got.(StreamError)
+	require.True(t, ok, "a wrapped StreamError must be promoted to the top level")
+	assert.Equal(t, wrapped, se.InnerError)
 	assert.Nil(t, wrapTokenChannelError(nil), "nil must pass through unchanged")
 }
 
