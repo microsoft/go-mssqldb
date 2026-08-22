@@ -14,9 +14,16 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      # Honour the matrix version instead of upgrading via the go.mod toolchain line.
+      GOTOOLCHAIN: local
     strategy:
+      fail-fast: false
       matrix:
-        go: ['1.25.7']
+        # 1.27 and 1.26 are the supported Go releases; 1.25 is the floor declared
+        # by the go directive. Crossed with every SQL image because crypto/tls
+        # changes between Go releases and TLS negotiation differs by server version.
+        go: ['1.25.x', '1.26.x', '1.27.x']
         sqlImage: ['2017-latest','2019-latest','2022-latest','2025-latest']
     steps:
       # actions/checkout v6
@@ -105,7 +112,7 @@ jobs:
       - name: Setup go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25.7'
+          go-version: '1.27.x'
       - name: Install sqlcmd
         run: |
           curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
