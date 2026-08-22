@@ -93,7 +93,10 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          if docker ps -a --format '{{.Names}}' | grep -Fxq sqlserver; then
+          # Distinguish "docker could not tell us" from "the container is absent".
+          if ! NAMES=$(docker ps -a --format '{{.Names}}'); then
+            echo "::warning::docker ps failed; cannot determine whether the sqlserver container exists"
+          elif echo "$NAMES" | grep -Fxq sqlserver; then
             docker logs sqlserver || echo "Unable to read logs from sqlserver."
           else
             echo "SQL Server container 'sqlserver' was not found."
@@ -301,7 +304,10 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          if docker ps -a --format '{{.Names}}' | grep -Fxq sqlserver; then
+          # Distinguish "docker could not tell us" from "the container is absent".
+          if ! NAMES=$(docker ps -a --format '{{.Names}}'); then
+            echo "::warning::docker ps failed; cannot determine whether the sqlserver container exists"
+          elif echo "$NAMES" | grep -Fxq sqlserver; then
             docker logs sqlserver || echo "Unable to read logs from sqlserver."
           else
             echo "SQL Server container 'sqlserver' was not found."
