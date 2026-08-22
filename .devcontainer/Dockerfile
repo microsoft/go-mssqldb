@@ -1,9 +1,13 @@
 # Go MSSQL Driver Development Container
-# The Go major.minor version here must match the 'go' directive in go.mod.
-# GOTOOLCHAIN=auto lets Go download the exact patch version (e.g. 1.25.9)
-# when the base image is slightly behind. Downloads are verified against
-# sum.golang.org.
-FROM mcr.microsoft.com/devcontainers/go:1.25-bookworm
+# The Go major.minor version here must be at least the 'go' directive in go.mod.
+# It may be newer: the go directive is the floor we promise consumers, not the
+# version we develop with.
+FROM mcr.microsoft.com/devcontainers/go:1.26-bookworm
+
+# The image's Go already satisfies the go directive, so it is what gets used;
+# auto does not chase newer patch releases. It matters only if go.mod later
+# requires a version newer than the image, where Go fetches it instead of
+# failing. Downloads are verified against sum.golang.org.
 ENV GOTOOLCHAIN=auto
 
 # The base image sets GOPATH=/go owned by root. Override to a user-writable
