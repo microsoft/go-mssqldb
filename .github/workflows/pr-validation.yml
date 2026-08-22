@@ -113,6 +113,13 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.27.x'
+      - name: Install benchstat
+        shell: bash
+        # Before the benchmark runs, not after: they take ~46 minutes and this
+        # reaches outside the repo, so a fetch failure should surface at once.
+        run: |
+          go install golang.org/x/perf/cmd/benchstat@latest
+          command -v benchstat
       - name: Install sqlcmd
         run: |
           curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
@@ -186,9 +193,6 @@ jobs:
       - name: Compare benchmarks
         shell: bash
         run: |
-          # Pinned because the next step parses benchstat's output; an unpinned
-          # tool is free to change its format and silently disable the gate.
-          go install golang.org/x/perf/cmd/benchstat@v0.0.0-20260813145340-fd4a688df892
           echo "## Benchmark Comparison (main vs PR)" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           benchstat -alpha=0.01 bench_old.txt bench_new.txt | tee -a "$GITHUB_STEP_SUMMARY"
