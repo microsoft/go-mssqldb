@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("NTLMSSP\x00\x02\x00\x00\x00000\xff\xe7\x00\xff\xff00\xff000000000")
