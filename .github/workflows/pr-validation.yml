@@ -136,14 +136,20 @@ jobs:
             -p 1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD \
             mcr.microsoft.com/mssql/server:2025-latest
           # Wait for SQL Server to be ready
+          READY=0
           for i in {1..30}; do
             if sqlcmd -S localhost -U sa -P "$SQLCMDPASSWORD" -C -Q "SELECT 1" > /dev/null 2>&1; then
               echo "SQL Server is ready (attempt $i)"
+              READY=1
               break
             fi
             echo "Waiting for SQL Server... (attempt $i/30)"
             sleep 2
           done
+          if [ "$READY" -eq 0 ]; then
+            echo "::error::SQL Server did not become ready; aborting benchmarks."
+            exit 1
+          fi
       - name: Warmup run (stabilize CPU/caches)
         shell: bash
         run: |
@@ -155,9 +161,14 @@ jobs:
           BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
           # Throwaway run to warm CPU caches, prime the Go runtime, and settle
           # the OS scheduler. Results are discarded — ensures both measurement
-          # runs start from the same steady-state conditions.
-          go test -run='^$' -bench="$BENCH_PATTERN" \
-            -benchtime=100ms -count=1 -timeout=10m . ./msdsn > /dev/null 2>&1
+          # runs start from the same steady-state conditions. Output is kept so a
+          # failure here is diagnosable rather than a bare exit code.
+          if ! go test -run='^$' -bench="$BENCH_PATTERN" \
+              -benchtime=100ms -count=1 -timeout=10m . ./msdsn > warmup.log 2>&1; then
+            echo "::error::warmup run failed"
+            tail -50 warmup.log
+            exit 1
+          fi
       - name: Run baseline benchmarks (main)
         shell: bash
         run: |
@@ -285,4 +296,13 @@ jobs:
           else
             gh pr comment "${{ github.event.pull_request.number }}" --body "$BODY"
             echo "Posted new benchmark comment."
+          fi
+      - name: Show SQL Server logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          if docker ps -a --format '{{.Names}}' | grep -Fxq sqlserver; then
+            docker logs sqlserver || echo "Unable to read logs from sqlserver."
+          else
+            echo "SQL Server container 'sqlserver' was not found."
           fi
