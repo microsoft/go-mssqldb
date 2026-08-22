@@ -113,7 +113,7 @@ func TestProcessQueryResponse_ErrorTokenDoesNotLeakReader(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		stream = appendDoneToken(stream, tokenDoneInProc, doneMore)
 	}
-	stream = appendDoneToken(stream, tokenDone, doneFinal)
+	stream = appendDoneToken(stream, tokenDone, doneAttn)
 	packet := wrapReplyPacket(stream)
 
 	// countingTransport keeps reads and writes on separate streams so that an
@@ -161,6 +161,22 @@ func TestProcessQueryResponse_ErrorTokenDoesNotLeakReader(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("reader goroutine leaked: readDone never closed (issue #407)")
 	}
+	assert.True(t, conn.connectionGood,
+		"a clean drain must preserve the connection for the next transactional query")
+}
+
+func TestSendAttentionWithTimeout_BoundsWrite(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	buf := newTdsBuffer(defaultPacketSize, client)
+	start := time.Now()
+	err := sendAttentionWithTimeout(buf, 20*time.Millisecond)
+
+	require.Error(t, err)
+	assert.Less(t, time.Since(start), time.Second,
+		"a stalled attention write must return within its timeout")
 }
 
 // TestProcessQueryResponse_DrainFailureEvictsConnection covers the follow-up to
