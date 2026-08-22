@@ -118,6 +118,10 @@ const (
 // the connection is marked bad via checkBadConn.
 const cancelDrainTimeout = 5 * time.Second
 
+type writeDeadlineSetter interface {
+	SetWriteDeadline(time.Time) error
+}
+
 func sendAttentionWithTimeout(transport io.ReadWriteCloser, timeout time.Duration) error {
 	packet := make([]byte, headerSize)
 	packet[0] = byte(packAttention)
@@ -137,10 +141,17 @@ func sendAttentionWithTimeout(transport io.ReadWriteCloser, timeout time.Duratio
 	case err := <-result:
 		return err
 	case <-timer.C:
-		closeErr := transport.Close()
-		if closeErr != nil {
-			return fmt.Errorf("attention write timed out after %s; closing transport: %w", timeout, closeErr)
+		if deadlineTransport, ok := transport.(writeDeadlineSetter); ok {
+			if err := deadlineTransport.SetWriteDeadline(time.Now()); err == nil {
+				writeErr := <-result
+				go transport.Close()
+				if writeErr != nil {
+					return fmt.Errorf("attention write timed out after %s: %w", timeout, writeErr)
+				}
+				return fmt.Errorf("attention write timed out after %s", timeout)
+			}
 		}
+		go transport.Close()
 		return fmt.Errorf("attention write timed out after %s", timeout)
 	}
 }

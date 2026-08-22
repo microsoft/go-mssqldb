@@ -3,9 +3,16 @@ package mssql
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"database/sql/driver"
 	"encoding/binary"
 	"errors"
+	"math/big"
 	"net"
 	"sync"
 	"testing"
@@ -166,17 +173,64 @@ func TestProcessQueryResponse_ErrorTokenDoesNotLeakReader(t *testing.T) {
 }
 
 func TestSendAttentionWithTimeout_BoundsWrite(t *testing.T) {
-	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	t.Run("connection timeout", func(t *testing.T) {
+		client, server := net.Pipe()
+		defer client.Close()
+		defer server.Close()
 
-	transport := newTimeoutConn(client, time.Second)
-	start := time.Now()
-	err := sendAttentionWithTimeout(transport, 20*time.Millisecond)
+		transport := newTimeoutConn(client, time.Second)
+		start := time.Now()
+		err := sendAttentionWithTimeout(transport, 20*time.Millisecond)
 
-	require.Error(t, err)
-	assert.Less(t, time.Since(start), time.Second,
-		"a stalled attention write must return within its timeout")
+		require.Error(t, err)
+		assert.Less(t, time.Since(start), time.Second,
+			"the attention timeout must override a longer connection timeout")
+	})
+
+	t.Run("TLS transport", func(t *testing.T) {
+		client, server := newTLSPipe(t)
+		defer client.Close()
+		defer server.Close()
+
+		start := time.Now()
+		err := sendAttentionWithTimeout(client, 20*time.Millisecond)
+
+		require.Error(t, err)
+		assert.Less(t, time.Since(start), time.Second,
+			"a stalled TLS attention write must return within its timeout")
+	})
+}
+
+func newTLSPipe(t *testing.T) (*tls.Conn, *tls.Conn) {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "localhost"},
+		NotBefore:    time.Now().Add(-time.Minute),
+		NotAfter:     time.Now().Add(time.Minute),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	clientConn, serverConn := net.Pipe()
+	client := tls.Client(clientConn, &tls.Config{InsecureSkipVerify: true}) // Test-only certificate.
+	server := tls.Server(serverConn, &tls.Config{
+		Certificates: []tls.Certificate{{
+			Certificate: [][]byte{der},
+			PrivateKey:  key,
+		}},
+	})
+
+	serverResult := make(chan error, 1)
+	go func() { serverResult <- server.Handshake() }()
+	require.NoError(t, client.Handshake())
+	require.NoError(t, <-serverResult)
+	return client, server
 }
 
 // TestProcessQueryResponse_DrainFailureEvictsConnection covers the follow-up to
