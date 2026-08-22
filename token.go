@@ -118,10 +118,17 @@ const (
 // the connection is marked bad via checkBadConn.
 const cancelDrainTimeout = 5 * time.Second
 
-func sendAttentionWithTimeout(buf *tdsBuffer, timeout time.Duration) error {
+func sendAttentionWithTimeout(transport io.ReadWriteCloser, timeout time.Duration) error {
+	packet := make([]byte, headerSize)
+	packet[0] = byte(packAttention)
+	packet[1] = 1
+	binary.BigEndian.PutUint16(packet[2:4], uint16(headerSize))
+	packet[6] = 1
+
 	result := make(chan error, 1)
 	go func() {
-		result <- sendAttention(buf)
+		_, err := transport.Write(packet)
+		result <- err
 	}()
 
 	timer := time.NewTimer(timeout)
@@ -130,7 +137,7 @@ func sendAttentionWithTimeout(buf *tdsBuffer, timeout time.Duration) error {
 	case err := <-result:
 		return err
 	case <-timer.C:
-		closeErr := buf.transport.Close()
+		closeErr := transport.Close()
 		if closeErr != nil {
 			return fmt.Errorf("attention write timed out after %s; closing transport: %w", timeout, closeErr)
 		}
@@ -1442,7 +1449,7 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 			return nil, t.ctx.Err()
 		}
 		t.sess.LogF(t.ctx, msdsn.LogDebug, "Sending attention to the server")
-		if err := sendAttentionWithTimeout(t.sess.buf, cancelDrainTimeout); err != nil {
+		if err := sendAttentionWithTimeout(t.sess.buf.transport, cancelDrainTimeout); err != nil {
 			// The attention write failed, so the transport is broken and the
 			// TDS stream can no longer be trusted. The background
 			// processSingleResponse goroutine may still be blocked sending to

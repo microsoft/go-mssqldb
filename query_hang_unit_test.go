@@ -171,9 +171,8 @@ func TestSendAttentionWithTimeout_BoundsWrite(t *testing.T) {
 	defer server.Close()
 
 	transport := newTimeoutConn(client, time.Second)
-	buf := newTdsBuffer(defaultPacketSize, transport)
 	start := time.Now()
-	err := sendAttentionWithTimeout(buf, 20*time.Millisecond)
+	err := sendAttentionWithTimeout(transport, 20*time.Millisecond)
 
 	require.Error(t, err)
 	assert.Less(t, time.Since(start), time.Second,
