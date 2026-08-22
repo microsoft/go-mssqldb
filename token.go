@@ -664,12 +664,24 @@ func parseFeatureExtAck(r *tdsBuffer) featureExtAck {
 	return ack
 }
 
+// _MAX_COLUMN_COUNT bounds the number of columns a COLMETADATA token may
+// advertise before we allocate the backing slice. SQL Server limits a result
+// set to 4096 columns per SELECT statement, so this generous cap leaves ample
+// headroom for hidden/browse-mode columns while keeping an attacker-controlled
+// uint16 count (up to 0xFFFE) from preallocating many MiB of columnStruct
+// backing array on every malformed response (OOM DoS, issue #420). A violation
+// fails the stream as a StreamError.
+const _MAX_COLUMN_COUNT = 0x4000
+
 // http://msdn.microsoft.com/en-us/library/dd357363.aspx
 func parseColMetadata72(r *tdsBuffer, s *tdsSession) (columns []columnStruct) {
 	count := r.uint16()
 	if count == 0xffff {
 		// no metadata is sent
 		return nil
+	}
+	if count > _MAX_COLUMN_COUNT {
+		badStreamPanic(fmt.Errorf("column count %d exceeds maximum of %d columns", count, _MAX_COLUMN_COUNT))
 	}
 	columns = make([]columnStruct, count)
 	var cekTable *cekTable

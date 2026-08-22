@@ -177,6 +177,22 @@ func TestReadVariantType_UnderflowPanics(t *testing.T) {
 	}
 }
 
+// TestParseColMetadata72_BogusCountPanics is a regression test for issue #420:
+// parseColMetadata72 allocated make([]columnStruct, count) directly from the
+// attacker-controlled uint16 column count. Even within the uint16 ceiling a
+// count of 0xFFFE preallocates many MiB of columnStruct backing array, so a
+// bogus count must now fail the stream as a StreamError before allocating.
+func TestParseColMetadata72_BogusCountPanics(t *testing.T) {
+	// count just past the cap (little-endian uint16), no column data.
+	var b [2]byte
+	binary.LittleEndian.PutUint16(b[:], uint16(_MAX_COLUMN_COUNT+1))
+	err := recoverErr(func() {
+		parseColMetadata72(bufFromBytes(b[:]), &tdsSession{})
+	})
+	assertStreamError(t, err)
+	assert.Contains(t, err.Error(), "exceeds maximum")
+}
+
 // TestProcessSingleResponse_MalformedNoOOM feeds crafted malformed token streams
 // (framed as reply packets) through the full response parser and asserts each is
 // turned into an error token rather than hanging or exhausting memory. These are
