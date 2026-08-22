@@ -500,8 +500,18 @@ type fedAuthInfoOpt struct {
 	dataLength, dataOffset uint32
 }
 
+// _MAX_FEDAUTHINFO_LEN bounds the total FEDAUTHINFO token size. The token only
+// carries a small STSURL and SPN, so any larger advertised size is a malformed
+// or hostile stream rather than something we should allocate for. The cap keeps
+// an attacker-controlled length prefix from driving an unbounded allocation
+// (OOM DoS, issue #420); a violation fails the stream as a StreamError.
+const _MAX_FEDAUTHINFO_LEN = 1 << 20
+
 func parseFedAuthInfo(r *tdsBuffer) fedAuthInfoStruct {
 	size := r.uint32()
+	if size > _MAX_FEDAUTHINFO_LEN {
+		badStreamPanic(fmt.Errorf("federated authentication info size %d exceeds maximum of %d bytes", size, _MAX_FEDAUTHINFO_LEN))
+	}
 
 	var STSURL, SPN string
 	var err error
@@ -510,6 +520,12 @@ func parseFedAuthInfo(r *tdsBuffer) fedAuthInfoStruct {
 	// then a four byte offset and a four byte length.
 	count := r.uint32()
 	offset := uint32(4)
+	// The option headers (9 bytes each) plus the trailing data must all fit
+	// within the advertised token size. Reject a count that cannot fit before
+	// allocating, so a bogus count cannot pre-allocate gigabytes of options.
+	if uint64(count)*9+uint64(offset) > uint64(size) {
+		badStreamPanic(fmt.Errorf("federated authentication info advertised %d options that do not fit in %d bytes", count, size))
+	}
 	opts := make([]fedAuthInfoOpt, count)
 
 	for i := uint32(0); i < count; i++ {
@@ -530,14 +546,16 @@ func parseFedAuthInfo(r *tdsBuffer) fedAuthInfoStruct {
 
 	for i := uint32(0); i < count; i++ {
 		if opts[i].dataOffset < offset {
-			badStreamPanicf("Fed auth info opt stated data offset %d is before data begins in packet at %d",
-				opts[i].dataOffset, offset)
+			badStreamPanic(fmt.Errorf("fed auth info opt stated data offset %d is before data begins in token at %d",
+				opts[i].dataOffset, offset))
 			// returns via panic
 		}
 
-		if opts[i].dataOffset+opts[i].dataLength > size {
-			badStreamPanicf("Fed auth info opt stated data length %d added to stated offset exceeds size of packet %d",
-				opts[i].dataOffset+opts[i].dataLength, size)
+		// Compute in uint64 so an attacker-controlled offset+length cannot
+		// overflow uint32 and slip past this bounds check (issue #420).
+		if uint64(opts[i].dataOffset)+uint64(opts[i].dataLength) > uint64(size) {
+			badStreamPanic(fmt.Errorf("fed auth info opt data offset %d plus length %d exceeds token size %d",
+				opts[i].dataOffset, opts[i].dataLength, size))
 			// returns via panic
 		}
 
@@ -646,12 +664,24 @@ func parseFeatureExtAck(r *tdsBuffer) featureExtAck {
 	return ack
 }
 
+// _MAX_COLUMN_COUNT bounds the number of columns a COLMETADATA token may
+// advertise before we allocate the backing slice. SQL Server limits a result
+// set to 4096 columns per SELECT statement, so this generous cap leaves ample
+// headroom for hidden/browse-mode columns while keeping an attacker-controlled
+// uint16 count (up to 0xFFFE) from preallocating many MiB of columnStruct
+// backing array on every malformed response (OOM DoS, issue #420). A violation
+// fails the stream as a StreamError.
+const _MAX_COLUMN_COUNT = 0x4000
+
 // http://msdn.microsoft.com/en-us/library/dd357363.aspx
 func parseColMetadata72(r *tdsBuffer, s *tdsSession) (columns []columnStruct) {
 	count := r.uint16()
 	if count == 0xffff {
 		// no metadata is sent
 		return nil
+	}
+	if count > _MAX_COLUMN_COUNT {
+		badStreamPanic(fmt.Errorf("column count %d exceeds maximum of %d columns", count, _MAX_COLUMN_COUNT))
 	}
 	columns = make([]columnStruct, count)
 	var cekTable *cekTable

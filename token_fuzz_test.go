@@ -549,17 +549,15 @@ func TestProcessSingleResponsePacketBoundary(t *testing.T) {
 // the harness regardless of input, and the reader goroutine must always
 // terminate (the drain helper guarantees the channel is emptied).
 //
-// NOTE (issue #418 hardening): the seed corpus below runs clean under
-// `go test` and is what CI relies on. An extended `go test -fuzz` run of this
-// target currently surfaces a pre-existing robustness gap: several TDS token
-// parsers allocate buffers sized directly from attacker-controlled length
-// prefixes before validating them against the available data (for example
-// parseFedAuthInfo's make([]byte, size-offset) with a uint32 size, the
-// variable-length column readers in types.go, and parseColMetadata72's column
-// count). Under sustained fuzzing these unbounded allocations accumulate and
-// exhaust memory. Bounding them is tracked as follow-up work in the
-// fuzz-coverage stack and is intentionally out of scope for this
-// test-infrastructure layer.
+// NOTE (issue #420 hardening): several TDS token parsers previously allocated
+// buffers sized directly from attacker-controlled length prefixes before
+// validating them against the available data (for example parseFedAuthInfo's
+// make([]byte, size-offset) with a uint32 size, the variable-length column
+// readers in types.go, and parseColMetadata72's column count). Under sustained
+// fuzzing these unbounded allocations exhausted memory. Those sizes/counts are
+// now bounded and underflows rejected via badStreamPanic, so a malformed stream
+// fails cleanly as an error token instead of OOMing; the crafted repros are
+// pinned as seeds above.
 func FuzzProcessSingleResponse(f *testing.F) {
 	for _, seed := range fuzzResponseSeeds() {
 		f.Add(seed, uint16(0))
@@ -568,6 +566,16 @@ func FuzzProcessSingleResponse(f *testing.F) {
 	// A couple of raw single-token seeds for extra coverage.
 	f.Add([]byte{byte(tokenColMetadata)}, uint16(0))
 	f.Add([]byte{}, uint16(0))
+
+	// Regression seeds for issue #420: token streams whose length prefixes drove
+	// unbounded allocations before they were bounded. They must now parse into an
+	// error token without OOMing.
+	// FEDAUTHINFO underflow repro from the issue (EE 00*8): size=0,count=0.
+	f.Add([]byte{byte(tokenFedAuthInfo), 0, 0, 0, 0, 0, 0, 0, 0}, uint16(0))
+	// FEDAUTHINFO with a bogus-huge option count.
+	f.Add([]byte{byte(tokenFedAuthInfo), 8, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF}, uint16(0))
+	// COLMETADATA with a bogus-huge column count (0xFFFE) and no column data.
+	f.Add([]byte{byte(tokenColMetadata), 0xFE, 0xFF}, uint16(0))
 
 	f.Fuzz(func(t *testing.T, stream []byte, frag uint16) {
 		// Bound input size to keep framing and allocations reasonable. A TDS
