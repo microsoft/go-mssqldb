@@ -1086,8 +1086,8 @@ func decodeTime(scale uint8, buf []byte, loc *time.Location) time.Time {
 	if scale > 7 {
 		badStreamPanic(fmt.Errorf("invalid scale %d for TIME value", scale))
 	}
-	if len(buf) < calcTimeSize(int(scale)) {
-		badStreamPanic(fmt.Errorf("TIME value buffer too short: got %d, need %d", len(buf), calcTimeSize(int(scale))))
+	if len(buf) != calcTimeSize(int(scale)) {
+		badStreamPanic(fmt.Errorf("TIME value buffer size %d is invalid, expected %d", len(buf), calcTimeSize(int(scale))))
 	}
 	sec, ns := decodeTimeInt(scale, buf)
 	return time.Date(1, 1, 1, 0, 0, sec, ns, loc)
@@ -1104,8 +1104,8 @@ func decodeDateTime2(scale uint8, buf []byte, loc *time.Location) time.Time {
 	if scale > 7 {
 		badStreamPanic(fmt.Errorf("invalid scale %d for DATETIME2 value", scale))
 	}
-	if len(buf) < calcTimeSize(int(scale))+3 {
-		badStreamPanic(fmt.Errorf("DATETIME2 value buffer too short: got %d, need %d", len(buf), calcTimeSize(int(scale))+3))
+	if len(buf) != calcTimeSize(int(scale))+3 {
+		badStreamPanic(fmt.Errorf("DATETIME2 value buffer size %d is invalid, expected %d", len(buf), calcTimeSize(int(scale))+3))
 	}
 	timesize := len(buf) - 3
 	sec, ns := decodeTimeInt(scale, buf[:timesize])
@@ -1128,8 +1128,8 @@ func decodeDateTimeOffset(scale uint8, buf []byte) time.Time {
 	if scale > 7 {
 		badStreamPanic(fmt.Errorf("invalid scale %d for DATETIMEOFFSET value", scale))
 	}
-	if len(buf) < calcTimeSize(int(scale))+3+2 {
-		badStreamPanic(fmt.Errorf("DATETIMEOFFSET value buffer too short: got %d, need %d", len(buf), calcTimeSize(int(scale))+3+2))
+	if len(buf) != calcTimeSize(int(scale))+3+2 {
+		badStreamPanic(fmt.Errorf("DATETIMEOFFSET value buffer size %d is invalid, expected %d", len(buf), calcTimeSize(int(scale))+3+2))
 	}
 	timesize := len(buf) - 3 - 2
 	sec, ns := decodeTimeInt(scale, buf[:timesize])

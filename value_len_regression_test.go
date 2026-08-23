@@ -68,7 +68,19 @@ func TestTemporalDecoders_UndersizedBufferPanics(t *testing.T) {
 			t.Fatalf("expected a stream error, got none")
 		}
 		assertStreamError(t, err)
-		assert.Contains(t, err.Error(), "too short")
+		assert.Contains(t, err.Error(), "invalid")
+	})
+
+	t.Run("decodeTime long buffer", func(t *testing.T) {
+		err := recoverErr(func() {
+			// scale 0 needs exactly 3 bytes; give 5 (extra bytes must be rejected).
+			decodeTime(0, make([]byte, 5), loc)
+		})
+		if err == nil {
+			t.Fatalf("expected a stream error, got none")
+		}
+		assertStreamError(t, err)
+		assert.Contains(t, err.Error(), "invalid")
 	})
 
 	t.Run("decodeDateTime2 short buffer", func(t *testing.T) {
@@ -80,7 +92,19 @@ func TestTemporalDecoders_UndersizedBufferPanics(t *testing.T) {
 			t.Fatalf("expected a stream error, got none")
 		}
 		assertStreamError(t, err)
-		assert.Contains(t, err.Error(), "too short")
+		assert.Contains(t, err.Error(), "invalid")
+	})
+
+	t.Run("decodeDateTime2 long buffer", func(t *testing.T) {
+		err := recoverErr(func() {
+			// scale 0 needs exactly 6 bytes; give 8.
+			decodeDateTime2(0, make([]byte, 8), loc)
+		})
+		if err == nil {
+			t.Fatalf("expected a stream error, got none")
+		}
+		assertStreamError(t, err)
+		assert.Contains(t, err.Error(), "invalid")
 	})
 
 	t.Run("decodeDateTimeOffset short buffer", func(t *testing.T) {
@@ -92,7 +116,19 @@ func TestTemporalDecoders_UndersizedBufferPanics(t *testing.T) {
 			t.Fatalf("expected a stream error, got none")
 		}
 		assertStreamError(t, err)
-		assert.Contains(t, err.Error(), "too short")
+		assert.Contains(t, err.Error(), "invalid")
+	})
+
+	t.Run("decodeDateTimeOffset long buffer", func(t *testing.T) {
+		err := recoverErr(func() {
+			// scale 0 needs exactly 8 bytes; give 10.
+			decodeDateTimeOffset(0, make([]byte, 10))
+		})
+		if err == nil {
+			t.Fatalf("expected a stream error, got none")
+		}
+		assertStreamError(t, err)
+		assert.Contains(t, err.Error(), "invalid")
 	})
 
 	t.Run("invalid scale", func(t *testing.T) {
