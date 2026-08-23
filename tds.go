@@ -1156,7 +1156,9 @@ func getTLSConn(conn *timeoutConn, p msdsn.Config, alpnSeq string) (tlsConn *tls
 	}
 	//Set ALPN Sequence
 	config.NextProtos = []string{alpnSeq}
-	tlsConn = tls.Client(conn.c, config)
+	// Wrap the timeoutConn rather than the raw socket so the handshake and every
+	// subsequent TLS read honour the connection timeout instead of bypassing it.
+	tlsConn = tls.Client(conn, config)
 	err = tlsConn.Handshake()
 	if err != nil {
 		return nil, fmt.Errorf("TLS Handshake failed: %w", err)
