@@ -159,11 +159,16 @@ func TestDecodeFixedLen_UndersizedBufferPanics(t *testing.T) {
 		fn      func()
 		wantSub string
 	}{
-		"decodeMoney short":        {func() { decodeMoney(make([]byte, 4)) }, "too short"},
-		"decodeMoney4 short":       {func() { decodeMoney4(make([]byte, 2)) }, "too short"},
-		"decodeDateTim4 short":     {func() { decodeDateTim4(make([]byte, 2), loc) }, "too short"},
-		"decodeDateTime short":     {func() { decodeDateTime(make([]byte, 4), loc) }, "too short"},
-		"decodeDate short":         {func() { decodeDate(make([]byte, 2), loc) }, "too short"},
+		"decodeMoney short":        {func() { decodeMoney(make([]byte, 4)) }, "invalid"},
+		"decodeMoney long":         {func() { decodeMoney(make([]byte, 9)) }, "invalid"},
+		"decodeMoney4 short":       {func() { decodeMoney4(make([]byte, 2)) }, "invalid"},
+		"decodeMoney4 long":        {func() { decodeMoney4(make([]byte, 5)) }, "invalid"},
+		"decodeDateTim4 short":     {func() { decodeDateTim4(make([]byte, 2), loc) }, "invalid"},
+		"decodeDateTim4 long":      {func() { decodeDateTim4(make([]byte, 5), loc) }, "invalid"},
+		"decodeDateTime short":     {func() { decodeDateTime(make([]byte, 4), loc) }, "invalid"},
+		"decodeDateTime long":      {func() { decodeDateTime(make([]byte, 9), loc) }, "invalid"},
+		"decodeDate short":         {func() { decodeDate(make([]byte, 2), loc) }, "invalid"},
+		"decodeDate long":          {func() { decodeDate(make([]byte, 4), loc) }, "invalid"},
 		"decodeDecimal empty":      {func() { decodeDecimal(1, 0, make([]byte, 0)) }, "invalid"},
 		"decodeDecimal oversz":     {func() { decodeDecimal(1, 0, make([]byte, 32)) }, "invalid"},
 		"decodeDecimal misaligned": {func() { decodeDecimal(1, 0, make([]byte, 6)) }, "invalid"},
