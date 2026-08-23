@@ -62,7 +62,10 @@ jobs:
           else
             export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}"
           fi
-          docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver -p 1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD mcr.microsoft.com/mssql/server:${{ matrix.sqlImage }}
+          # 2 GB is the documented minimum with no headroom, and SQL 2025 was seen
+          # failing to start at it. MSSQL_MEMORY_LIMIT_MB stays under the container
+          # cap so the engine leaves room for the rest of the container.
+          docker run -m 4GB -e ACCEPT_EULA=1 -e MSSQL_MEMORY_LIMIT_MB=3072 -d --name sqlserver -p 1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD mcr.microsoft.com/mssql/server:${{ matrix.sqlImage }}
           # Wait for SQL Server to be ready - retry up to 60 seconds (30 attempts x 2s)
           READY=0
           for i in {1..30}; do
@@ -139,7 +142,11 @@ jobs:
         run: |
           export SQLCMDPASSWORD=$(date +%s|sha256sum|base64|head -c 32)
           echo "SQLCMDPASSWORD=$SQLCMDPASSWORD" >> $GITHUB_ENV
-          docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver \
+          # 2 GB is the documented minimum with no headroom, and SQL 2025 was seen
+          # failing to start at it. MSSQL_MEMORY_LIMIT_MB stays under the container
+          # cap so the engine leaves room for the rest of the container.
+          docker run -m 4GB -e ACCEPT_EULA=1 -e MSSQL_MEMORY_LIMIT_MB=3072 \
+            -d --name sqlserver \
             -p 1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD \
             mcr.microsoft.com/mssql/server:2025-latest
           # Wait for SQL Server to be ready
@@ -252,7 +259,7 @@ jobs:
           # Every stage can legitimately match nothing, so each needs grep_ok; a
           # failure here means we could not evaluate, which must not read as a pass.
           if ! REGRESSED=$(grep_ok -v '~' bench_diff.txt \
-                | grep_ok -v 'TdsBuffer_Write_Large' \
+                | grep_ok -vE '^TdsBuffer_Write_Large[-[:space:]]' \
                 | grep_ok -E '^[^[:space:]]+[[:space:]]+.+[[:space:]]+\+[0-9]+(\.[0-9]+)?%' \
                 | awk '{ if (match($0, /\+[0-9]+(\.[0-9]+)?%/) && substr($0, RSTART+1, RLENGTH-2)+0 >= 15) print }'); then
             echo "::error::failed to evaluate benchmark comparison"
