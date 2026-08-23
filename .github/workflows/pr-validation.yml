@@ -108,6 +108,10 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    env:
+      # Inherited from setup-go today, but stated so the fail-fast behaviour of
+      # the benchstat install cannot change under us if that default does.
+      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -225,7 +229,7 @@ jobs:
             echo "::error::benchstat produced no output; cannot evaluate regressions"
             exit 1
           fi
-          if ! ROWS=$(grep_ok -cE '^\S+\s+.+(±|~|[+-][0-9])' bench_diff.txt); then
+          if ! ROWS=$(grep_ok -cE '^[^[:space:]]+[[:space:]]+.+(±|~|[+-][0-9])' bench_diff.txt); then
             echo "::error::failed to scan benchstat output; cannot evaluate regressions"
             exit 1
           fi
@@ -236,7 +240,7 @@ jobs:
           fi
           echo "Parsed $ROWS benchmark rows."
           # Report statistically significant improvements (real %, not ~)
-          if grep_ok -v '~' bench_diff.txt | grep -E '^\S+\s+.+\s+-[0-9]+(\.[0-9]+)?%'; then
+          if grep_ok -v '~' bench_diff.txt | grep -E '^[^[:space:]]+[[:space:]]+.+[[:space:]]+-[0-9]+(\.[0-9]+)?%'; then
             echo ""
             echo "::notice::Performance improvements detected (see above)"
           fi
@@ -249,7 +253,7 @@ jobs:
           # failure here means we could not evaluate, which must not read as a pass.
           if ! REGRESSED=$(grep_ok -v '~' bench_diff.txt \
                 | grep_ok -v 'TdsBuffer_Write_Large' \
-                | grep_ok -E '^\S+\s+.+\s+\+[0-9]+(\.[0-9]+)?%' \
+                | grep_ok -E '^[^[:space:]]+[[:space:]]+.+[[:space:]]+\+[0-9]+(\.[0-9]+)?%' \
                 | awk -F'+' '{split($2,a,"%"); if (a[1]+0 >= 15) print}'); then
             echo "::error::failed to evaluate benchmark comparison"
             exit 1
