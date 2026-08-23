@@ -68,8 +68,8 @@ func bvarbyte(data []byte) []byte {
 // *tdsSession's buffer at the first payload byte, and returns it. The session is
 // otherwise zero-valued (alwaysEncrypted false, nil logger). Callers that need
 // the Always Encrypted path flip sess.alwaysEncrypted afterwards.
-func fuzzSessionReader(payload []byte, frag byte) (sess *tdsSession, closeBuf func(), ok bool) {
-	framed, framedOK := frameReplyPackets(payload, frag)
+func fuzzSessionReader(payload []byte, chunk int) (sess *tdsSession, closeBuf func(), ok bool) {
+	framed, framedOK := frameReplyPackets(payload, chunk)
 	if !framedOK {
 		return nil, nil, false
 	}
@@ -185,7 +185,7 @@ func FuzzEnvChange(f *testing.F) {
 		if len(payload) > 64*1024 {
 			t.Skip()
 		}
-		sess, closeBuf, ok := fuzzSessionReader(payload, frag)
+		sess, closeBuf, ok := fuzzSessionReader(payload, int(frag))
 		if !ok {
 			return
 		}
@@ -290,7 +290,7 @@ func FuzzFeatureExtAckAndLoginAck(f *testing.F) {
 		if len(payload) > 64*1024 {
 			t.Skip()
 		}
-		buf, closeBuf, ok := fuzzTypeReadBuffer(payload, frag)
+		buf, closeBuf, ok := fuzzTypeReadBuffer(payload, int(frag))
 		if !ok {
 			return
 		}
@@ -344,7 +344,7 @@ func FuzzReturnValue(f *testing.F) {
 		if len(payload) > 64*1024 {
 			t.Skip()
 		}
-		sess, closeBuf, ok := fuzzSessionReader(payload, frag)
+		sess, closeBuf, ok := fuzzSessionReader(payload, int(frag))
 		if !ok {
 			return
 		}
@@ -424,7 +424,7 @@ func FuzzErrorInfoTokens(f *testing.F) {
 		if len(payload) > 64*1024 {
 			t.Skip()
 		}
-		buf, closeBuf, ok := fuzzTypeReadBuffer(payload, frag)
+		buf, closeBuf, ok := fuzzTypeReadBuffer(payload, int(frag))
 		if !ok {
 			return
 		}
@@ -589,7 +589,7 @@ func FuzzAlwaysEncryptedMetadata(f *testing.F) {
 		if len(payload) > 64*1024 {
 			t.Skip()
 		}
-		sess, closeBuf, ok := fuzzSessionReader(payload, frag)
+		sess, closeBuf, ok := fuzzSessionReader(payload, int(frag))
 		if !ok {
 			return
 		}
