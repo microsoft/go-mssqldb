@@ -497,6 +497,8 @@ func (c *Conn) Close() error {
 	case <-c.sess.readDone:
 		c.sess.buf.bufClose()
 	default:
+		// startResponseReader defers close(readDone), including when
+		// processSingleResponse panics, so this waiter cannot outlive the reader.
 		go func() {
 			<-c.sess.readDone
 			c.sess.buf.bufClose()

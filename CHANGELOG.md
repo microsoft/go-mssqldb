@@ -1,4 +1,10 @@
 # Changelog
+## Unreleased
+
+### Bug Fixes
+
+* prevent transaction queries from hanging after an earlier response error ([#410](https://github.com/microsoft/go-mssqldb/pull/410)). Parser and provider errors that abandon a TDS response are now returned as `StreamError`; use `errors.As` rather than direct type assertions to inspect the underlying error.
+
 ## [1.10.0](https://github.com/microsoft/go-mssqldb/compare/v1.9.8...v1.10.0) (2026-04-25)
 
 

@@ -1460,7 +1460,9 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 			// t.tokChan; closing the transport cannot unblock a pending channel
 			// send, so drain the channel in the background to let the goroutine
 			// finish and close readDone, matching the cancellation-unavailable
-			// branches below. See issue #407.
+			// branches below. processSingleResponse unconditionally defers
+			// close(ch), including its recovered-panic path, so this drain exits.
+			// See issue #407.
 			go func() {
 				for range t.tokChan {
 				}
@@ -1493,7 +1495,8 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 			return nil, t.ctx.Err()
 		case cancelConfirmationUnavailable:
 			// Drain tokChan in the background so processSingleResponse
-			// can finish sending and exit once the connection closes.
+			// can finish sending and exit once the connection closes. Its
+			// deferred close(tokChan) guarantees this drain also exits.
 			go func() {
 				for range t.tokChan {
 				}
@@ -1520,7 +1523,8 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 		// we did not get cancellation confirmation, something is not
 		// right, this connection is not usable anymore
 		// Drain tokChan in the background so processSingleResponse
-		// can finish sending and exit once the connection closes.
+		// can finish sending and exit once the connection closes. Its
+		// deferred close(tokChan) guarantees this drain also exits.
 		go func() {
 			for range t.tokChan {
 			}
