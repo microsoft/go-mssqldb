@@ -669,18 +669,6 @@ func parseFeatureExtAck(r *tdsBuffer) featureExtAck {
 	return ack
 }
 
-// _MAX_COLUMN_COUNT bounds the number of columns a COLMETADATA token may
-// advertise before we allocate the backing slice. COLMETADATA describes a
-// result set, not a table, so the binding limit is SQL Server's maximum of
-// 4096 columns *per SELECT statement* — not the per-table limits a reader might
-// otherwise reach for (1024 regular columns, or 30000 with a sparse column
-// set). This 0x4000 (16384) cap is a comfortable 4x over that binding limit,
-// leaving ample headroom for hidden/browse-mode columns while keeping an
-// attacker-controlled uint16 count (up to 0xFFFE) from preallocating many MiB
-// of columnStruct backing array on every malformed response (OOM DoS,
-// issue #420). A violation fails the stream as a StreamError.
-const _MAX_COLUMN_COUNT = 0x4000
-
 // http://msdn.microsoft.com/en-us/library/dd357363.aspx
 func parseColMetadata72(r *tdsBuffer, s *tdsSession) (columns []columnStruct) {
 	count := r.uint16()
@@ -688,18 +676,31 @@ func parseColMetadata72(r *tdsBuffer, s *tdsSession) (columns []columnStruct) {
 		// no metadata is sent
 		return nil
 	}
-	if count > _MAX_COLUMN_COUNT {
-		badStreamPanic(fmt.Errorf("column count %d exceeds maximum of %d columns", count, _MAX_COLUMN_COUNT))
-	}
-	columns = make([]columnStruct, count)
 	var cekTable *cekTable
 	if s.alwaysEncrypted {
 		// column encryption key list
 		cekTable = readCekTable(r)
 	}
 
-	for i := range columns {
-		column := &columns[i]
+	// Grow the column slice as each column is actually parsed rather than
+	// preallocating make([]columnStruct, count). count is an attacker-controlled
+	// uint16 and columnStruct is large, so pre-sizing from the count alone lets a
+	// bogus value (up to 0xFFFE) commit many MiB up front before any of the
+	// backing bytes are read (OOM DoS, issue #420). Parsing each column consumes
+	// bytes from the stream, so a count that outruns the data fails via
+	// badStreamPanic (EOF) after only the columns actually present are read; the
+	// slice therefore never grows past what the server genuinely sent, which also
+	// decouples the client from the declared count. The capacity hint is bounded
+	// so the count cannot drive even the first allocation.
+	const initialColumnCap = 64
+	capHint := int(count)
+	if capHint > initialColumnCap {
+		capHint = initialColumnCap
+	}
+	columns = make([]columnStruct, 0, capHint)
+
+	for i := 0; i < int(count); i++ {
+		var column columnStruct
 		baseTi := getBaseTypeInfo(r, true)
 		typeInfo := readTypeInfo(r, baseTi.TypeId, column.cryptoMeta, s.encoding)
 		typeInfo.UserType = baseTi.UserType
@@ -720,6 +721,7 @@ func parseColMetadata72(r *tdsBuffer, s *tdsSession) (columns []columnStruct) {
 		}
 
 		column.ColName = r.BVarChar()
+		columns = append(columns, column)
 	}
 	return columns
 }

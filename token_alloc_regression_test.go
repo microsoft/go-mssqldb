@@ -180,17 +180,20 @@ func TestReadVariantType_UnderflowPanics(t *testing.T) {
 // TestParseColMetadata72_BogusCountPanics is a regression test for issue #420:
 // parseColMetadata72 allocated make([]columnStruct, count) directly from the
 // attacker-controlled uint16 column count. Even within the uint16 ceiling a
-// count of 0xFFFE preallocates many MiB of columnStruct backing array, so a
-// bogus count must now fail the stream as a StreamError before allocating.
+// count of 0xFFFE preallocates many MiB of columnStruct backing array. The
+// reader now grows the slice as each column is actually parsed, so a bogus
+// count with no backing data fails the stream as a StreamError (EOF while
+// reading the first column) instead of preallocating.
 func TestParseColMetadata72_BogusCountPanics(t *testing.T) {
-	// count just past the cap (little-endian uint16), no column data.
-	var b [2]byte
-	binary.LittleEndian.PutUint16(b[:], uint16(_MAX_COLUMN_COUNT+1))
+	// A bogus-huge column count (0xFFFE, not the 0xFFFF "no metadata" sentinel)
+	// with no column data behind it. Parsing the first column must run past the
+	// end of the stream and panic a StreamError rather than allocating a giant
+	// slice up front.
+	stream := []byte{0xFE, 0xFF}
 	err := recoverErr(func() {
-		parseColMetadata72(bufFromBytes(b[:]), &tdsSession{})
+		parseColMetadata72(bufFromBytes(stream), &tdsSession{})
 	})
 	assertStreamError(t, err)
-	assert.Contains(t, err.Error(), "exceeds maximum")
 }
 
 // TestProcessSingleResponse_MalformedNoOOM feeds crafted malformed token streams
