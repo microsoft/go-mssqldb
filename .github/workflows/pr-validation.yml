@@ -229,7 +229,7 @@ jobs:
             echo "::error::benchstat produced no output; cannot evaluate regressions"
             exit 1
           fi
-          if ! ROWS=$(grep_ok -cE '^[^[:space:]]+[[:space:]]+.+(±|~|[+-][0-9])' bench_diff.txt); then
+          if ! ROWS=$(grep_ok -cE '^[^[:space:]]+[[:space:]]+.+(±|~|[0-9]%)' bench_diff.txt); then
             echo "::error::failed to scan benchstat output; cannot evaluate regressions"
             exit 1
           fi
@@ -254,7 +254,7 @@ jobs:
           if ! REGRESSED=$(grep_ok -v '~' bench_diff.txt \
                 | grep_ok -v 'TdsBuffer_Write_Large' \
                 | grep_ok -E '^[^[:space:]]+[[:space:]]+.+[[:space:]]+\+[0-9]+(\.[0-9]+)?%' \
-                | awk -F'+' '{split($2,a,"%"); if (a[1]+0 >= 15) print}'); then
+                | awk '{ if (match($0, /\+[0-9]+(\.[0-9]+)?%/) && substr($0, RSTART+1, RLENGTH-2)+0 >= 15) print }'); then
             echo "::error::failed to evaluate benchmark comparison"
             exit 1
           fi
