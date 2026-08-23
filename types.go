@@ -996,10 +996,12 @@ func decodeGuid(buf []byte, encoding msdsn.EncodeParameters) []byte {
 }
 
 func decodeDecimal(prec uint8, scale uint8, buf []byte) []byte {
-	// A TDS decimal value is a 1-byte sign followed by at most 16 bytes of
-	// mantissa (four little-endian uint32 words). The decimal.Decimal integer
-	// array is fixed at four words, so a longer buffer would index out of range.
-	if len(buf) < 1 || len(buf) > 17 {
+	// A TDS decimal value is a 1-byte sign followed by 0, 4, 8, 12, or 16
+	// mantissa bytes (up to four little-endian uint32 words). The
+	// decimal.Decimal integer array is fixed at four words, and the len(buf)/4
+	// below silently drops a non-multiple-of-4 remainder, so reject any other
+	// length as malformed rather than decoding it incorrectly.
+	if len(buf) < 1 || len(buf) > 17 || (len(buf)-1)%4 != 0 {
 		badStreamPanic(fmt.Errorf("DECIMAL value buffer size %d is invalid", len(buf)))
 	}
 	sign := buf[0]
