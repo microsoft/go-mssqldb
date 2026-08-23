@@ -96,14 +96,20 @@ func TestTemporalDecoders_UndersizedBufferPanics(t *testing.T) {
 	})
 
 	t.Run("invalid scale", func(t *testing.T) {
-		err := recoverErr(func() {
-			decodeTime(8, make([]byte, 8), loc)
-		})
-		if err == nil {
-			t.Fatalf("expected a stream error, got none")
+		for name, fn := range map[string]func(){
+			"decodeTime":           func() { decodeTime(8, make([]byte, 8), loc) },
+			"decodeDateTime2":      func() { decodeDateTime2(8, make([]byte, 8), loc) },
+			"decodeDateTimeOffset": func() { decodeDateTimeOffset(8, make([]byte, 8)) },
+		} {
+			t.Run(name, func(t *testing.T) {
+				err := recoverErr(fn)
+				if err == nil {
+					t.Fatalf("expected a stream error, got none")
+				}
+				assertStreamError(t, err)
+				assert.Contains(t, err.Error(), "invalid scale")
+			})
 		}
-		assertStreamError(t, err)
-		assert.Contains(t, err.Error(), "invalid scale")
 	})
 }
 
