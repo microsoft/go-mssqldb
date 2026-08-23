@@ -500,11 +500,16 @@ type fedAuthInfoOpt struct {
 	dataLength, dataOffset uint32
 }
 
-// _MAX_FEDAUTHINFO_LEN bounds the total FEDAUTHINFO token size. The token only
-// carries a small STSURL and SPN, so any larger advertised size is a malformed
-// or hostile stream rather than something we should allocate for. The cap keeps
-// an attacker-controlled length prefix from driving an unbounded allocation
-// (OOM DoS, issue #420); a violation fails the stream as a StreamError.
+// _MAX_FEDAUTHINFO_LEN bounds the total FEDAUTHINFO token size. The token
+// carries only a STSURL and SPN: the STSURL is a login endpoint and the SPN a
+// service principal name, both short URL/UPN-shaped strings encoded in UTF-16,
+// so a few hundred bytes each is realistic and even a pathological pair stays
+// well under 64 KiB. 1 MiB is therefore many times any legitimate token while
+// still small enough that rejecting past it costs nothing; any larger advertised
+// size is a malformed or hostile stream rather than something we should allocate
+// for. The cap keeps an attacker-controlled length prefix from driving an
+// unbounded allocation (OOM DoS, issue #420); a violation fails the stream as a
+// StreamError.
 const _MAX_FEDAUTHINFO_LEN = 1 << 20
 
 func parseFedAuthInfo(r *tdsBuffer) fedAuthInfoStruct {
@@ -665,12 +670,15 @@ func parseFeatureExtAck(r *tdsBuffer) featureExtAck {
 }
 
 // _MAX_COLUMN_COUNT bounds the number of columns a COLMETADATA token may
-// advertise before we allocate the backing slice. SQL Server limits a result
-// set to 4096 columns per SELECT statement, so this generous cap leaves ample
-// headroom for hidden/browse-mode columns while keeping an attacker-controlled
-// uint16 count (up to 0xFFFE) from preallocating many MiB of columnStruct
-// backing array on every malformed response (OOM DoS, issue #420). A violation
-// fails the stream as a StreamError.
+// advertise before we allocate the backing slice. COLMETADATA describes a
+// result set, not a table, so the binding limit is SQL Server's maximum of
+// 4096 columns *per SELECT statement* — not the per-table limits a reader might
+// otherwise reach for (1024 regular columns, or 30000 with a sparse column
+// set). This 0x4000 (16384) cap is a comfortable 4x over that binding limit,
+// leaving ample headroom for hidden/browse-mode columns while keeping an
+// attacker-controlled uint16 count (up to 0xFFFE) from preallocating many MiB
+// of columnStruct backing array on every malformed response (OOM DoS,
+// issue #420). A violation fails the stream as a StreamError.
 const _MAX_COLUMN_COUNT = 0x4000
 
 // http://msdn.microsoft.com/en-us/library/dd357363.aspx
