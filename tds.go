@@ -11,6 +11,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -1239,6 +1240,43 @@ initiate_connection:
 	toconn = newTimeoutConn(conn, p.ConnTimeout)
 	outbuf := newTdsBuffer(packetSize, toconn)
 
+	// Bound every server read up to and including prelogin by the context.
+	// This has to be installed before the strict-encryption TLS handshake,
+	// which also reads from the server and would otherwise be unbounded.
+	//
+	// We temporarily reduce toconn.timeout rather than using SetReadDeadline
+	// because timeoutConn.Read() calls SetDeadline(now+timeout) on every read,
+	// which would overwrite a SetReadDeadline value.
+	origTimeout := toconn.timeout
+	toconn.timeout, err = preloginTimeout(ctx, origTimeout)
+	if err != nil {
+		return nil, err
+	}
+
+	// Watch ctx.Done() and close the connection to unblock a read on any
+	// cancellation or deadline expiry. This is needed even though
+	// preloginTimeout may reduce toconn.timeout, because ctx can be canceled
+	// after that timeout is computed but before or during a read, and because
+	// without a deadline and with connTimeout == 0 a read could otherwise
+	// block indefinitely.
+	cancelDone := make(chan struct{})
+	watcherDone := make(chan struct{})
+	go func() {
+		defer close(watcherDone)
+		select {
+		case <-ctx.Done():
+			toconn.Close()
+		case <-cancelDone:
+		}
+	}()
+	// Idempotent so the deferred call is a no-op once the handshake has
+	// explicitly stopped the watcher; covers every early return below.
+	stopWatcher := sync.OnceFunc(func() {
+		close(cancelDone)
+		<-watcherDone
+	})
+	defer stopWatcher()
+
 	if p.Encryption == msdsn.EncryptionStrict {
 		tlsConn, err := getTLSConn(toconn, p, "tds/8.0")
 		if err != nil {
@@ -1273,37 +1311,8 @@ initiate_connection:
 		return nil, err
 	}
 
-	// Ensure the prelogin read respects the context deadline so connect()
-	// does not hang indefinitely when the server never responds.
-	// We temporarily reduce toconn.timeout rather than using SetReadDeadline
-	// because timeoutConn.Read() calls SetDeadline(now+timeout) on every
-	// read, which would overwrite a SetReadDeadline value.
-	origTimeout := toconn.timeout
-	toconn.timeout, err = preloginTimeout(ctx, origTimeout)
-	if err != nil {
-		return nil, err
-	}
-
-	// Watch ctx.Done() for every prelogin read and close the connection to
-	// unblock readPrelogin on any context cancellation or deadline expiry.
-	// This is needed even though preloginTimeout may reduce toconn.timeout,
-	// because ctx can be canceled after that timeout is computed but before
-	// or during the read, and because without a deadline and with
-	// connTimeout == 0 the read could otherwise block indefinitely.
-	cancelDone := make(chan struct{})
-	watcherDone := make(chan struct{})
-	go func() {
-		defer close(watcherDone)
-		select {
-		case <-ctx.Done():
-			toconn.Close()
-		case <-cancelDone:
-		}
-	}()
-
 	fields, err = readPrelogin(outbuf)
-	close(cancelDone)
-	<-watcherDone // wait for goroutine to exit before touching toconn
+	stopWatcher() // wait for the goroutine to exit before touching toconn
 
 	// If the context was canceled, the watcher goroutine closed the
 	// connection. Return the context error regardless of whether the
@@ -1329,8 +1338,14 @@ initiate_connection:
 	}
 
 	// Restore the original timeout for subsequent reads. Safe because the
-	// watcher goroutine has exited (watcherDone is closed above).
+	// watcher goroutine has exited (stopWatcher returned above).
 	toconn.timeout = origTimeout
+	// timeoutConn only calls SetDeadline when timeout > 0, so with a zero
+	// ConnTimeout the absolute deadline left by the prelogin reads would
+	// persist and expire under later operations that never asked for one.
+	if err := toconn.SetDeadline(time.Time{}); err != nil {
+		return nil, err
+	}
 
 	encrypt, err := interpretPreloginResponse(p, fedAuth, fields)
 	if err != nil {
