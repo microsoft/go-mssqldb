@@ -1353,7 +1353,7 @@ func (t *tokenProcessor) drain() error {
 	defer func() { t.cancelConfirmed = nil }()
 	for {
 		confirmed = false
-		tok, err := t.nextToken()
+		tok, err := t.nextTokenWithCancelPriority(true)
 		if err != nil {
 			if confirmed &&
 				(err == context.Canceled || err == context.DeadlineExceeded) {
@@ -1419,6 +1419,21 @@ func wrapTokenChannelError(err error) error {
 }
 
 func (t tokenProcessor) nextToken() (tokenStruct, error) {
+	return t.nextTokenWithCancelPriority(false)
+}
+
+// nextTokenWithCancelPriority lets drain send attention before consuming
+// already-buffered tokens. Ordinary callers retain the historical token-first
+// behavior so a response that completed concurrently with cancellation wins.
+func (t tokenProcessor) nextTokenWithCancelPriority(cancelFirst bool) (tokenStruct, error) {
+	if cancelFirst {
+		select {
+		case <-t.ctx.Done():
+			return t.handleCancel()
+		default:
+		}
+	}
+
 	// we do this separate non-blocking check on token channel to
 	// prioritize it over cancellation channel
 	select {
@@ -1449,79 +1464,56 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 			return nil, nil
 		}
 	case <-t.ctx.Done():
-		if t.noAttn {
-			return nil, t.ctx.Err()
-		}
-		t.sess.LogF(t.ctx, msdsn.LogDebug, "Sending attention to the server")
-		if err := sendAttentionWithTimeout(t.sess.buf.transport, cancelDrainTimeout); err != nil {
-			// The attention write failed, so the transport is broken and the
-			// TDS stream can no longer be trusted. The background
-			// processSingleResponse goroutine may still be blocked sending to
-			// t.tokChan; closing the transport cannot unblock a pending channel
-			// send, so drain the channel in the background to let the goroutine
-			// finish and close readDone, matching the cancellation-unavailable
-			// branches below. processSingleResponse unconditionally defers
-			// close(ch), including its recovered-panic path, so this drain exits.
-			// See issue #407.
-			go func() {
-				for range t.tokChan {
-				}
-			}()
-			// Wrap the write error in StreamError so every caller that routes
-			// it through checkBadConn evicts the connection. An unwrapped
-			// transport error can be an "ordinary" error type that checkBadConn
-			// does not treat as fatal, which would leave connectionGood true and
-			// let database/sql reuse a connection whose transport just failed.
-			return nil, StreamError{InnerError: err}
-		}
+		return t.handleCancel()
+	}
+}
 
-		// now the server should send cancellation confirmation
-		// it is possible that we already received full response
-		// just before we sent cancellation request
-		// in this case current response would not contain confirmation
-		// and we would need to read one more response
+func (t tokenProcessor) handleCancel() (tokenStruct, error) {
+	if t.noAttn {
+		return nil, t.ctx.Err()
+	}
+	t.sess.LogF(t.ctx, msdsn.LogDebug, "Sending attention to the server")
+	if err := sendAttentionWithTimeout(t.sess.buf.transport, cancelDrainTimeout); err != nil {
+		// The attention write failed, so the transport is broken and the
+		// TDS stream can no longer be trusted. The background
+		// processSingleResponse goroutine may still be blocked sending to
+		// t.tokChan; closing the transport cannot unblock a pending channel
+		// send, so drain the channel in the background to let the goroutine
+		// finish and close readDone, matching the cancellation-unavailable
+		// branches below. processSingleResponse unconditionally defers
+		// close(ch), including its recovered-panic path, so this drain exits.
+		// See issue #407.
+		go func() {
+			for range t.tokChan {
+			}
+		}()
+		// Wrap the write error in StreamError so every caller that routes
+		// it through checkBadConn evicts the connection. An unwrapped
+		// transport error can be an "ordinary" error type that checkBadConn
+		// does not treat as fatal, which would leave connectionGood true and
+		// let database/sql reuse a connection whose transport just failed.
+		return nil, StreamError{InnerError: err}
+	}
 
-		// t.ctx is already cancelled; use a separate context to drain.
-		drainCtx, drainCancel := context.WithTimeout(context.Background(), cancelDrainTimeout)
-		defer drainCancel()
+	// now the server should send cancellation confirmation
+	// it is possible that we already received full response
+	// just before we sent cancellation request
+	// in this case current response would not contain confirmation
+	// and we would need to read one more response
 
-		// first lets finish reading current response and look
-		// for confirmation in it
-		result, tokErr := readCancelConfirmation(drainCtx, t.tokChan)
-		switch result {
-		case cancelConfirmationReceived:
-			// we got confirmation in current response
-			t.markCancelConfirmed()
-			return nil, t.ctx.Err()
-		case cancelConfirmationUnavailable:
-			// Drain tokChan in the background so processSingleResponse
-			// can finish sending and exit once the connection closes. Its
-			// deferred close(tokChan) guarantees this drain also exits.
-			go func() {
-				for range t.tokChan {
-				}
-			}()
-			return nil, cancelDrainError("current response", drainCtx, tokErr)
-		}
-		// we did not get cancellation confirmation in the current response
-		// read one more response, it must be there
-		t.tokChan = make(chan tokenStruct, 5)
-		// Use t.ctx (already cancelled) for processSingleResponse so that
-		// ReturnMessageEnqueue calls return immediately via ctx.Done()
-		// instead of blocking on a full message queue, which would stall
-		// the goroutine and prevent it from delivering the DONE_ATTN token.
-		t.sess.startResponseReader(t.ctx, t.tokChan, t.outs)
-		// Fresh timeout for second drain so the first attempt's elapsed
-		// time does not reduce the budget for the second response.
-		drainCtx2, drainCancel2 := context.WithTimeout(context.Background(), cancelDrainTimeout)
-		defer drainCancel2()
-		result2, tokErr2 := readCancelConfirmation(drainCtx2, t.tokChan)
-		if result2 == cancelConfirmationReceived {
-			t.markCancelConfirmed()
-			return nil, t.ctx.Err()
-		}
-		// we did not get cancellation confirmation, something is not
-		// right, this connection is not usable anymore
+	// t.ctx is already cancelled; use a separate context to drain.
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), cancelDrainTimeout)
+	defer drainCancel()
+
+	// first lets finish reading current response and look
+	// for confirmation in it
+	result, tokErr := readCancelConfirmation(drainCtx, t.tokChan)
+	switch result {
+	case cancelConfirmationReceived:
+		// we got confirmation in current response
+		t.markCancelConfirmed()
+		return nil, t.ctx.Err()
+	case cancelConfirmationUnavailable:
 		// Drain tokChan in the background so processSingleResponse
 		// can finish sending and exit once the connection closes. Its
 		// deferred close(tokChan) guarantees this drain also exits.
@@ -1529,8 +1521,35 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 			for range t.tokChan {
 			}
 		}()
-		return nil, cancelDrainError("second response", drainCtx2, tokErr2)
+		return nil, cancelDrainError("current response", drainCtx, tokErr)
 	}
+	// we did not get cancellation confirmation in the current response
+	// read one more response, it must be there
+	t.tokChan = make(chan tokenStruct, 5)
+	// Use t.ctx (already cancelled) for processSingleResponse so that
+	// ReturnMessageEnqueue calls return immediately via ctx.Done()
+	// instead of blocking on a full message queue, which would stall
+	// the goroutine and prevent it from delivering the DONE_ATTN token.
+	t.sess.startResponseReader(t.ctx, t.tokChan, t.outs)
+	// Fresh timeout for second drain so the first attempt's elapsed
+	// time does not reduce the budget for the second response.
+	drainCtx2, drainCancel2 := context.WithTimeout(context.Background(), cancelDrainTimeout)
+	defer drainCancel2()
+	result2, tokErr2 := readCancelConfirmation(drainCtx2, t.tokChan)
+	if result2 == cancelConfirmationReceived {
+		t.markCancelConfirmed()
+		return nil, t.ctx.Err()
+	}
+	// we did not get cancellation confirmation, something is not
+	// right, this connection is not usable anymore
+	// Drain tokChan in the background so processSingleResponse
+	// can finish sending and exit once the connection closes. Its
+	// deferred close(tokChan) guarantees this drain also exits.
+	go func() {
+		for range t.tokChan {
+		}
+	}()
+	return nil, cancelDrainError("second response", drainCtx2, tokErr2)
 }
 
 func readCancelConfirmation(ctx context.Context, tokChan chan tokenStruct) (cancelConfirmationResult, error) {
