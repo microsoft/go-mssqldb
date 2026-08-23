@@ -812,6 +812,19 @@ func writePLPType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodePar
 	}
 }
 
+// validFixedWidthSize reports whether size is one the ColumnType helpers can
+// describe. Only the fixed-width nullable types are constrained; every other
+// byte-len type carries a caller-defined width.
+func validFixedWidthSize(typeId uint8, size int) bool {
+	switch typeId {
+	case typeIntN:
+		return size == 1 || size == 2 || size == 4 || size == 8
+	case typeFltN, typeMoneyN, typeDateTimeN:
+		return size == 4 || size == 8
+	}
+	return true
+}
+
 func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) {
 	switch ti.TypeId {
 	case typeDateN:
@@ -844,6 +857,12 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		typeVarChar, typeBinary, typeVarBinary:
 		// byle len types
 		ti.Size = int(r.byte())
+		// The ColumnType helpers switch on Size for these fixed-width nullable
+		// types and panic outside any recover, so reject a bad size here where
+		// badStreamPanicf is recovered into a StreamError.
+		if !validFixedWidthSize(ti.TypeId, ti.Size) {
+			badStreamPanicf("invalid size %d for type id %d", ti.Size, ti.TypeId)
+		}
 		ti.Buffer = make([]byte, ti.Size)
 		switch ti.TypeId {
 		case typeDecimal, typeNumeric, typeDecimalN, typeNumericN:
@@ -1591,7 +1610,12 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 		case "geography", "geometry":
 			return 2147483647, true
 		default:
-			return 0, false
+			// An unrecognized UDT is still variable length, and readVarLen
+			// already parsed its max length out of COLMETADATA.
+			if ti.Size == 0xffff {
+				return 2147483647, true
+			}
+			return int64(ti.Size), true
 		}
 	default:
 		return 0, false

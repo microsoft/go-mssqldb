@@ -297,33 +297,49 @@ func TestUnknownTypeDoesNotPanic(t *testing.T) {
 	unknown := typeInfo{TypeId: 123}
 
 	t.Run("ScanType", func(t *testing.T) {
+		defer handlePanic(t)
 		got := makeGoLangScanType(unknown)
 		assert.Equal(t, reflect.TypeOf((*interface{})(nil)).Elem(), got)
 	})
 	t.Run("TypeName", func(t *testing.T) {
+		defer handlePanic(t)
 		got := makeGoLangTypeName(unknown)
 		assert.Equal(t, "", got)
 	})
 	t.Run("Decl", func(t *testing.T) {
+		defer handlePanic(t)
 		got := makeDecl(unknown)
 		assert.Equal(t, "", got)
 	})
 	t.Run("TypeLength", func(t *testing.T) {
+		defer handlePanic(t)
 		n, ok := makeGoLangTypeLength(unknown)
 		assert.Equal(t, int64(0), n)
 		assert.False(t, ok)
 	})
 	t.Run("PrecisionScale", func(t *testing.T) {
+		defer handlePanic(t)
 		prec, scale, ok := makeGoLangTypePrecisionScale(unknown)
 		assert.Equal(t, int64(0), prec)
 		assert.Equal(t, int64(0), scale)
 		assert.False(t, ok)
 	})
 	t.Run("UdtTypeLength", func(t *testing.T) {
-		udt := typeInfo{TypeId: typeUdt, UdtInfo: udtInfo{TypeName: "someunknown"}}
+		defer handlePanic(t)
+		// An unrecognized UDT is still variable length, so report the max
+		// length readVarLen parsed from COLMETADATA rather than claiming the
+		// column has no length.
+		udt := typeInfo{TypeId: typeUdt, Size: 8000, UdtInfo: udtInfo{TypeName: "someunknown"}}
 		n, ok := makeGoLangTypeLength(udt)
-		assert.Equal(t, int64(0), n)
-		assert.False(t, ok)
+		assert.Equal(t, int64(8000), n)
+		assert.True(t, ok)
+	})
+	t.Run("UdtTypeLengthMax", func(t *testing.T) {
+		defer handlePanic(t)
+		udt := typeInfo{TypeId: typeUdt, Size: 0xffff, UdtInfo: udtInfo{TypeName: "someunknown"}}
+		n, ok := makeGoLangTypeLength(udt)
+		assert.Equal(t, int64(2147483647), n)
+		assert.True(t, ok)
 	})
 }
 
@@ -447,4 +463,81 @@ func TestReadPLPType_UnknownLength(t *testing.T) {
 		t.Fatalf("readPLPType returned %T, want []byte", got)
 	}
 	assert.Equal(t, payload, gotBytes)
+}
+
+// readVarLenSize drives readVarLen for a byte-len type advertising the given size.
+func readVarLenSize(typeId uint8, size byte) *typeInfo {
+	buf := newTdsBuffer(512, nil)
+	buf.rbuf[0] = size
+	buf.rpos = 0
+	buf.rsize = 1
+	buf.final = true
+
+	ti := typeInfo{TypeId: typeId}
+	readVarLen(&ti, buf, nil, msdsn.EncodeParameters{})
+	return &ti
+}
+
+// TestReadVarLen_InvalidFixedWidthSizeRejected is a regression test for #364:
+// the ColumnType helpers switch on typeInfo.Size for the fixed-width nullable
+// types and panic outside any recover, so a server advertising an unsupported
+// size crashed the caller's goroutine rather than failing the stream.
+func TestReadVarLen_InvalidFixedWidthSizeRejected(t *testing.T) {
+	cases := []struct {
+		name   string
+		typeId uint8
+		size   byte
+	}{
+		{"INTNTYPE size 3", typeIntN, 3},
+		{"FLNNTYPE size 2", typeFltN, 2},
+		{"MONEYN size 3", typeMoneyN, 3},
+		{"DATETIMEN size 5", typeDateTimeN, 5},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				v := recover()
+				if v == nil {
+					t.Fatalf("expected panic for %s", tc.name)
+				}
+				err, ok := v.(error)
+				if !ok {
+					t.Fatalf("recovered %T, want error", v)
+				}
+				assert.Contains(t, err.Error(), "invalid size")
+			}()
+
+			readVarLenSize(tc.typeId, tc.size)
+		})
+	}
+}
+
+// TestReadVarLen_ValidFixedWidthSizesAccepted keeps the new guard from
+// rejecting sizes a legitimate server sends.
+func TestReadVarLen_ValidFixedWidthSizesAccepted(t *testing.T) {
+	cases := []struct {
+		name   string
+		typeId uint8
+		size   byte
+	}{
+		{"INTNTYPE size 1", typeIntN, 1},
+		{"INTNTYPE size 2", typeIntN, 2},
+		{"INTNTYPE size 4", typeIntN, 4},
+		{"INTNTYPE size 8", typeIntN, 8},
+		{"FLNNTYPE size 4", typeFltN, 4},
+		{"FLNNTYPE size 8", typeFltN, 8},
+		{"MONEYN size 4", typeMoneyN, 4},
+		{"MONEYN size 8", typeMoneyN, 8},
+		{"DATETIMEN size 4", typeDateTimeN, 4},
+		{"DATETIMEN size 8", typeDateTimeN, 8},
+		{"VARCHAR keeps its caller-defined width", typeVarChar, 3},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ti := readVarLenSize(tc.typeId, tc.size)
+			assert.Equal(t, int(tc.size), ti.Size)
+		})
+	}
 }
