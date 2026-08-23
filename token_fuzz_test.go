@@ -86,7 +86,13 @@ func frameReplyPackets(stream []byte, chunk int) (framed []byte, ok bool) {
 		out = append(out, hdr...)
 		out = append(out, stream[off:end]...)
 
+		// Per MS-TDS the PacketID (hdr[6]) wraps 255 -> 1; a real server never
+		// emits 0. Match that so a long stream fragmented at a small chunk does
+		// not produce a packet sequence the driver could never receive.
 		seq++
+		if seq == 0 {
+			seq = 1
+		}
 		off = end
 		if final {
 			break
