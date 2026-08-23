@@ -86,7 +86,13 @@ func frameReplyPackets(stream []byte, chunk int) (framed []byte, ok bool) {
 		out = append(out, hdr...)
 		out = append(out, stream[off:end]...)
 
+		// Per MS-TDS the PacketID (hdr[6]) wraps 255 -> 1; a real server never
+		// emits 0. Match that so a long stream fragmented at a small chunk does
+		// not produce a packet sequence the driver could never receive.
 		seq++
+		if seq == 0 {
+			seq = 1
+		}
 		off = end
 		if final {
 			break
@@ -468,7 +474,10 @@ func malformedResponseSeeds() [][]byte {
 		// doneMore status keeps the parser looping past the DONE (a final DONE
 		// would return first, leaving the garbage unread), so the trailing byte
 		// is read as an unknown token id and recovered into an error token.
-		concat(doneToken(tokenDone, doneMore), []byte{0xFF}),
+		// 0xAF is not a defined token id (unlike 0xFF, which is tokenDoneInProc),
+		// so it genuinely exercises the unsupported-token path after a non-final
+		// DONE rather than a second DONE-family token.
+		concat(doneToken(tokenDone, doneMore), []byte{0xAF}),
 	}
 }
 
