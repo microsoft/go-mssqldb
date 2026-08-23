@@ -63,8 +63,8 @@ func callExpectingParserPanic(fn func()) {
 // the packet header). This lets the direct readXxx targets read a fuzzed byte
 // stream through the real tdsBuffer, including across packet seams selected by
 // frag. The returned closer must be called to return the pooled buffer.
-func fuzzTypeReadBuffer(payload []byte, frag byte) (buf *tdsBuffer, closeBuf func(), ok bool) {
-	framed, framedOK := frameReplyPackets(payload, frag)
+func fuzzTypeReadBuffer(payload []byte, chunk int) (buf *tdsBuffer, closeBuf func(), ok bool) {
+	framed, framedOK := frameReplyPackets(payload, chunk)
 	if !framedOK {
 		return nil, nil, false
 	}
@@ -134,16 +134,6 @@ func buildRow(cols []fuzzColumn) []byte {
 // buildResponse assembles COLMETADATA + ROW + final DONE for a column set.
 func buildResponse(cols []fuzzColumn) []byte {
 	return concat(buildColMetadata(cols), buildRow(cols), doneToken(tokenDone, doneFinal))
-}
-
-// ucs2 encodes an ASCII string as little-endian UCS-2, as SQL Server sends
-// national character data.
-func ucs2(s string) []byte {
-	out := make([]byte, 0, len(s)*2)
-	for i := 0; i < len(s); i++ {
-		out = append(out, s[i], 0x00)
-	}
-	return out
 }
 
 // byteLenValue frames a BYTELEN value (1 length byte + data).
@@ -394,7 +384,7 @@ func FuzzColMetadataAndRow(f *testing.F) {
 		if len(stream) > 64*1024 {
 			t.Skip()
 		}
-		_, _, _ = drainSingleResponse(stream, frag)
+		_, _, _, _ = drainSingleResponse(stream, int(frag), false)
 	})
 }
 
@@ -448,7 +438,7 @@ func FuzzNbcRow(f *testing.F) {
 		if len(stream) > 64*1024 {
 			t.Skip()
 		}
-		_, _, _ = drainSingleResponse(stream, frag)
+		_, _, _, _ = drainSingleResponse(stream, int(frag), false)
 	})
 }
 
@@ -470,7 +460,7 @@ func FuzzTypeInfoAndValue(f *testing.F) {
 			t.Skip()
 		}
 		payload := append(append([]byte{}, meta...), value...)
-		buf, closeBuf, ok := fuzzTypeReadBuffer(payload, frag)
+		buf, closeBuf, ok := fuzzTypeReadBuffer(payload, int(frag))
 		if !ok {
 			return
 		}
@@ -501,7 +491,7 @@ func FuzzVariantValue(f *testing.F) {
 		if len(payload) > 64*1024 {
 			t.Skip()
 		}
-		buf, closeBuf, ok := fuzzTypeReadBuffer(payload, frag)
+		buf, closeBuf, ok := fuzzTypeReadBuffer(payload, int(frag))
 		if !ok {
 			return
 		}
@@ -546,7 +536,7 @@ func FuzzPLPValue(f *testing.F) {
 		if len(payload) > 64*1024 {
 			t.Skip()
 		}
-		buf, closeBuf, ok := fuzzTypeReadBuffer(payload, frag)
+		buf, closeBuf, ok := fuzzTypeReadBuffer(payload, int(frag))
 		if !ok {
 			return
 		}
