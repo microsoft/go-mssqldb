@@ -638,9 +638,28 @@ func TestPreloginDeadlineAndSocketTimeoutRace(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	start := time.Now()
-	_, err = db.Conn(ctx)
-	elapsed := time.Since(start)
+	// Run the connect in a goroutine with an independent hard timeout: this
+	// test exercises cancellation, so it must not depend on cancellation
+	// working in order to terminate.
+	type result struct {
+		err     error
+		elapsed time.Duration
+	}
+	connDone := make(chan result, 1)
+	go func() {
+		start := time.Now()
+		_, err := db.Conn(ctx)
+		connDone <- result{err: err, elapsed: time.Since(start)}
+	}()
+
+	var res result
+	select {
+	case res = <-connDone:
+	case <-time.After(30 * time.Second):
+		t.Fatal("db.Conn did not return within 30s: the cancellation watcher or deadline propagation regressed")
+	}
+	err = res.err
+	elapsed := res.elapsed
 
 	if err == nil {
 		t.Fatal("Expected connection to fail")
