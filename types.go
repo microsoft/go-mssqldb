@@ -284,7 +284,7 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodeParam
 // http://msdn.microsoft.com/en-us/library/ee780895.aspx
 func decodeDateTim4(buf []byte, loc *time.Location) time.Time {
 	if len(buf) < 4 {
-		badStreamPanicf("SMALLDATETIME value buffer too short: got %d, need 4", len(buf))
+		badStreamPanic(fmt.Errorf("SMALLDATETIME value buffer too short: got %d, need 4", len(buf)))
 	}
 	days := binary.LittleEndian.Uint16(buf)
 	mins := binary.LittleEndian.Uint16(buf[2:])
@@ -344,7 +344,7 @@ func encodeDateTime(t time.Time) (res []byte) {
 
 func decodeDateTime(buf []byte, loc *time.Location) time.Time {
 	if len(buf) < 8 {
-		badStreamPanicf("DATETIME value buffer too short: got %d, need 8", len(buf))
+		badStreamPanic(fmt.Errorf("DATETIME value buffer too short: got %d, need 8", len(buf)))
 	}
 	days := int32(binary.LittleEndian.Uint32(buf))
 	tm := binary.LittleEndian.Uint32(buf[4:])
@@ -409,7 +409,7 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 	}
 	loc := encoding.GetTimezone()
 	if int(size) > len(ti.Buffer) {
-		badStreamPanicf("byte-len value size %d exceeds column buffer %d", size, len(ti.Buffer))
+		badStreamPanic(fmt.Errorf("byte-len value size %d exceeds column buffer %d", size, len(ti.Buffer)))
 	}
 	r.ReadFull(ti.Buffer[:size])
 	buf := ti.Buffer[:size]
@@ -537,7 +537,7 @@ func readShortLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding ms
 		return nil
 	}
 	if int(size) > len(ti.Buffer) {
-		badStreamPanicf("short-len value size %d exceeds column buffer %d", size, len(ti.Buffer))
+		badStreamPanic(fmt.Errorf("short-len value size %d exceeds column buffer %d", size, len(ti.Buffer)))
 	}
 	r.ReadFull(ti.Buffer[:size])
 	buf := ti.Buffer[:size]
@@ -963,7 +963,7 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 
 func decodeMoney(buf []byte) []byte {
 	if len(buf) < 8 {
-		badStreamPanicf("MONEY value buffer too short: got %d, need 8", len(buf))
+		badStreamPanic(fmt.Errorf("MONEY value buffer too short: got %d, need 8", len(buf)))
 	}
 	money := int64(uint64(buf[4]) |
 		uint64(buf[5])<<8 |
@@ -978,7 +978,7 @@ func decodeMoney(buf []byte) []byte {
 
 func decodeMoney4(buf []byte) []byte {
 	if len(buf) < 4 {
-		badStreamPanicf("SMALLMONEY value buffer too short: got %d, need 4", len(buf))
+		badStreamPanic(fmt.Errorf("SMALLMONEY value buffer too short: got %d, need 4", len(buf)))
 	}
 	money := int32(binary.LittleEndian.Uint32(buf[0:4]))
 	return decimal.ScaleBytes(strconv.FormatInt(int64(money), 10), 4)
@@ -1000,7 +1000,7 @@ func decodeDecimal(prec uint8, scale uint8, buf []byte) []byte {
 	// mantissa (four little-endian uint32 words). The decimal.Decimal integer
 	// array is fixed at four words, so a longer buffer would index out of range.
 	if len(buf) < 1 || len(buf) > 17 {
-		badStreamPanicf("DECIMAL value buffer size %d is invalid", len(buf))
+		badStreamPanic(fmt.Errorf("DECIMAL value buffer size %d is invalid", len(buf)))
 	}
 	sign := buf[0]
 	var dec decimal.Decimal
@@ -1024,7 +1024,7 @@ func decodeDateInt(buf []byte) (days int) {
 
 func decodeDate(buf []byte, loc *time.Location) time.Time {
 	if len(buf) < 3 {
-		badStreamPanicf("DATE value buffer too short: got %d, need 3", len(buf))
+		badStreamPanic(fmt.Errorf("DATE value buffer too short: got %d, need 3", len(buf)))
 	}
 	return time.Date(1, 1, 1+decodeDateInt(buf), 0, 0, 0, 0, loc)
 }
@@ -1082,10 +1082,10 @@ func encodeTimeInt(seconds, ns, scale int, buf []byte) {
 
 func decodeTime(scale uint8, buf []byte, loc *time.Location) time.Time {
 	if scale > 7 {
-		badStreamPanicf("invalid scale %d for TIME value", scale)
+		badStreamPanic(fmt.Errorf("invalid scale %d for TIME value", scale))
 	}
 	if len(buf) < calcTimeSize(int(scale)) {
-		badStreamPanicf("TIME value buffer too short: got %d, need %d", len(buf), calcTimeSize(int(scale)))
+		badStreamPanic(fmt.Errorf("TIME value buffer too short: got %d, need %d", len(buf), calcTimeSize(int(scale))))
 	}
 	sec, ns := decodeTimeInt(scale, buf)
 	return time.Date(1, 1, 1, 0, 0, sec, ns, loc)
@@ -1100,10 +1100,10 @@ func encodeTime(hour, minute, second, ns, scale int) (buf []byte) {
 
 func decodeDateTime2(scale uint8, buf []byte, loc *time.Location) time.Time {
 	if scale > 7 {
-		badStreamPanicf("invalid scale %d for DATETIME2 value", scale)
+		badStreamPanic(fmt.Errorf("invalid scale %d for DATETIME2 value", scale))
 	}
 	if len(buf) < calcTimeSize(int(scale))+3 {
-		badStreamPanicf("DATETIME2 value buffer too short: got %d, need %d", len(buf), calcTimeSize(int(scale))+3)
+		badStreamPanic(fmt.Errorf("DATETIME2 value buffer too short: got %d, need %d", len(buf), calcTimeSize(int(scale))+3))
 	}
 	timesize := len(buf) - 3
 	sec, ns := decodeTimeInt(scale, buf[:timesize])
@@ -1124,10 +1124,10 @@ func encodeDateTime2(val time.Time, scale int) (buf []byte) {
 
 func decodeDateTimeOffset(scale uint8, buf []byte) time.Time {
 	if scale > 7 {
-		badStreamPanicf("invalid scale %d for DATETIMEOFFSET value", scale)
+		badStreamPanic(fmt.Errorf("invalid scale %d for DATETIMEOFFSET value", scale))
 	}
 	if len(buf) < calcTimeSize(int(scale))+3+2 {
-		badStreamPanicf("DATETIMEOFFSET value buffer too short: got %d, need %d", len(buf), calcTimeSize(int(scale))+3+2)
+		badStreamPanic(fmt.Errorf("DATETIMEOFFSET value buffer too short: got %d, need %d", len(buf), calcTimeSize(int(scale))+3+2))
 	}
 	timesize := len(buf) - 3 - 2
 	sec, ns := decodeTimeInt(scale, buf[:timesize])

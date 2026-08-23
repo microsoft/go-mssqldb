@@ -26,6 +26,7 @@ func TestReadByteLenType_OversizedValuePanics(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected a stream error, got none")
 	}
+	assertStreamError(t, err)
 	assert.Contains(t, err.Error(), "exceeds column buffer")
 }
 
@@ -46,6 +47,7 @@ func TestReadShortLenType_OversizedValuePanics(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected a stream error, got none")
 	}
+	assertStreamError(t, err)
 	assert.Contains(t, err.Error(), "exceeds column buffer")
 }
 
@@ -65,6 +67,7 @@ func TestTemporalDecoders_UndersizedBufferPanics(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected a stream error, got none")
 		}
+		assertStreamError(t, err)
 		assert.Contains(t, err.Error(), "too short")
 	})
 
@@ -76,6 +79,7 @@ func TestTemporalDecoders_UndersizedBufferPanics(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected a stream error, got none")
 		}
+		assertStreamError(t, err)
 		assert.Contains(t, err.Error(), "too short")
 	})
 
@@ -87,6 +91,7 @@ func TestTemporalDecoders_UndersizedBufferPanics(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected a stream error, got none")
 		}
+		assertStreamError(t, err)
 		assert.Contains(t, err.Error(), "too short")
 	})
 
@@ -97,6 +102,7 @@ func TestTemporalDecoders_UndersizedBufferPanics(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected a stream error, got none")
 		}
+		assertStreamError(t, err)
 		assert.Contains(t, err.Error(), "invalid scale")
 	})
 }
@@ -126,6 +132,7 @@ func TestDecodeFixedLen_UndersizedBufferPanics(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected a stream error, got none")
 			}
+			assertStreamError(t, err)
 			assert.Contains(t, err.Error(), tc.wantSub)
 		})
 	}
