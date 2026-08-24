@@ -101,6 +101,24 @@ jobs:
           if ! NAMES=$(docker ps -a --format '{{.Names}}'); then
             echo "::warning::docker ps failed; cannot determine whether the sqlserver container exists"
           elif echo "$NAMES" | grep -Fxq sqlserver; then
+            # A memory kill reaches the tests as connection resets and unexpected
+            # EOF, which reads as a driver bug. Say so before dumping the logs.
+            if STATE=$(docker inspect sqlserver --format '{{.State.OOMKilled}} {{.State.ExitCode}} {{.State.Status}} {{.HostConfig.Memory}}'); then
+              read -r OOM CODE STATUS LIMIT <<< "$STATE"
+              if [ "${LIMIT:-0}" -gt 0 ] 2>/dev/null; then
+                LIMIT="$((LIMIT / 1024 / 1024)) MiB"
+              else
+                LIMIT="unset"
+              fi
+              echo "sqlserver: oom-killed=$OOM exit=$CODE status=$STATUS memory-limit=$LIMIT"
+              if [ "$OOM" = "true" ]; then
+                echo "::error::SQL Server was OOM-killed. Connection errors above are a symptom of the container memory limit, not of the driver. Raise -m and MSSQL_MEMORY_LIMIT_MB together, keeping 10-20% headroom between them."
+              elif [ "$CODE" = "137" ]; then
+                echo "::warning::SQL Server exited 137 (SIGKILL) without an OOM flag; memory pressure is still the usual cause."
+              fi
+            else
+              echo "::warning::docker inspect failed; container state unknown"
+            fi
             docker logs sqlserver || echo "Unable to read logs from sqlserver."
           else
             echo "SQL Server container 'sqlserver' was not found."
@@ -320,6 +338,24 @@ jobs:
           if ! NAMES=$(docker ps -a --format '{{.Names}}'); then
             echo "::warning::docker ps failed; cannot determine whether the sqlserver container exists"
           elif echo "$NAMES" | grep -Fxq sqlserver; then
+            # A memory kill reaches the benchmarks as connection resets and
+            # unexpected EOF, which reads as a driver bug. Say so before the logs.
+            if STATE=$(docker inspect sqlserver --format '{{.State.OOMKilled}} {{.State.ExitCode}} {{.State.Status}} {{.HostConfig.Memory}}'); then
+              read -r OOM CODE STATUS LIMIT <<< "$STATE"
+              if [ "${LIMIT:-0}" -gt 0 ] 2>/dev/null; then
+                LIMIT="$((LIMIT / 1024 / 1024)) MiB"
+              else
+                LIMIT="unset"
+              fi
+              echo "sqlserver: oom-killed=$OOM exit=$CODE status=$STATUS memory-limit=$LIMIT"
+              if [ "$OOM" = "true" ]; then
+                echo "::error::SQL Server was OOM-killed. Connection errors above are a symptom of the container memory limit, not of the driver. Raise -m and MSSQL_MEMORY_LIMIT_MB together, keeping 10-20% headroom between them."
+              elif [ "$CODE" = "137" ]; then
+                echo "::warning::SQL Server exited 137 (SIGKILL) without an OOM flag; memory pressure is still the usual cause."
+              fi
+            else
+              echo "::warning::docker inspect failed; container state unknown"
+            fi
             docker logs sqlserver || echo "Unable to read logs from sqlserver."
           else
             echo "SQL Server container 'sqlserver' was not found."
