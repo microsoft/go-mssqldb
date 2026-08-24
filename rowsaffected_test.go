@@ -7,9 +7,10 @@ import (
 	"testing"
 )
 
-// TestRowsAffectedWithTrigger verifies that RowsAffected returns the correct
-// count for the outermost DML statement even when AFTER triggers fire and
-// produce their own intermediate DONEINPROC row counts. See #204.
+// TestRowsAffectedWithTrigger pins RowsAffected against SqlClient. Trigger
+// rows count toward the total when the trigger does not SET NOCOUNT ON, and
+// stop counting when it does. Verified by running the same schema through
+// SqlClient.ExecuteNonQuery on SQL Server 2025. See #204.
 func TestRowsAffectedWithTrigger(t *testing.T) {
 	conn, logger := open(t)
 	defer conn.Close()
@@ -60,26 +61,26 @@ func TestRowsAffectedWithTrigger(t *testing.T) {
 		t.Fatal("create trigger failed:", err)
 	}
 
-	// Scenario 2: Update with trigger (no NOCOUNT) - trigger produces extra DONEINPROC
+	// Scenario 2: Update with trigger (no NOCOUNT). The trigger's rows count
+	// toward the total, matching ExecuteNonQuery.
 	result, err = conn.ExecContext(ctx, "update "+tbl+" set value = 'triggered' where id = 1")
 	if err != nil {
 		t.Fatal("triggered update failed:", err)
 	}
 	rowsAffected, _ = result.RowsAffected()
-	if rowsAffected != 1 {
-		t.Errorf("trigger without NOCOUNT: expected RowsAffected=1, got %d", rowsAffected)
+	if rowsAffected != 2 {
+		t.Errorf("trigger without NOCOUNT: expected RowsAffected=2 (1 updated + 1 audit), got %d", rowsAffected)
 	}
 
-	// Scenario 2b: Bulk update all rows with no-NOCOUNT trigger active.
-	// With the old += bug, the trigger's DONEINPROC (3 rows) plus the
-	// outer DONE (3 rows) would yield 6 instead of 3.
+	// Scenario 2b: Bulk update all rows with a no-NOCOUNT trigger active:
+	// 3 updated rows plus 3 audit rows.
 	result, err = conn.ExecContext(ctx, "update "+tbl+" set value = 'bulk'")
 	if err != nil {
 		t.Fatal("bulk update without NOCOUNT failed:", err)
 	}
 	rowsAffected, _ = result.RowsAffected()
-	if rowsAffected != 3 {
-		t.Errorf("bulk update without NOCOUNT: expected RowsAffected=3, got %d", rowsAffected)
+	if rowsAffected != 6 {
+		t.Errorf("bulk update without NOCOUNT: expected RowsAffected=6 (3 updated + 3 audit), got %d", rowsAffected)
 	}
 
 	// Scenario 3: Recreate trigger with NOCOUNT
@@ -109,10 +110,9 @@ func TestRowsAffectedWithTrigger(t *testing.T) {
 	}
 }
 
-// TestMultiStatementBatchRowsAffected verifies that RowsAffected returns the
-// last statement's count for a multi-statement batch. The assignment (=)
-// semantics in doneStruct processing mean each DONE token replaces (not
-// accumulates) the row count, so the final DONE is authoritative.
+// TestMultiStatementBatchRowsAffected pins the sum of every counted statement
+// in a batch, which is what SqlClient.ExecuteNonQuery returns for the same
+// batch on SQL Server 2025.
 func TestMultiStatementBatchRowsAffected(t *testing.T) {
 	conn, logger := open(t)
 	defer conn.Close()
@@ -141,7 +141,7 @@ func TestMultiStatementBatchRowsAffected(t *testing.T) {
 	}
 
 	// Multi-statement batch: first UPDATE touches 3 rows, second touches 2.
-	// RowsAffected should be 2 (the last statement), not 5 (the sum).
+	// RowsAffected is the sum, matching ExecuteNonQuery.
 	batch := "update " + tbl + " set value='x' where id <= 3; " +
 		"update " + tbl + " set value='y' where id > 3"
 	result, err := conn.ExecContext(ctx, batch)
@@ -149,7 +149,7 @@ func TestMultiStatementBatchRowsAffected(t *testing.T) {
 		t.Fatal("multi-statement batch failed:", err)
 	}
 	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected != 2 {
-		t.Errorf("multi-statement batch: expected RowsAffected=2 (last stmt), got %d", rowsAffected)
+	if rowsAffected != 5 {
+		t.Errorf("multi-statement batch: expected RowsAffected=5 (3+2), got %d", rowsAffected)
 	}
 }
