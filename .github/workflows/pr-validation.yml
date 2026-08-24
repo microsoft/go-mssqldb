@@ -66,7 +66,8 @@ jobs:
           # failing to start at it. MSSQL_MEMORY_LIMIT_MB stays under the container
           # cap so the engine leaves room for the rest of the container.
           docker run -m 4GB -e ACCEPT_EULA=1 -e MSSQL_MEMORY_LIMIT_MB=3072 -d --name sqlserver -p 1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD mcr.microsoft.com/mssql/server:${{ matrix.sqlImage }}
-          # Wait for SQL Server to be ready - retry up to 60 seconds (30 attempts x 2s)
+          # Wait for SQL Server to be ready: 30 attempts, 2s apart. Wall time is well
+          # over 60s because a failed sqlcmd blocks on its own connect timeout first.
           READY=0
           for i in {1..30}; do
             if sqlcmd -S localhost -U sa -P "$SQLCMDPASSWORD" -C -Q "SELECT 1" > /dev/null 2>&1; then
@@ -78,7 +79,7 @@ jobs:
             sleep 2
           done
           if [ "$READY" -eq 0 ]; then
-            echo "SQL Server did not become ready within 60 seconds; aborting tests."
+            echo "SQL Server did not become ready after 30 attempts; aborting tests."
             exit 1
           fi
           go test -coverprofile=coverage.out -covermode=atomic -v ./...
