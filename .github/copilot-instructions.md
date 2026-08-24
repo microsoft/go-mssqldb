@@ -109,7 +109,7 @@ Always run these commands before committing changes:
 ### Code Coverage Requirements
 **IMPORTANT**: This project enforces a strict **80% minimum code coverage** requirement.
 - All PRs must maintain project coverage at or above 80%
-- New code in PRs must also have at least 80% coverage
+- New code in PRs (patch coverage) must have at least 90% coverage
 - PRs that drop coverage below 80% will fail the Codecov status check
 - Coverage is configured in `codecov.yml` at the repository root
 
