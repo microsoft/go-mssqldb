@@ -25,7 +25,17 @@ in isolation.
    cannot be negative; a value-typed struct field cannot be nil.
 3. Read the **call sites** of any changed function. A parameter that every caller
    allocates cannot be nil inside the callee.
-4. Read the **existing review comments** on the PR (`gh api repos/{owner}/{repo}/pulls/{n}/comments`).
+4. Read **all existing feedback** on the PR. Three separate sources, all of which must be
+   checked — inline review comments alone are not sufficient for the novelty gate:
+
+   ```bash
+   gh api repos/{owner}/{repo}/pulls/{n}/comments   # inline review comments
+   gh api repos/{owner}/{repo}/pulls/{n}/reviews    # review summary bodies
+   gh api repos/{owner}/{repo}/issues/{n}/comments  # top-level PR comments
+   ```
+
+   GitHub Copilot's review summary and any bot-posted analysis often live in the latter
+   two, not in the inline comments.
 5. Read the **CI status** (`gh pr checks {n}`).
 
 If CI is failing, do not perform a line-by-line review. Post one comment naming the failing
