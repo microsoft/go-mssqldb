@@ -1158,6 +1158,13 @@ func wrapTLSError(err error) error {
 			"which Go 1.23+ rejects per RFC 5280. "+
 			"Add x509negativeserial=1 to your GODEBUG environment variable to allow it, "+
 			"or use encrypt=disable for non-production servers", err)
+	case strings.Contains(msgLower, "insecure algorithm") && strings.Contains(msgLower, "sha1"):
+		// x509sha1 was removed in Go 1.24, so no GODEBUG re-enables this one.
+		return fmt.Errorf("TLS Handshake failed: %w. "+
+			"The server certificate is signed with SHA-1, which Go 1.24+ "+
+			"refuses to verify. No GODEBUG setting re-enables this: "+
+			"reissue the server certificate with SHA-256 or better, "+
+			"or use encrypt=disable for non-production servers", err)
 	case strings.Contains(msgLower, "sha-1") || strings.Contains(msgLower, "sha1"):
 		return fmt.Errorf("TLS Handshake failed: %w. "+
 			"The server uses SHA-1 signatures, which Go 1.25+ "+

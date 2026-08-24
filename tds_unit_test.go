@@ -2,6 +2,7 @@ package mssql
 
 import (
 	"context"
+	"crypto/x509"
 	"database/sql"
 	"encoding/binary"
 	"fmt"
@@ -699,6 +700,18 @@ func TestWrapTLSError(t *testing.T) {
 				"timeout",
 			},
 			wantNotContains: []string{"GODEBUG", "tlssha1"},
+		},
+		{
+			name: "SHA-1 signed certificate",
+			err:  x509.InsecureAlgorithmError(x509.SHA1WithRSA),
+			wantContains: []string{
+				"TLS Handshake failed",
+				"signed with SHA-1",
+				"No GODEBUG setting re-enables this",
+				"SHA-256",
+			},
+			// x509sha1 was removed in Go 1.24; tlssha1 governs only TLS 1.2 handshakes.
+			wantNotContains: []string{"tlssha1"},
 		},
 		{
 			name: "unknown TLS error",
