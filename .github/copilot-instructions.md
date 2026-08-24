@@ -244,36 +244,43 @@ go test ./msdsn -v
 
 ## Go Version Upgrades
 
-When upgrading Go versions, the following files need to be updated:
+Two different Go versions matter here and they move for different reasons: the
+floor we promise consumers, which lives in `go.mod`, and the versions CI tests
+against, which live in the workflows.
 
-### Files to Update
-1. **`.github/workflows/pr-validation.yml`** - GitHub Actions workflow for pull request validation
-2. **`appveyor.yml`** - AppVeyor configuration for Windows testing
+### The `go` directive is the consumer floor
 
-### GitHub Actions Workflow (.github/workflows/pr-validation.yml)
-Update the Go version in the strategy matrix:
+`go 1.25.0` is the oldest Go anyone importing this driver may use. Raising it is a breaking change for consumers, so it moves only when a dependency forces it or when the driver needs a newer language or stdlib feature. Never set it to a patch version (`go 1.25.7`) — patch releases add no language surface, and a patch floor breaks consumers on distro-packaged Go with `GOTOOLCHAIN=local`.
+
+The floor cannot go below the highest `go` directive of any direct dependency. `azcore` and `azidentity` currently sit at `1.25.0`.
+
+There is no `toolchain` directive, deliberately. Toolchain selection only switches upward, so contributors on any Go >= the floor are unaffected, and there is one fewer version to keep current.
+
+### CI versions track Go's support policy
+
+Go supports the two most recent majors. `pr-validation.yml` runs the floor plus both supported releases against every SQL image, using `1.2N.x` so security patches are picked up automatically:
+
 ```yaml
-strategy:
-  matrix:
-    go: ['1.XX']  # Update this version number
-    sqlImage: ['2019-latest','2022-latest']
+go: ['1.25.x', '1.26.x', '1.27.x']
+sqlImage: ['2017-latest','2019-latest','2022-latest','2025-latest']
 ```
 
-### AppVeyor Configuration (appveyor.yml)
-Update multiple `GOVERSION` entries:
-1. **Default GOVERSION** (line ~14): `GOVERSION: 125` (remove dots)
-2. **Matrix entries** (lines ~20-35): Update all GOVERSION values
+`1.25.x` is the floor from the `go` directive; `1.26.x` and `1.27.x` are the supported releases. The full cross product is deliberate: all three Go versions compile identical code (every build constraint in the driver is `go1.9` through `go1.18`), so the only version-dependent behaviour is stdlib runtime, principally `crypto/tls` — and that is exactly where the server version is not orthogonal, since 2017 negotiates TLS 1.2 with older cipher suites and 2025 does TLS 1.3.
 
-**Version Format Difference:**
-- **GitHub Actions**: Use full version with dots (e.g., `'1.25.7'`)
-- **AppVeyor**: Remove dots and use just numbers (e.g., `125` for Go 1.25)
+The `build` job sets `GOTOOLCHAIN: local` so the floor legs actually test the floor. Without it, a `toolchain` line re-added by `go get` would silently upgrade the job.
 
-### Complete Upgrade Checklist
-- [ ] Update `.github/workflows/pr-validation.yml`: go version in matrix strategy
-- [ ] Update `appveyor.yml`: default GOVERSION and all matrix entries (typically 4 locations)
-- [ ] Ensure the x86 version maintains its `-x86` suffix
-- [ ] Test changes: verify GitHub Actions and AppVeyor builds complete successfully
-- [ ] Consider updating `go.mod` if using newer Go version than currently required
+### Places a Go version appears
+
+| File | What it controls | Moves when |
+|---|---|---|
+| `go.mod` `go` directive | Consumer floor | A dependency forces it |
+| `.github/workflows/pr-validation.yml` | Tested versions | Go releases a new major |
+| `.devcontainer/Dockerfile` | Dev environment | Any time; must be >= the floor |
+| `appveyor.yml` `GOVERSION` | Windows test toolchain | Constrained by the AppVeyor image |
+
+AppVeyor uses no dots (`125` for Go 1.25), and the 32-bit entry keeps its `-x86` suffix. The AppVeyor worker image only carries certain Go versions, so check the image contents before bumping it.
+
+The `Verify Go version alignment` job in `devcontainer.yml` asserts the devcontainer image is at least the `go` directive. Newer is fine and expected.
 
 ## Common Commands and Expected Output
 
