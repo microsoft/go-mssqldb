@@ -551,3 +551,47 @@ func TestAzurePipelinesEnvironmentVariables(t *testing.T) {
 		})
 	}
 }
+// TestADONetAuthenticationNames covers every value of SqlAuthenticationMethod,
+// the enum behind ADO.Net's Authentication keyword. A typo in any adoNetAuthMap
+// key would leave that method silently unmapped, so each is asserted rather
+// than spot-checked.
+func TestADONetAuthenticationNames(t *testing.T) {
+	for _, tst := range []struct {
+		ado  string
+		want string
+	}{
+		{"Sql Password", ""}, // SQL auth: no federated workflow
+		{"Active Directory Password", ActiveDirectoryPassword},
+		{"Active Directory Integrated", ActiveDirectoryIntegrated},
+		{"Active Directory Interactive", ActiveDirectoryInteractive},
+		{"Active Directory Service Principal", ActiveDirectoryServicePrincipal},
+		{"Active Directory Device Code Flow", ActiveDirectoryDeviceCode},
+		{"Active Directory Managed Identity", ActiveDirectoryManagedIdentity},
+		{"Active Directory MSI", ActiveDirectoryMSI},
+		{"Active Directory Default", ActiveDirectoryDefault},
+		{"Active Directory Workload Identity", ActiveDirectoryWorkloadIdentity},
+	} {
+		t.Run(tst.ado, func(t *testing.T) {
+			dsn := "server=s.database.windows.net;Authentication=" + tst.ado +
+				";user id=u@example.com;password=p;applicationclientid=someguid;clientid=cid"
+			config, err := parse(dsn)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if config.fedAuthWorkflow != tst.want {
+				t.Errorf("fedAuthWorkflow = %q, want %q", config.fedAuthWorkflow, tst.want)
+			}
+		})
+	}
+
+	// Casing is not significant in ADO.Net connection strings.
+	for _, variant := range []string{"ACTIVE DIRECTORY DEFAULT", "active directory default"} {
+		config, err := parse("server=s.database.windows.net;Authentication=" + variant)
+		if err != nil {
+			t.Fatalf("parse %q: %v", variant, err)
+		}
+		if config.fedAuthWorkflow != ActiveDirectoryDefault {
+			t.Errorf("%q: fedAuthWorkflow = %q, want %q", variant, config.fedAuthWorkflow, ActiveDirectoryDefault)
+		}
+	}
+}
