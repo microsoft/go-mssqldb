@@ -249,6 +249,15 @@ jobs:
           # expected here, so mask it alone and let errors surface.
           grep_ok() { grep "$@" || [ $? -eq 1 ]; }
 
+          # Rows benchstat called significant that are also more than 15% worse.
+          # Every stage can legitimately match nothing, so each needs grep_ok; a
+          # failure here means we could not evaluate, which must not read as a pass.
+          regressions() {
+            grep_ok -v '~' "$1" \
+              | grep_ok -E '^[^[:space:]]+[[:space:]]+.+[[:space:]]+\+[0-9]+(\.[0-9]+)?%' \
+              | awk '{ if (match($0, /\+[0-9]+(\.[0-9]+)?%/) && substr($0, RSTART+1, RLENGTH-2)+0 >= 15) print }'
+          }
+
           # A "no regression" verdict is only meaningful if we actually recognised
           # benchstat's table. Treat unparseable output as a failure, not a pass.
           if [ ! -s bench_diff.txt ]; then
@@ -270,26 +279,75 @@ jobs:
             echo ""
             echo "::notice::Performance improvements detected (see above)"
           fi
-          # Fail on statistically significant regressions exceeding 15%
-          # Sequential CI runs produce systematic drift up to ~12%, so we require
-          # both statistical significance (no ~ marker) AND >15% magnitude.
-          # Exclude TdsBuffer_Write_Large: ~120ns operation with multi-flush path
-          # shows 30-46% swings between sequential CI runs due to cache sensitivity.
-          # Every stage can legitimately match nothing, so each needs grep_ok; a
-          # failure here means we could not evaluate, which must not read as a pass.
-          if ! REGRESSED=$(grep_ok -v '~' bench_diff.txt \
-                | grep_ok -vE '^TdsBuffer_Write_Large[-[:space:]]' \
-                | grep_ok -E '^[^[:space:]]+[[:space:]]+.+[[:space:]]+\+[0-9]+(\.[0-9]+)?%' \
-                | awk '{ if (match($0, /\+[0-9]+(\.[0-9]+)?%/) && substr($0, RSTART+1, RLENGTH-2)+0 >= 15) print }'); then
+
+          if ! REGRESSED=$(regressions bench_diff.txt); then
             echo "::error::failed to evaluate benchmark comparison"
             exit 1
           fi
-          if [ -n "$REGRESSED" ]; then
-            echo "$REGRESSED"
-            echo "::error::Statistically significant regression detected (>15%, p<0.01)"
+          if [ -z "$REGRESSED" ]; then
+            echo "No significant regressions detected."
+            exit 0
+          fi
+
+          # The baseline and PR samples are collected ~20 minutes apart, so a
+          # significant result can still be an artefact of the runner rather than
+          # the diff. Measure the flagged benchmarks again and only fail if the
+          # regression reproduces.
+          echo "$REGRESSED"
+          echo "::notice::Candidate regressions found; re-measuring to see whether they reproduce."
+
+          # benchstat drops the Benchmark prefix and appends -GOMAXPROCS, so put
+          # the prefix back and strip the suffix to name the benchmarks again.
+          NAMES=$(awk '{print $1}' <<< "$REGRESSED" | sed -E 's/-[0-9]+$//' | sort -u)
+          PATTERN="^Benchmark($(paste -sd'|' - <<< "$NAMES"))$"
+          echo "Re-running: $PATTERN"
+
+          export SQLUSER=sa
+          export SQLPASSWORD=$SQLCMDPASSWORD
+          export DATABASE=master
+          export HOST=localhost
+          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
+
+          git worktree add ../main-recheck origin/main
+          cp -v *_benchmark_test.go ../main-recheck/ 2>/dev/null || true
+          cp -v msdsn/*_benchmark_test.go ../main-recheck/msdsn/ 2>/dev/null || true
+          ( cd ../main-recheck && go test -run='^$' -bench="$PATTERN" \
+            -benchtime=1s -count=10 -benchmem -timeout=15m . ./msdsn ) 2>&1 \
+            | tee recheck_old_full.log
+          go test -run='^$' -bench="$PATTERN" \
+            -benchtime=1s -count=10 -benchmem -timeout=15m . ./msdsn 2>&1 \
+            | tee recheck_new_full.log
+          git worktree remove ../main-recheck --force
+
+          grep_ok -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' recheck_old_full.log > recheck_old.txt
+          grep_ok -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' recheck_new_full.log > recheck_new.txt
+          if [ ! -s recheck_old.txt ] || [ ! -s recheck_new.txt ]; then
+            echo "::error::confirmation run produced no benchmark output; cannot evaluate"
             exit 1
           fi
-          echo "No significant regressions detected."
+
+          benchstat -alpha=0.01 recheck_old.txt recheck_new.txt | tee recheck_diff.txt
+          # Same standard as the first pass: a verdict only counts if we actually
+          # recognised benchstat's table, so whitespace cannot read as "clean".
+          if ! RECHECK_ROWS=$(grep_ok -cE '^[^[:space:]]+[[:space:]]+.+(±|~|[0-9]%)' recheck_diff.txt); then
+            echo "::error::failed to scan confirmation output; cannot evaluate"
+            exit 1
+          fi
+          if [ "$RECHECK_ROWS" -eq 0 ]; then
+            echo "::error::confirmation run produced no recognisable benchstat rows; cannot evaluate"
+            cat recheck_diff.txt
+            exit 1
+          fi
+          if ! CONFIRMED=$(regressions recheck_diff.txt); then
+            echo "::error::failed to evaluate confirmation run"
+            exit 1
+          fi
+          if [ -n "$CONFIRMED" ]; then
+            echo "$CONFIRMED"
+            echo "::error::Regression reproduced on a second measurement (>15%, p<0.01)"
+            exit 1
+          fi
+          echo "::warning::Flagged regression did not reproduce; treating the first measurement as runner noise."
       - name: Post benchmark results to PR
         # Fork PRs get read-only tokens; comment will be skipped gracefully.
         continue-on-error: true
