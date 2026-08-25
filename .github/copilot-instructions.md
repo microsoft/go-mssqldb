@@ -108,12 +108,18 @@ Always run these commands before committing changes:
 - `go test ./msdsn ./internal/... ./integratedauth ./azuread` - run unit tests (~1.5 seconds total)
 - If you have SQL Server available: `go test ./...` with 30+ minute timeout. NEVER CANCEL.
 
-### Code Coverage Requirements
-**IMPORTANT**: This project enforces a strict **80% minimum code coverage** requirement.
-- All PRs must maintain project coverage at or above 80%
-- New code in PRs (patch coverage) must have at least 90% coverage
-- PRs that drop coverage below 80% will fail the Codecov status check
+### Code Coverage
+Aim to cover all new code, including error paths — untested error paths are where this
+driver's bugs live.
+
+Codecov enforces a floor and reports the numbers on each PR:
+- Project coverage must stay at or above 80%
+- Patch (new code) coverage is held to the same 80% floor
 - Coverage is configured in `codecov.yml` at the repository root
+
+Treat the Codecov comment as feedback on *which* lines are untested rather than a
+percentage to satisfy. Tests written to chase a threshold rather than assert real
+behavior are worse than a visible gap; explain a deliberate gap in the PR description.
 
 To check coverage locally:
 ```bash
