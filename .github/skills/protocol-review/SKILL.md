@@ -5,7 +5,7 @@ description: Deep review of TDS wire-protocol and buffer handling changes in mic
 
 # TDS Protocol Review
 
-This is the layer where a bug is a memory-safety vulnerability rather than a wrong
+This is the layer where a bug is a denial-of-service or integrity issue rather than a wrong
 result. The server's bytes are untrusted input; the driver must survive a malformed or
 hostile response without panicking, over-reading, or over-allocating.
 
