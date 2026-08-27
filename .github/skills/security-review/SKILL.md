@@ -80,8 +80,8 @@ untrusted input is not a vulnerability, and reporting it as one devalues the fin
 that are real.
 
 Conversely, when input genuinely reaches the code path, the bar for consequence is lower
-than elsewhere — memory corruption or credential exposure is severe even when the
-triggering conditions are narrow.
+than elsewhere — a panic/DoS (for example an out-of-bounds slice) or credential exposure
+is severe even when the triggering conditions are narrow.
 
 ## Output
 
