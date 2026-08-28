@@ -39,7 +39,9 @@ db, err := sql.Open(azuread.DriverName, "sqlserver://server.database.windows.net
 
 ### Bootstrap and Build the Repository
 - **Download dependencies**: `go mod download` - takes <0.01 seconds (already cached)
-- **Build the driver**: `go build` - takes ~0.1 seconds. NEVER CANCEL
+- **Build the driver**: `go build ./...` - takes ~0.5 seconds. NEVER CANCEL
+  (bare `go build` only compiles the root package and its dependencies; it does
+  not compile `azuread`, the `aecmk` providers, or `examples/`)
 - **Format code**: `go fmt ./...` - takes ~0.4 seconds
 - **Lint code**: Note: Current .golangci.yml has compatibility issues with recent golangci-lint versions
   ```bash
@@ -102,16 +104,22 @@ export AZURESERVER_DSN="sqlserver://server.database.windows.net?database=mydb&fe
 Always run these commands before committing changes:
 - `go fmt ./...` - format all code (~0.4 seconds)
 - `go vet ./...` - static analysis (currently reports struct literal issues, exits with code 1)
-- `go build` - ensure compilation succeeds (~0.1 seconds)
+- `go build ./...` - ensure every package compiles (~0.5 seconds)
 - `go test ./msdsn ./internal/... ./integratedauth ./azuread` - run unit tests (~1.5 seconds total)
 - If you have SQL Server available: `go test ./...` with 30+ minute timeout. NEVER CANCEL.
 
-### Code Coverage Requirements
-**IMPORTANT**: This project enforces a strict **80% minimum code coverage** requirement.
-- All PRs must maintain project coverage at or above 80%
-- New code in PRs must also have at least 80% coverage
-- PRs that drop coverage below 80% will fail the Codecov status check
+### Code Coverage
+Aim to cover all new code, including error paths — untested error paths are where this
+driver's bugs live.
+
+Codecov enforces a floor and reports the numbers on each PR:
+- Project coverage must stay at or above 80%
+- Patch (new code) coverage is held to the same 80% floor
 - Coverage is configured in `codecov.yml` at the repository root
+
+Treat the Codecov comment as feedback on *which* lines are untested rather than a
+percentage to satisfy. Tests written to chase a threshold rather than assert real
+behavior are worse than a visible gap; explain a deliberate gap in the PR description.
 
 To check coverage locally:
 ```bash
@@ -298,7 +306,7 @@ ls -la
 ### Build and Test Status
 ```bash
 go version  # Should be 1.25+
-go build    # Should complete in ~0.5 seconds
+go build ./...  # Should complete in ~0.5 seconds
 go test ./msdsn  # Should pass quickly with connection string tests
 ```
 
