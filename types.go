@@ -83,11 +83,14 @@ const _PLP_TERMINATOR = 0x00000000
 const _MAX_PLP_LEN = 0x7FFFFFFF
 
 // _MAX_VARIANT_LEN is the largest data length a sql_variant value can
-// legitimately advertise. A sql_variant is capped at 8016 bytes of storage on
-// SQL Server (8000 bytes of data plus metadata) and is never a (max)/LOB type,
-// so any larger length is a malformed stream. Bounding it well below
-// _MAX_PLP_LEN keeps an attacker-controlled size prefix from driving a
-// multi-gigabyte allocation (issue #420).
+// legitimately advertise. On SQL Server a sql_variant occupies at most 8016
+// bytes total, which is 8000 bytes of value data plus up to 16 bytes of type
+// metadata. We use that 8016 total as a single conservative upper bound for the
+// trailing data allocation (rather than tracking the exact per-type metadata
+// size), and a sql_variant is never a (max)/LOB type, so any larger length is a
+// malformed stream. Bounding it well below _MAX_PLP_LEN keeps an
+// attacker-controlled size prefix from driving a multi-gigabyte allocation
+// (issue #420).
 const _MAX_VARIANT_LEN = 8016
 
 // TVP COLUMN FLAGS

@@ -686,12 +686,13 @@ func parseColMetadata72(r *tdsBuffer, s *tdsSession) (columns []columnStruct) {
 	// preallocating make([]columnStruct, count). count is an attacker-controlled
 	// uint16 and columnStruct is large, so pre-sizing from the count alone lets a
 	// bogus value (up to 0xFFFE) commit many MiB up front before any of the
-	// backing bytes are read (OOM DoS, issue #420). Parsing each column consumes
-	// bytes from the stream, so a count that outruns the data fails via
-	// badStreamPanic (EOF) after only the columns actually present are read; the
-	// slice therefore never grows past what the server genuinely sent, which also
-	// decouples the client from the declared count. The capacity hint is bounded
-	// so the count cannot drive even the first allocation.
+	// backing bytes are read (OOM DoS, issue #420). The loop still iterates count
+	// times per protocol, but parsing each column consumes bytes from the stream,
+	// so a count that outruns the data fails via badStreamPanic (EOF) after only
+	// the columns actually present are read; the slice therefore never grows past
+	// what the server genuinely sent, no matter how large the declared count is.
+	// The capacity hint is bounded so the count cannot drive even the first
+	// allocation.
 	const initialColumnCap = 64
 	capHint := int(count)
 	if capHint > initialColumnCap {
