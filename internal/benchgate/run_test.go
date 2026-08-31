@@ -140,6 +140,71 @@ func TestWriteFlaggedSurfacesErrors(t *testing.T) {
 	}
 }
 
+// The selector addresses a flagged sub-benchmark through its parent, so the
+// recheck can come back full of siblings while the candidate itself never ran.
+// Non-empty output must not be read as "the candidate came back clean".
+func TestConfirmFailsWhenCandidateWasNotRemeasured(t *testing.T) {
+	const siblingsOnly = `,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Parent/Other-4,1e-07,0%,1e-07,0%,~,p=0.900 n=10
+`
+	csv := writeTemp(t, "recheck.csv", siblingsOnly)
+	flagged := writeTemp(t, "flagged.tsv", "Parent/Sub-4\tsec/op\n")
+
+	code, err := confirm([]string{"-csv", csv, "-flagged", flagged})
+	if err == nil {
+		t.Fatal("an unmeasured candidate was accepted as runner noise")
+	}
+	if code != exitFailure {
+		t.Errorf("code = %d, want %d", code, exitFailure)
+	}
+	if !strings.Contains(err.Error(), "Parent/Sub-4") {
+		t.Errorf("error = %v, want it to name the unmeasured candidate", err)
+	}
+}
+
+// A candidate that was remeasured and came back clean is still noise.
+func TestConfirmAcceptsNoiseOnlyWhenCandidateWasRemeasured(t *testing.T) {
+	const remeasured = `,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Parent/Sub-4,1e-07,0%,1e-07,0%,~,p=0.900 n=10
+Parent/Other-4,1e-07,0%,1e-07,0%,~,p=0.900 n=10
+`
+	csv := writeTemp(t, "recheck.csv", remeasured)
+	flagged := writeTemp(t, "flagged.tsv", "Parent/Sub-4\tsec/op\n")
+
+	code, err := confirm([]string{"-csv", csv, "-flagged", flagged})
+	if err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+	if code != exitClean {
+		t.Errorf("code = %d, want %d", code, exitClean)
+	}
+}
+
+func TestUnmeasured(t *testing.T) {
+	rows := []Row{
+		{Name: "Foo-4", Unit: "sec/op"},
+		{Name: "Foo-4", Unit: "B/s"},
+	}
+	for _, tt := range []struct {
+		name    string
+		flagged []Key
+		want    int
+	}{
+		{"all present", []Key{{"Foo-4", "sec/op"}}, 0},
+		{"name absent", []Key{{"Bar-4", "sec/op"}}, 1},
+		{"same name, different unit", []Key{{"Foo-4", "allocs/op"}}, 1},
+		{"mixed", []Key{{"Foo-4", "sec/op"}, {"Bar-4", "sec/op"}}, 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Unmeasured(rows, tt.flagged); len(got) != tt.want {
+				t.Errorf("Unmeasured() = %+v, want %d entries", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRunReturnsFoundOnRegression(t *testing.T) {
 	var out strings.Builder
 	if got := run([]string{"detect", "-csv", writeTemp(t, "x.csv", regressedCSV)}, &out); got != exitFound {

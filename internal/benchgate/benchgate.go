@@ -175,3 +175,21 @@ func Confirm(recheck []Row, flagged []Key) []Row {
 	}
 	return out
 }
+
+// Unmeasured returns flagged keys the recheck produced no comparable row for.
+// Siblings of a flagged sub-benchmark keep the recheck non-empty, so without
+// this a candidate that never ran again looks the same as one that came back
+// clean, and would be dismissed as runner noise.
+func Unmeasured(recheck []Row, flagged []Key) []Key {
+	seen := make(map[Key]bool, len(recheck))
+	for _, r := range recheck {
+		seen[r.Key()] = true
+	}
+	var out []Key
+	for _, k := range flagged {
+		if !seen[k] {
+			out = append(out, k)
+		}
+	}
+	return out
+}

@@ -120,14 +120,21 @@ func confirm(args []string) (int, error) {
 		return exitFailure, fmt.Errorf("no flagged rows in %s", *flaggedPath)
 	}
 	got := Confirm(rows, flagged)
-	if len(got) == 0 {
-		fmt.Println("::warning::Flagged regression did not reproduce; treating the first measurement as runner noise.")
-		return exitClean, nil
+	if len(got) > 0 {
+		for _, r := range got {
+			fmt.Printf("  reproduced: %s %+.2f%% %s\n", r.Name, r.Delta, r.Unit)
+		}
+		return exitFound, nil
 	}
-	for _, r := range got {
-		fmt.Printf("  reproduced: %s %+.2f%% %s\n", r.Name, r.Delta, r.Unit)
+	if un := Unmeasured(rows, flagged); len(un) > 0 {
+		names := make([]string, len(un))
+		for i, k := range un {
+			names[i] = fmt.Sprintf("%s (%s)", k.Name, k.Unit)
+		}
+		return exitFailure, fmt.Errorf("confirmation run did not remeasure %s; the candidate is unevaluated, not noise", strings.Join(names, ", "))
 	}
-	return exitFound, nil
+	fmt.Println("::warning::Flagged regression did not reproduce; treating the first measurement as runner noise.")
+	return exitClean, nil
 }
 
 func writeFlagged(path string, rows []Row) error {
