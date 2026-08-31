@@ -302,7 +302,11 @@ jobs:
 
           # benchstat drops the Benchmark prefix and appends -GOMAXPROCS, so put
           # the prefix back and strip the suffix to name the benchmarks again.
-          NAMES=$(awk '{print $1}' <<< "$REGRESSED" | sed -E 's/-[0-9]+$//' | sort -u)
+          # Sub-benchmarks collapse to their parent: go test splits -bench at '/'
+          # and matches each element separately, so "Parent/Sub" cannot be one
+          # element. Re-running the parent covers the flagged child.
+          awk '{print $1}' <<< "$REGRESSED" | sort -u > flagged_rows.txt
+          NAMES=$(sed -E 's/-[0-9]+$//; s#/.*##' flagged_rows.txt | sort -u)
           PATTERN="^Benchmark($(paste -sd'|' - <<< "$NAMES"))$"
           echo "Re-running: $PATTERN"
 
@@ -344,7 +348,8 @@ jobs:
             cat recheck_diff.txt
             exit 1
           fi
-          if ! CONFIRMED=$(regressions recheck_diff.txt); then
+          if ! CONFIRMED=$(regressions recheck_diff.txt \
+                | awk 'NR==FNR { want[$1]=1; next } want[$1]' flagged_rows.txt -); then
             echo "::error::failed to evaluate confirmation run"
             exit 1
           fi
