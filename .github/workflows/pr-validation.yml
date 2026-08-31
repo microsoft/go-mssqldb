@@ -126,7 +126,11 @@ jobs:
 
   benchmarks:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    # A normal run is ~50 minutes: two ~24 minute measurement passes plus setup.
+    # A confirmation re-measures only the flagged benchmarks, but a broad
+    # regression can flag most of them, so budget for it costing as much as a
+    # third and fourth pass. Unused minutes are not billed.
+    timeout-minutes: 120
     permissions:
       contents: read
       pull-requests: write
@@ -322,10 +326,10 @@ jobs:
           for f in msdsn/*_benchmark_test.go; do cp -v "$f" ../main-recheck/msdsn/; done
           shopt -u nullglob
           ( cd ../main-recheck && go test -run='^$' -bench="$PATTERN" \
-            -benchtime=1s -count=10 -benchmem -timeout=15m . ./msdsn ) 2>&1 \
+            -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn ) 2>&1 \
             | tee recheck_old_full.log
           go test -run='^$' -bench="$PATTERN" \
-            -benchtime=1s -count=10 -benchmem -timeout=15m . ./msdsn 2>&1 \
+            -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn 2>&1 \
             | tee recheck_new_full.log
           git worktree remove ../main-recheck --force
 
