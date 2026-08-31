@@ -44,7 +44,11 @@ jobs:
         shell: bash
         run: |
           go version
-          export SQLCMDPASSWORD=$(date +%s|sha256sum|base64|head -c 32)
+          # base64 of hex text yields no symbols, so the generated part supplies only
+          # upper, lower and digits, and a run that happens to contain no digit has
+          # two classes and fails SQL Server's three-of-four policy. The suffix
+          # supplies all four so the container always starts.
+          export SQLCMDPASSWORD=$(date +%s|sha256sum|base64|head -c 28)aA1!
           export SQLCMDUSER=sa
           export SQLUSER=sa
           export SQLPASSWORD=$SQLCMDPASSWORD
@@ -163,7 +167,8 @@ jobs:
       - name: Start SQL Server container
         shell: bash
         run: |
-          export SQLCMDPASSWORD=$(date +%s|sha256sum|base64|head -c 32)
+          # See the build job: the suffix guarantees SQL Server's password policy.
+          export SQLCMDPASSWORD=$(date +%s|sha256sum|base64|head -c 28)aA1!
           echo "SQLCMDPASSWORD=$SQLCMDPASSWORD" >> $GITHUB_ENV
           # 2 GB is the documented minimum with no headroom, and SQL 2025 was seen
           # failing to start at it. MSSQL_MEMORY_LIMIT_MB stays under the container
