@@ -250,6 +250,9 @@ jobs:
           benchstat -alpha=0.01 bench_old.txt bench_new.txt | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           benchstat -alpha=0.01 bench_old.txt bench_new.txt > bench_diff.txt
+          # The table is for humans; the gate reads CSV, where the unit and the
+          # row name are fields rather than something to recover from layout.
+          benchstat -format=csv -alpha=0.01 bench_old.txt bench_new.txt > bench_diff.csv
       - name: Check for regressions
         shell: bash
         run: |
@@ -258,37 +261,68 @@ jobs:
           grep_ok() { grep "$@" || [ $? -eq 1 ]; }
 
           # Rows benchstat called significant that are also more than 15% worse.
-          # Every stage can legitimately match nothing, so each needs grep_ok; a
-          # failure here means we could not evaluate, which must not read as a pass.
+          # Reads CSV: header rows carry the unit, so throughput tables (B/s),
+          # where a positive delta is an improvement, are skipped rather than
+          # counted as regressions. geomean is a summary, not a benchmark, and
+          # naming it in a -bench selector would match nothing.
           regressions() {
-            grep_ok -v '~' "$1" \
-              | grep_ok -E '^[^[:space:]]+[[:space:]]+.+[[:space:]]+\+[0-9]+(\.[0-9]+)?%' \
-              | awk '{ if (match($0, /\+[0-9]+(\.[0-9]+)?%/) && substr($0, RSTART+1, RLENGTH-2)+0 >= 15) print }'
+            awk -F, '
+              /^,/ && $3 == "CI" { unit = $2; next }
+              $1 == "geomean" || $1 == "" { next }
+              unit != "sec/op" && unit != "B/op" && unit != "allocs/op" { next }
+              $6 == "~" { next }
+              {
+                if (match($6, /\+[0-9]+(\.[0-9]+)?%/) &&
+                    substr($6, RSTART + 1, RLENGTH - 2) + 0 >= 15) print $1 "\t" $6 "\t" unit
+              }
+            ' "$1"
+          }
+
+          # Mirror of regressions(): beneficial changes, which for a throughput
+          # table means a positive delta.
+          improvements() {
+            awk -F, '
+              /^,/ && $3 == "CI" { unit = $2; next }
+              $1 == "geomean" || $1 == "" { next }
+              $6 == "~" { next }
+              {
+                lower = (unit == "sec/op" || unit == "B/op" || unit == "allocs/op")
+                if (lower && $6 ~ /^-/) print $1 "\t" $6 "\t" unit
+                if (!lower && $6 ~ /^\+/) print $1 "\t" $6 "\t" unit
+              }
+            ' "$1"
+          }
+
+          # Count of comparable rows, used to tell "nothing regressed" apart from
+          # "we did not understand the output".
+          count_rows() {
+            awk -F, '
+              /^,/ && $3 == "CI" { next }
+              $1 == "" || $1 == "geomean" { next }
+              NF >= 6 { n++ }
+              END { print n + 0 }
+            ' "$1"
           }
 
           # A "no regression" verdict is only meaningful if we actually recognised
-          # benchstat's table. Treat unparseable output as a failure, not a pass.
-          if [ ! -s bench_diff.txt ]; then
+          # benchstat's output. Treat unparseable output as a failure, not a pass.
+          if [ ! -s bench_diff.csv ]; then
             echo "::error::benchstat produced no output; cannot evaluate regressions"
             exit 1
           fi
-          if ! ROWS=$(grep_ok -cE '^[^[:space:]]+[[:space:]]+.+(±|~|[0-9]%)' bench_diff.txt); then
-            echo "::error::failed to scan benchstat output; cannot evaluate regressions"
-            exit 1
-          fi
+          ROWS=$(count_rows bench_diff.csv)
           if [ "$ROWS" -eq 0 ]; then
             echo "::error::benchstat output not recognised; cannot evaluate regressions"
-            cat bench_diff.txt
+            cat bench_diff.csv
             exit 1
           fi
           echo "Parsed $ROWS benchmark rows."
-          # Report statistically significant improvements (real %, not ~)
-          if grep_ok -v '~' bench_diff.txt | grep -E '^[^[:space:]]+[[:space:]]+.+[[:space:]]+-[0-9]+(\.[0-9]+)?%'; then
-            echo ""
+          if IMPROVED=$(improvements bench_diff.csv) && [ -n "$IMPROVED" ]; then
+            echo "$IMPROVED"
             echo "::notice::Performance improvements detected (see above)"
           fi
 
-          if ! REGRESSED=$(regressions bench_diff.txt); then
+          if ! REGRESSED=$(regressions bench_diff.csv); then
             echo "::error::failed to evaluate benchmark comparison"
             exit 1
           fi
@@ -341,18 +375,16 @@ jobs:
           fi
 
           benchstat -alpha=0.01 recheck_old.txt recheck_new.txt | tee recheck_diff.txt
+          benchstat -format=csv -alpha=0.01 recheck_old.txt recheck_new.txt > recheck_diff.csv
           # Same standard as the first pass: a verdict only counts if we actually
-          # recognised benchstat's table, so whitespace cannot read as "clean".
-          if ! RECHECK_ROWS=$(grep_ok -cE '^[^[:space:]]+[[:space:]]+.+(±|~|[0-9]%)' recheck_diff.txt); then
-            echo "::error::failed to scan confirmation output; cannot evaluate"
-            exit 1
-          fi
+          # recognised the output, so an empty file cannot read as "clean".
+          RECHECK_ROWS=$(count_rows recheck_diff.csv)
           if [ "$RECHECK_ROWS" -eq 0 ]; then
             echo "::error::confirmation run produced no recognisable benchstat rows; cannot evaluate"
-            cat recheck_diff.txt
+            cat recheck_diff.csv
             exit 1
           fi
-          if ! CONFIRMED=$(regressions recheck_diff.txt \
+          if ! CONFIRMED=$(regressions recheck_diff.csv \
                 | awk 'NR==FNR { want[$1]=1; next } want[$1]' flagged_rows.txt -); then
             echo "::error::failed to evaluate confirmation run"
             exit 1
