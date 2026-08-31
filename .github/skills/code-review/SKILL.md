@@ -112,8 +112,7 @@ Evaluate each area. Skip areas that don't apply rather than padding the review.
 
 These are handled by tooling or by other people, and reporting them is pure noise:
 
-- Style, naming, formatting, comment wording, import ordering — `gofmt` and
-  `golangci-lint` own these and run on every PR.
+- Style, naming, formatting, comment wording, import ordering — don’t report these; they are subjective and/or handled outside this review skill.
 - Anything `go vet`, `revive`, or `reviewdog` already reports.
 - Test structure or table-test formatting preferences.
 - "Consider adding a nil check", "consider validating this input", "consider handling
