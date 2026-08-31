@@ -34,16 +34,20 @@ type Key struct {
 
 func (r Row) Key() Key { return Key{r.Name, r.Unit} }
 
-// lowerIsBetter reports whether a positive delta in this unit is bad. Units not
-// listed here (B/s is the one benchstat emits today) improve as they rise, so
-// treating a positive delta as a regression would fail builds on speedups.
-func lowerIsBetter(unit string) bool {
-	switch unit {
-	case "sec/op", "B/op", "allocs/op":
-		return true
-	}
-	return false
+// unitDirection maps a benchstat unit to whether smaller is better. Units are
+// listed explicitly because guessing a direction is worse than not knowing one:
+// an unlisted lower-is-better metric such as errors/op would have a rise
+// reported as an improvement and a fall fail the build.
+var unitDirection = map[string]bool{
+	"sec/op":    true,
+	"ns/op":     true,
+	"B/op":      true,
+	"allocs/op": true,
+	"B/s":       false,
+	"MB/s":      false,
 }
+
+func lowerIsBetter(unit string) bool { return unitDirection[unit] }
 
 var deltaPattern = regexp.MustCompile(`^[+-][0-9]+(\.[0-9]+)?%$`)
 
@@ -97,6 +101,12 @@ func Parse(r io.Reader) ([]Row, error) {
 			// Dropping this row would hide a regression behind the rows that did
 			// parse, so treat unreadable output as format drift and fail closed.
 			return nil, fmt.Errorf("unreadable delta %q for %s (%s)", d, rec[0], unit)
+		}
+		// A significant change in a unit with no known direction cannot be
+		// classified, and guessing would invert it. An insignificant row is
+		// harmless whatever the unit, so it does not need a direction.
+		if _, known := unitDirection[unit]; !known && row.Significant {
+			return nil, fmt.Errorf("unit %q for %s has no known direction; add it to unitDirection in internal/benchgate", unit, rec[0])
 		}
 		rows = append(rows, row)
 	}

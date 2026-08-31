@@ -205,6 +205,53 @@ func TestUnmeasured(t *testing.T) {
 	}
 }
 
+// An unlisted unit has no direction, so a significant change in it cannot be
+// classified. Guessing inverts it: errors/op rising would read as an
+// improvement and errors/op falling would fail the build.
+func TestParseFailsClosedOnUnknownUnitWithSignificantDelta(t *testing.T) {
+	const in = `,old,,new,,,
+,errors/op,CI,errors/op,CI,vs base,P
+Foo-4,1,0%,1.25,0%,+25.00%,p=0.000 n=10
+`
+	_, err := Parse(strings.NewReader(in))
+	if err == nil {
+		t.Fatal("want an error for a significant delta in a unit with no known direction")
+	}
+	if !strings.Contains(err.Error(), "errors/op") {
+		t.Errorf("error = %v, want it to name the unit", err)
+	}
+}
+
+// An unknown unit that did not move cannot be misclassified, so it must not
+// fail the build: benchmarks report descriptive metrics like msgs/op that are
+// stable and irrelevant to the gate.
+func TestParseAllowsUnknownUnitWithoutSignificantDelta(t *testing.T) {
+	const in = `,old,,new,,,
+,msgs/op,CI,msgs/op,CI,vs base,P
+Foo-4,10,0%,10,0%,~,p=0.900 n=10
+`
+	rows, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Significant {
+		t.Fatalf("got %+v, want one insignificant row", rows)
+	}
+}
+
+func TestUnitDirectionCoversBenchstatUnits(t *testing.T) {
+	for _, u := range []string{"sec/op", "ns/op", "B/op", "allocs/op"} {
+		if !lowerIsBetter(u) {
+			t.Errorf("%s should be lower-is-better", u)
+		}
+	}
+	for _, u := range []string{"B/s", "MB/s"} {
+		if lowerIsBetter(u) {
+			t.Errorf("%s should be higher-is-better", u)
+		}
+	}
+}
+
 func TestRunReturnsFoundOnRegression(t *testing.T) {
 	var out strings.Builder
 	if got := run([]string{"detect", "-csv", writeTemp(t, "x.csv", regressedCSV)}, &out); got != exitFound {
