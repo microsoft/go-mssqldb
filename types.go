@@ -198,7 +198,7 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodeParam
 		typeMoneyN, typeDateTimeN, typeChar,
 		typeVarChar, typeBinary, typeVarBinary:
 
-		// byle len types
+		// byte len types
 		if ti.Size > 0xff {
 			panic("Invalid size for BYTELEN_TYPE")
 		}
