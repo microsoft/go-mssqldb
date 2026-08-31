@@ -83,6 +83,10 @@ Conversely, when input genuinely reaches the code path, the bar for consequence 
 than elsewhere — a panic/DoS (for example an out-of-bounds slice) or credential exposure
 is severe even when the triggering conditions are narrow.
 
+"Lower" is not "absent". You must still name a concrete consequence from the list this
+skill covers: memory unsafety, credential or token exposure, authentication bypass, TLS
+downgrade, or denial of service. Reachable-but-harmless is still not a finding.
+
 ## Output
 
 Follow the `code-review` output format, with severity meaning:
