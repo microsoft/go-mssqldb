@@ -202,6 +202,94 @@ func TestPreloginRespectsContextDeadline(t *testing.T) {
 	}
 }
 
+// TestStrictEncryptionRespectsContextDeadline covers the encrypt=strict path,
+// where the TLS handshake runs before prelogin and reads go through tls.Conn
+// rather than timeoutConn. Every other test in this file uses encrypt=disable,
+// so a regression that moved the deadline handling back below getTLSConn would
+// leave a silent strict server hanging and still pass the suite.
+func TestStrictEncryptionRespectsContextDeadline(t *testing.T) {
+	// Accept the TCP connection and read the TLS ClientHello, but never reply,
+	// so the handshake stalls with no bytes coming back.
+	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatal("Cannot start listener:", err)
+	}
+	defer listener.Close()
+	resolved := listener.Addr().(*net.TCPAddr)
+
+	done := make(chan struct{})
+	defer close(done)
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			buf := make([]byte, 4096)
+			_, _ = conn.Read(buf)
+			<-done
+			conn.Close()
+		}
+	}()
+
+	// A long ConnTimeout so an unbounded handshake would hang conspicuously.
+	dsn := fmt.Sprintf("sqlserver://sa:unused@%s:%d?connection+timeout=30&dial+timeout=2&protocol=tcp&encrypt=strict&TrustServerCertificate=true",
+		resolved.IP.String(), resolved.Port)
+
+	db, err := sql.Open("sqlserver", dsn)
+	if err != nil {
+		t.Fatal("sql.Open failed:", err)
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	type connResult struct {
+		conn    *sql.Conn
+		err     error
+		elapsed time.Duration
+	}
+	resultCh := make(chan connResult, 1)
+	start := time.Now()
+	go func() {
+		conn, err := db.Conn(ctx)
+		resultCh <- connResult{conn: conn, err: err, elapsed: time.Since(start)}
+	}()
+
+	var result connResult
+	select {
+	case result = <-resultCh:
+	case <-time.After(10 * time.Second):
+		t.Fatal("db.Conn(ctx) did not return before hard timeout; strict TLS handshake is not bounded")
+	}
+
+	if result.err == nil {
+		result.conn.Close()
+		t.Fatal("Expected connection to fail, but it succeeded")
+	}
+
+	// Bracket the timing on both sides. Below the deadline would mean the
+	// connection failed for some other reason and proved nothing; far above it
+	// would mean the handshake ran to the 30s ConnTimeout instead.
+	if result.elapsed < 400*time.Millisecond {
+		t.Errorf("Connection failed after %v, before the 500ms deadline could have caused it", result.elapsed)
+	}
+	if result.elapsed > 5*time.Second {
+		t.Errorf("Connection took %v, expected it to respect the 500ms context deadline", result.elapsed)
+	}
+	if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		t.Errorf("context error = %v, want DeadlineExceeded", ctx.Err())
+	}
+
+	// The error itself is not asserted beyond being non-nil. Unlike the
+	// encrypt=disable path, the cancel watcher closes the socket out from under
+	// the handshake, so this surfaces as "use of closed network connection"
+	// rather than a timeout.
+}
+
 // TestPreloginRespectsContextCancel verifies that readPrelogin unblocks
 // when the context is canceled even without a deadline set.
 func TestPreloginRespectsContextCancel(t *testing.T) {
