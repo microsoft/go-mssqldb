@@ -812,8 +812,8 @@ func writePLPType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodePar
 	}
 }
 
-// validFixedWidthSize reports whether size is one the ColumnType helpers can
-// describe. Only the fixed-width nullable types are constrained; every other
+// validFixedWidthSize reports whether size is one that the ColumnType helpers
+// can describe. Only the fixed-width nullable types are constrained; every other
 // byte-len type carries a caller-defined width.
 func validFixedWidthSize(typeId uint8, size int) bool {
 	switch typeId {
@@ -855,7 +855,7 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		typeBitN, typeDecimalN, typeNumericN, typeFltN,
 		typeMoneyN, typeDateTimeN, typeChar,
 		typeVarChar, typeBinary, typeVarBinary:
-		// byle len types
+		// byte len types
 		ti.Size = int(r.byte())
 		// The ColumnType helpers switch on Size for these fixed-width nullable
 		// types and panic outside any recover, so reject a bad size here where
