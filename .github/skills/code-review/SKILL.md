@@ -58,6 +58,12 @@ failure message? If yes, drop it.
 credential exposure, hung connection? "Cleaner", "safer", and "more idiomatic" are not
 consequences. Drop it.
 
+Three checklist items are exempt from the consequence gate, because their harm is to the
+review and release process rather than to running code: a **weakened, skipped, or deleted
+test**; a **PR description that does not match the diff**; and **unrelated changes** that
+inflate the diff. Report these when you find them. Everything else must clear all three
+gates.
+
 ## What to check
 
 Evaluate each area. Skip areas that don't apply rather than padding the review.
@@ -102,6 +108,24 @@ Evaluate each area. Skip areas that don't apply rather than padding the review.
 - **No AI slop**: comments that restate what the code does, filler phrases, redundant
   validation, duplicated logic.
 
+## What never to report
+
+These are handled by tooling or by other people, and reporting them is pure noise:
+
+- Style, naming, formatting, comment wording, import ordering — `gofmt` and
+  `golangci-lint` own these and run on every PR.
+- Anything `go vet`, `revive`, or `reviewdog` already reports.
+- Test structure or table-test formatting preferences.
+- "Consider adding a nil check", "consider validating this input", "consider handling
+  this error" — unless you can name a reachable path where it matters.
+- Defensive checks for conditions the type system already excludes.
+- Refactoring suggestions, extracting helpers, reducing nesting.
+- Anything already stated in a Copilot review comment or a CI failure message.
+- Praise, summaries, or restatements of what the PR does.
+
+This list outranks the severity tiers. A finding that lands here is dropped even if you
+believe it is correct.
+
 ## Output format
 
 1. **Summary** — one to three sentences: what the PR does and your overall assessment.
@@ -109,7 +133,8 @@ Evaluate each area. Skip areas that don't apply rather than padding the review.
    - **Blocking** — must fix before merge: bugs, security issues, breaking changes
      without handling, a weakened test.
    - **Suggestion** — should consider; improves quality but does not block merge.
-   - **Nit** — minor or optional.
+   - **Nit** — a correctness or clarity issue too small to block. Never style, naming,
+     formatting, comment wording, or import ordering.
 3. Each finding gives the exact `file:line`, the concrete failure path, the consequence,
    and a suggested fix — or an explicit "I am not certain of the right fix here".
 
@@ -140,5 +165,7 @@ Before reviewing, check the PR's comments for a marker matching the current head
 skip the PR entirely if one exists. With no findings, post only a brief "No findings"
 line plus the marker — that is a normal, successful outcome, not a failure.
 
-Never raise a finding on a line that was modified in direct response to one of your own
-earlier comments. That is a review loop and it does not converge.
+Never raise a finding on a line that was modified in direct response to an earlier review
+comment — whether yours, GitHub Copilot's, or a human's — unless the change introduced a
+new defect you can demonstrate. Second-guessing a fix someone already asked for is a
+review loop and it does not converge.
