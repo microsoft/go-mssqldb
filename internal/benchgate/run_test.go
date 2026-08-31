@@ -252,6 +252,55 @@ func TestUnitDirectionCoversBenchstatUnits(t *testing.T) {
 	}
 }
 
+// LazyQuotes would turn an unterminated quote into a silently truncated record
+// instead of an error, and the short-row skip would then drop the regression
+// while the clean row kept the result non-empty.
+func TestParseFailsClosedOnUnterminatedQuote(t *testing.T) {
+	const in = `,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Clean-4,1e-07,0%,1e-07,0%,~,p=0.900 n=10
+"Regressed/size=1,024-4,1e-07,0%,1.25e-07,0%,+25.00%,p=0.000 n=10
+`
+	rows, err := Parse(strings.NewReader(in))
+	if err == nil {
+		t.Fatalf("malformed quoting was accepted: %+v", rows)
+	}
+}
+
+// A short row is only legitimate when one side was not measured. Both sides
+// present with no delta column is drift, and skipping it would hide whatever
+// the comparison would have said.
+func TestParseFailsClosedOnShortRowWithBothMeasurements(t *testing.T) {
+	const in = `,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Clean-4,1e-07,0%,1e-07,0%,~,p=0.900 n=10
+Truncated-4,1e-07,0%,1.25e-07,0%
+`
+	rows, err := Parse(strings.NewReader(in))
+	if err == nil {
+		t.Fatalf("a truncated comparison row was skipped: %+v", rows)
+	}
+	if !strings.Contains(err.Error(), "Truncated-4") {
+		t.Errorf("error = %v, want it to name the offending row", err)
+	}
+}
+
+// Same rule at full width: a blank delta is only acceptable when a side is
+// missing.
+func TestParseFailsClosedOnBlankDeltaWithBothMeasurements(t *testing.T) {
+	const in = `,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Both-4,1e-07,0%,1.25e-07,0%,,
+`
+	_, err := Parse(strings.NewReader(in))
+	if err == nil {
+		t.Fatal("want an error for a blank delta with both measurements present")
+	}
+	if !strings.Contains(err.Error(), "Both-4") {
+		t.Errorf("error = %v, want it to name the offending row", err)
+	}
+}
+
 func TestRunReturnsFoundOnRegression(t *testing.T) {
 	var out strings.Builder
 	if got := run([]string{"detect", "-csv", writeTemp(t, "x.csv", regressedCSV)}, &out); got != exitFound {

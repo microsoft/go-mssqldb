@@ -49,6 +49,21 @@ var unitDirection = map[string]bool{
 
 func lowerIsBetter(unit string) bool { return unitDirection[unit] }
 
+// field returns a trimmed column, or "" when the record is shorter than that.
+func field(rec []string, i int) string {
+	if i >= len(rec) {
+		return ""
+	}
+	return strings.TrimSpace(rec[i])
+}
+
+// bothSidesMeasured reports whether the record carries an old and a new
+// measurement. benchstat writes only one side's columns for a benchmark that
+// ran on one side alone, so both being present means a delta should exist.
+func bothSidesMeasured(rec []string) bool {
+	return field(rec, 1) != "" && field(rec, 3) != ""
+}
+
 var deltaPattern = regexp.MustCompile(`^[+-][0-9]+(\.[0-9]+)?%$`)
 
 // Parse reads benchstat -format=csv output. Rows outside a recognised table are
@@ -58,7 +73,6 @@ var deltaPattern = regexp.MustCompile(`^[+-][0-9]+(\.[0-9]+)?%$`)
 func Parse(r io.Reader) ([]Row, error) {
 	cr := csv.NewReader(r)
 	cr.FieldsPerRecord = -1
-	cr.LazyQuotes = true
 
 	var rows []Row
 	unit := ""
@@ -79,13 +93,24 @@ func Parse(r io.Reader) ([]Row, error) {
 			unit = ""
 			continue
 		}
-		if unit == "" || len(rec) < 6 || rec[0] == "geomean" {
+		if unit == "" || rec[0] == "geomean" {
+			continue
+		}
+		if len(rec) < 6 {
+			// benchstat truncates rows for benchmarks measured on only one side.
+			// A short row carrying both measurements is drift, not one-sided.
+			if bothSidesMeasured(rec) {
+				return nil, fmt.Errorf("row for %s (%s) has both measurements but no delta", rec[0], unit)
+			}
 			continue
 		}
 		row := Row{Name: rec[0], Unit: unit}
 		switch d := strings.TrimSpace(rec[5]); {
 		case d == "":
-			// Benchmark present on only one side, so there is nothing to compare.
+			if bothSidesMeasured(rec) {
+				return nil, fmt.Errorf("empty delta for %s (%s) with both measurements present", rec[0], unit)
+			}
+			// Measured on only one side, so there is nothing to compare.
 			continue
 		case d == "~":
 			row.Significant = false
