@@ -256,104 +256,27 @@ jobs:
       - name: Check for regressions
         shell: bash
         run: |
-          # grep exits 1 for "no match" and 2 for a real error. Only the first is
-          # expected here, so mask it alone and let errors surface.
-          grep_ok() { grep "$@" || [ $? -eq 1 ]; }
+          # go run does not propagate the program's exit status, so build first.
+          go build -o "$RUNNER_TEMP/benchgate" ./internal/benchgate
 
-          # Rows benchstat called significant that are also more than 15% worse.
-          # Reads CSV: header rows carry the unit, so throughput tables (B/s),
-          # where a positive delta is an improvement, are skipped rather than
-          # counted as regressions. geomean is a summary, not a benchmark, and
-          # naming it in a -bench selector would match nothing.
-          regressions() {
-            awk -F, '
-              /^,/ && $3 == "CI" { unit = $2; next }
-              $1 == "geomean" || $1 == "" { next }
-              unit != "sec/op" && unit != "B/op" && unit != "allocs/op" { next }
-              $6 == "~" { next }
-              {
-                if (match($6, /\+[0-9]+(\.[0-9]+)?%/) &&
-                    substr($6, RSTART + 1, RLENGTH - 2) + 0 >= 15) print $1 "\t" $6 "\t" unit
-              }
-            ' "$1"
-          }
+          set +e
+          "$RUNNER_TEMP/benchgate" detect \
+            -csv bench_diff.csv \
+            -flagged "$RUNNER_TEMP/flagged.tsv" \
+            -selector "$RUNNER_TEMP/selector.txt"
+          rc=$?
+          set -e
+          case "$rc" in
+            0) exit 0 ;;
+            2) ;;
+            *) echo "::error::could not evaluate the benchmark comparison"; exit 1 ;;
+          esac
 
-          # Mirror of regressions(): beneficial changes, which for a throughput
-          # table means a positive delta.
-          improvements() {
-            awk -F, '
-              /^,/ && $3 == "CI" { unit = $2; next }
-              $1 == "geomean" || $1 == "" { next }
-              $6 == "~" { next }
-              {
-                lower = (unit == "sec/op" || unit == "B/op" || unit == "allocs/op")
-                if (lower && $6 ~ /^-/) print $1 "\t" $6 "\t" unit
-                if (!lower && $6 ~ /^\+/) print $1 "\t" $6 "\t" unit
-              }
-            ' "$1"
-          }
-
-          # Count only rows this parser actually understands: inside a table whose
-          # header it recognised, with a delta it can read. If benchstat's CSV
-          # layout changes, the count reaches zero and the gate fails closed
-          # instead of reporting "nothing regressed" from rows it never parsed.
-          count_rows() {
-            awk -F, '
-              /^,/ && $3 == "CI" { unit = $2; next }
-              /^,/ { unit = ""; next }
-              $1 == "" || $1 == "geomean" { next }
-              unit == "" { next }
-              $6 !~ /^(~|[+-][0-9]+(\.[0-9]+)?%)$/ { next }
-              { n++ }
-              END { print n + 0 }
-            ' "$1"
-          }
-
-          # A "no regression" verdict is only meaningful if we actually recognised
-          # benchstat's output. Treat unparseable output as a failure, not a pass.
-          if [ ! -s bench_diff.csv ]; then
-            echo "::error::benchstat produced no output; cannot evaluate regressions"
-            exit 1
-          fi
-          ROWS=$(count_rows bench_diff.csv)
-          if [ "$ROWS" -eq 0 ]; then
-            echo "::error::benchstat output not recognised; cannot evaluate regressions"
-            cat bench_diff.csv
-            exit 1
-          fi
-          echo "Parsed $ROWS benchmark rows."
-          if IMPROVED=$(improvements bench_diff.csv) && [ -n "$IMPROVED" ]; then
-            echo "$IMPROVED"
-            echo "::notice::Performance improvements detected (see above)"
-          fi
-
-          if ! REGRESSED=$(regressions bench_diff.csv); then
-            echo "::error::failed to evaluate benchmark comparison"
-            exit 1
-          fi
-          if [ -z "$REGRESSED" ]; then
-            echo "No significant regressions detected."
-            exit 0
-          fi
-
-          # The baseline and PR samples are collected ~20 minutes apart, so a
-          # significant result can still be an artefact of the runner rather than
-          # the diff. Measure the flagged benchmarks again and only fail if the
-          # regression reproduces.
-          echo "$REGRESSED"
-          echo "::notice::Candidate regressions found; re-measuring to see whether they reproduce."
-
-          # benchstat drops the Benchmark prefix and appends -GOMAXPROCS, so put
-          # the prefix back and strip the suffix to name the benchmarks again.
-          # Sub-benchmarks collapse to their parent: go test splits -bench at '/'
-          # and matches each element separately, so "Parent/Sub" cannot be one
-          # element. Re-running the parent covers the flagged child.
-          # Key on benchmark and unit together: the same benchmark regressing in a
-          # different metric is not the candidate reproducing.
-          awk -F'\t' '{ print $1 "\t" $3 }' <<< "$REGRESSED" | sort -u > flagged_rows.txt
-          NAMES=$(cut -f1 flagged_rows.txt | sed -E 's/-[0-9]+$//; s#/.*##' | sort -u)
-          PATTERN="^Benchmark($(paste -sd'|' - <<< "$NAMES"))$"
-          echo "Re-running: $PATTERN"
+          # The two measurement passes are ~20 minutes apart, so a significant
+          # result can be runner drift rather than the diff. Re-measure just the
+          # flagged benchmarks, back to back, and only fail if it reproduces.
+          PATTERN=$(cat "$RUNNER_TEMP/selector.txt")
+          echo "::notice::Candidate regressions found; re-measuring $PATTERN"
 
           export SQLUSER=sa
           export SQLPASSWORD=$SQLCMDPASSWORD
@@ -366,6 +289,7 @@ jobs:
           for f in *_benchmark_test.go; do cp -v "$f" ../main-recheck/; done
           for f in msdsn/*_benchmark_test.go; do cp -v "$f" ../main-recheck/msdsn/; done
           shopt -u nullglob
+
           ( cd ../main-recheck && go test -run='^$' -bench="$PATTERN" \
             -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn ) 2>&1 \
             | tee recheck_old_full.log
@@ -374,34 +298,22 @@ jobs:
             | tee recheck_new_full.log
           git worktree remove ../main-recheck --force
 
-          grep_ok -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' recheck_old_full.log > recheck_old.txt
-          grep_ok -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' recheck_new_full.log > recheck_new.txt
-          if [ ! -s recheck_old.txt ] || [ ! -s recheck_new.txt ]; then
-            echo "::error::confirmation run produced no benchmark output; cannot evaluate"
-            exit 1
-          fi
-
+          grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' recheck_old_full.log > recheck_old.txt || true
+          grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' recheck_new_full.log > recheck_new.txt || true
           benchstat -alpha=0.01 recheck_old.txt recheck_new.txt | tee recheck_diff.txt
           benchstat -format=csv -alpha=0.01 recheck_old.txt recheck_new.txt > recheck_diff.csv
-          # Same standard as the first pass: a verdict only counts if we actually
-          # recognised the output, so an empty file cannot read as "clean".
-          RECHECK_ROWS=$(count_rows recheck_diff.csv)
-          if [ "$RECHECK_ROWS" -eq 0 ]; then
-            echo "::error::confirmation run produced no recognisable benchstat rows; cannot evaluate"
-            cat recheck_diff.csv
-            exit 1
-          fi
-          if ! CONFIRMED=$(regressions recheck_diff.csv \
-                | awk -F'\t' 'NR==FNR { want[$1 SUBSEP $2]=1; next } want[$1 SUBSEP $3]' flagged_rows.txt -); then
-            echo "::error::failed to evaluate confirmation run"
-            exit 1
-          fi
-          if [ -n "$CONFIRMED" ]; then
-            echo "$CONFIRMED"
-            echo "::error::Regression reproduced on a second measurement (>15%, p<0.01)"
-            exit 1
-          fi
-          echo "::warning::Flagged regression did not reproduce; treating the first measurement as runner noise."
+
+          set +e
+          "$RUNNER_TEMP/benchgate" confirm \
+            -csv recheck_diff.csv \
+            -flagged "$RUNNER_TEMP/flagged.tsv"
+          rc=$?
+          set -e
+          case "$rc" in
+            0) exit 0 ;;
+            2) echo "::error::Regression reproduced on a second measurement (>15%, p<0.01)"; exit 1 ;;
+            *) echo "::error::could not evaluate the confirmation run"; exit 1 ;;
+          esac
       - name: Post benchmark results to PR
         # Fork PRs get read-only tokens; comment will be skipped gracefully.
         continue-on-error: true
