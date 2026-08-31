@@ -1074,8 +1074,9 @@ func (s *Stmt) makeParam(val driver.Value) (res param, err error) {
 	case UniqueIdentifier:
 	case NullUniqueIdentifier:
 	case JSON:
-		// Handle JSON before the []byte case in the second switch, which would
-		// send it as typeBigVarBin instead of the native JSON type.
+		// JSON is a named type, so it matches neither case []byte: below nor
+		// driver.Valuer. Routed explicitly so this does not depend on the
+		// second switch's default also reaching makeParamExtra.
 		return s.makeParamExtra(valuer)
 	case NullJSON:
 		// Handle NullJSON before driver.Valuer to ensure native JSON type is used.
