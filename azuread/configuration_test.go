@@ -595,3 +595,29 @@ func TestADONetAuthenticationNames(t *testing.T) {
 		}
 	}
 }
+
+// msdsn trims semicolon-style values but leaves URL query values as written, so
+// only a URL DSN can deliver a padded authentication name to the lookup.
+func TestAuthenticationNameSurroundingWhitespace(t *testing.T) {
+	for _, tst := range []struct {
+		name string
+		enc  string
+		want string
+	}{
+		{"ado name, trailing space", "Active+Directory+Default+", ActiveDirectoryDefault},
+		{"ado name, leading space", "+Active+Directory+Default", ActiveDirectoryDefault},
+		{"ado name, both", "%20Active%20Directory%20Default%20", ActiveDirectoryDefault},
+		{"driver name, trailing space", "ActiveDirectoryDefault+", ActiveDirectoryDefault},
+		{"ado name, no padding", "Active+Directory+Default", ActiveDirectoryDefault},
+	} {
+		t.Run(tst.name, func(t *testing.T) {
+			config, err := parse("sqlserver://s.database.windows.net?fedauth=" + tst.enc)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if config.fedAuthWorkflow != tst.want {
+				t.Errorf("fedAuthWorkflow = %q, want %q", config.fedAuthWorkflow, tst.want)
+			}
+		})
+	}
+}
