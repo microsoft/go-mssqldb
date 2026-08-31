@@ -81,13 +81,68 @@ Foo-4,1e-07,0%,1.25e-07,0%,+22.00%,p=0.000 n=10
 	}
 }
 
+// An unreadable delta must be an error, not a dropped row: dropping it would
+// let a regression hide behind the rows that did parse.
 func TestParseFailsClosedOnUnreadableDelta(t *testing.T) {
 	const in = `,old,,new,,,
 ,sec/op,CI,sec/op,CI,vs base,P
 Foo-4,1e-07,0%,1.25e-07,0%,20 percent worse,p=0.000 n=10
 `
-	if rows := parseString(t, in); len(rows) != 0 {
-		t.Fatalf("got %d rows, want 0: %+v", len(rows), rows)
+	if _, err := Parse(strings.NewReader(in)); err == nil {
+		t.Fatal("want an error for an unreadable delta")
+	}
+}
+
+// The dangerous shape: one row parses clean and the regression is unreadable.
+// A row count alone would look healthy, so this must fail the whole parse.
+func TestParseFailsClosedOnMixedValidAndUnreadableRows(t *testing.T) {
+	const in = `,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Clean-4,1e-07,0%,1e-07,0%,~,p=0.900 n=10
+Regressed-4,1e-07,0%,1.25e-07,0%,25 percent worse,p=0.000 n=10
+`
+	rows, err := Parse(strings.NewReader(in))
+	if err == nil {
+		t.Fatalf("unreadable regression was hidden behind a clean row: %+v", rows)
+	}
+	if !strings.Contains(err.Error(), "Regressed-4") {
+		t.Errorf("error = %v, want it to name the offending row", err)
+	}
+}
+
+// Benchmarks present on only one side have no delta to read. benchstat emits
+// them as short rows, and they must not be mistaken for format drift.
+func TestParseSkipsOneSidedBenchmarks(t *testing.T) {
+	const in = `,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Removed-4,1e-06,∞
+Added-4,,,1.5e-06,∞
+Both-4,2e-06,0%,2e-06,0%,~,p=0.900 n=10
+`
+	rows, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Name != "Both-4" {
+		t.Fatalf("got %+v, want only Both-4", rows)
+	}
+}
+
+// Today benchstat truncates one-sided rows, so this full-width shape does not
+// occur. A blank delta still means "no comparison", which is a skip and not the
+// format drift that must fail the parse.
+func TestParseSkipsFullWidthRowWithBlankDelta(t *testing.T) {
+	const in = `,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Added-4,,,1.5e-06,∞,,
+Both-4,2e-06,0%,2e-06,0%,~,p=0.900 n=10
+`
+	rows, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Name != "Both-4" {
+		t.Fatalf("got %+v, want only Both-4", rows)
 	}
 }
 
@@ -107,6 +162,31 @@ Bar-4,5e+07,0%,6.25e+07,0%,+25.00%,p=0.000 n=10
 	}
 	if rows[1].Unit != "B/s" {
 		t.Errorf("second row unit = %q, want B/s", rows[1].Unit)
+	}
+}
+
+// The mirror of the gain case: throughput falling is a regression even though
+// the delta is negative, so the threshold applies in the opposite direction.
+func TestRegressionsCatchThroughputLosses(t *testing.T) {
+	rows := []Row{
+		{Name: "Foo-4", Unit: "B/s", Delta: -20, Significant: true},
+	}
+	got := Regressions(rows)
+	if len(got) != 1 {
+		t.Fatalf("a 20%% throughput loss was not flagged: %+v", got)
+	}
+	if got[0].Unit != "B/s" {
+		t.Errorf("unit = %q, want B/s", got[0].Unit)
+	}
+	if imp := Improvements(rows); len(imp) != 0 {
+		t.Errorf("a throughput loss was reported as an improvement: %+v", imp)
+	}
+}
+
+func TestRegressionsIgnoreSmallThroughputLosses(t *testing.T) {
+	rows := []Row{{Name: "Foo-4", Unit: "B/s", Delta: -14.9, Significant: true}}
+	if got := Regressions(rows); len(got) != 0 {
+		t.Fatalf("a sub-threshold throughput loss was flagged: %+v", got)
 	}
 }
 

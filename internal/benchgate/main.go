@@ -23,7 +23,7 @@ func main() {
 // run holds everything main does apart from exiting, so it can be tested.
 func run(args []string, out io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(out, "usage: benchgate detect|confirm [flags]")
+		_, _ = fmt.Fprintln(out, "usage: benchgate detect|confirm [flags]")
 		return exitFailure
 	}
 	var err error
@@ -38,7 +38,7 @@ func run(args []string, out io.Writer) int {
 		code = exitFailure
 	}
 	if err != nil {
-		fmt.Fprintf(out, "::error::%v\n", err)
+		_, _ = fmt.Fprintf(out, "::error::%v\n", err)
 		return exitFailure
 	}
 	return code
@@ -49,7 +49,7 @@ func parseFile(path string) ([]Row, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return Parse(f)
 }
 
@@ -133,7 +133,7 @@ func confirm(args []string) (int, error) {
 func writeFlagged(path string, rows []Row) error {
 	var b strings.Builder
 	for _, r := range rows {
-		fmt.Fprintf(&b, "%s\t%s\n", r.Name, r.Unit)
+		_, _ = fmt.Fprintf(&b, "%s\t%s\n", r.Name, r.Unit)
 	}
 	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
@@ -143,7 +143,7 @@ func readFlagged(path string) ([]Key, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var keys []Key
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {

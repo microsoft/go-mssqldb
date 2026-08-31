@@ -47,10 +47,10 @@ func lowerIsBetter(unit string) bool {
 
 var deltaPattern = regexp.MustCompile(`^[+-][0-9]+(\.[0-9]+)?%$`)
 
-// Parse reads benchstat -format=csv output. Rows outside a recognised table, or
-// whose delta it cannot read, are not returned: callers treat an empty result as
-// "could not evaluate" rather than "nothing regressed". A delta that has the
-// expected shape but will not convert is an error, not a dropped row.
+// Parse reads benchstat -format=csv output. Rows outside a recognised table are
+// ignored, and rows whose delta it cannot read are an error rather than a silent
+// drop, so format drift cannot hide a regression behind the rows that did parse.
+// Benchmarks present on only one side carry no delta and are skipped.
 func Parse(r io.Reader) ([]Row, error) {
 	cr := csv.NewReader(r)
 	cr.FieldsPerRecord = -1
@@ -80,6 +80,9 @@ func Parse(r io.Reader) ([]Row, error) {
 		}
 		row := Row{Name: rec[0], Unit: unit}
 		switch d := strings.TrimSpace(rec[5]); {
+		case d == "":
+			// Benchmark present on only one side, so there is nothing to compare.
+			continue
 		case d == "~":
 			row.Significant = false
 		case deltaPattern.MatchString(d):
@@ -91,20 +94,25 @@ func Parse(r io.Reader) ([]Row, error) {
 			}
 			row.Delta, row.Significant = v, true
 		default:
-			// Unreadable delta: skip, so format drift shrinks the row count.
-			continue
+			// Dropping this row would hide a regression behind the rows that did
+			// parse, so treat unreadable output as format drift and fail closed.
+			return nil, fmt.Errorf("unreadable delta %q for %s (%s)", d, rec[0], unit)
 		}
 		rows = append(rows, row)
 	}
 	return rows, nil
 }
 
-// Regressions returns significant changes at least RegressionThreshold worse,
-// in units where worse means larger.
+// Regressions returns significant changes at least RegressionThreshold worse.
+// Worse means larger for units like sec/op and smaller for throughput.
 func Regressions(rows []Row) []Row {
 	var out []Row
 	for _, r := range rows {
-		if r.Significant && lowerIsBetter(r.Unit) && r.Delta >= RegressionThreshold {
+		if !r.Significant {
+			continue
+		}
+		if lowerIsBetter(r.Unit) && r.Delta >= RegressionThreshold ||
+			!lowerIsBetter(r.Unit) && r.Delta <= -RegressionThreshold {
 			out = append(out, r)
 		}
 	}
