@@ -39,7 +39,9 @@ db, err := sql.Open(azuread.DriverName, "sqlserver://server.database.windows.net
 
 ### Bootstrap and Build the Repository
 - **Download dependencies**: `go mod download` - takes <0.01 seconds (already cached)
-- **Build the driver**: `go build` - takes ~0.1 seconds. NEVER CANCEL
+- **Build the driver**: `go build ./...` - takes ~0.5 seconds. NEVER CANCEL
+  (bare `go build` only compiles the root package and its dependencies; it does
+  not compile `azuread`, the `aecmk` providers, or `examples/`)
 - **Format code**: `go fmt ./...` - takes ~0.4 seconds
 - **Lint code**: Note: Current .golangci.yml has compatibility issues with recent golangci-lint versions
   ```bash
@@ -102,16 +104,22 @@ export AZURESERVER_DSN="sqlserver://server.database.windows.net?database=mydb&fe
 Always run these commands before committing changes:
 - `go fmt ./...` - format all code (~0.4 seconds)
 - `go vet ./...` - static analysis (currently reports struct literal issues, exits with code 1)
-- `go build` - ensure compilation succeeds (~0.1 seconds)
+- `go build ./...` - ensure every package compiles (~0.5 seconds)
 - `go test ./msdsn ./internal/... ./integratedauth ./azuread` - run unit tests (~1.5 seconds total)
 - If you have SQL Server available: `go test ./...` with 30+ minute timeout. NEVER CANCEL.
 
-### Code Coverage Requirements
-**IMPORTANT**: This project enforces a strict **80% minimum code coverage** requirement.
-- All PRs must maintain project coverage at or above 80%
-- New code in PRs must also have at least 80% coverage
-- PRs that drop coverage below 80% will fail the Codecov status check
+### Code Coverage
+Aim to cover all new code, including error paths — untested error paths are where this
+driver's bugs live.
+
+Codecov enforces a floor and reports the numbers on each PR:
+- Project coverage must stay at or above 80%
+- Patch (new code) coverage is held to the same 80% floor
 - Coverage is configured in `codecov.yml` at the repository root
+
+Treat the Codecov comment as feedback on *which* lines are untested rather than a
+percentage to satisfy. Tests written to chase a threshold rather than assert real
+behavior are worse than a visible gap; explain a deliberate gap in the PR description.
 
 To check coverage locally:
 ```bash
@@ -242,36 +250,43 @@ go test ./msdsn -v
 
 ## Go Version Upgrades
 
-When upgrading Go versions, the following files need to be updated:
+Two different Go versions matter here and they move for different reasons: the
+floor we promise consumers, which lives in `go.mod`, and the versions CI tests
+against, which live in the workflows.
 
-### Files to Update
-1. **`.github/workflows/pr-validation.yml`** - GitHub Actions workflow for pull request validation
-2. **`appveyor.yml`** - AppVeyor configuration for Windows testing
+### The `go` directive is the consumer floor
 
-### GitHub Actions Workflow (.github/workflows/pr-validation.yml)
-Update the Go version in the strategy matrix:
+`go 1.25.0` is the oldest Go anyone importing this driver may use. Raising it is a breaking change for consumers, so it moves only when a dependency forces it or when the driver needs a newer language or stdlib feature. Never set it to a patch version (`go 1.25.7`) — patch releases add no language surface, and a patch floor breaks consumers on distro-packaged Go with `GOTOOLCHAIN=local`.
+
+The floor cannot go below the highest `go` directive of any direct dependency. `azcore` and `azidentity` currently sit at `1.25.0`.
+
+There is no `toolchain` directive, deliberately. Toolchain selection only switches upward, so contributors on any Go >= the floor are unaffected, and there is one fewer version to keep current.
+
+### CI versions track Go's support policy
+
+Go supports the two most recent majors. `pr-validation.yml` runs the floor plus both supported releases against every SQL image, using `1.2N.x` so security patches are picked up automatically:
+
 ```yaml
-strategy:
-  matrix:
-    go: ['1.XX']  # Update this version number
-    sqlImage: ['2019-latest','2022-latest']
+go: ['1.25.x', '1.26.x', '1.27.x']
+sqlImage: ['2017-latest','2019-latest','2022-latest','2025-latest']
 ```
 
-### AppVeyor Configuration (appveyor.yml)
-Update multiple `GOVERSION` entries:
-1. **Default GOVERSION** (line ~14): `GOVERSION: 123` (remove dots)
-2. **Matrix entries** (lines ~20-35): Update all GOVERSION values
+`1.25.x` is the floor from the `go` directive; `1.26.x` and `1.27.x` are the supported releases. The full cross product is deliberate: all three Go versions compile identical code (every build constraint in the driver is `go1.9` through `go1.18`), so the only version-dependent behaviour is stdlib runtime, principally `crypto/tls` — and that is exactly where the server version is not orthogonal, since 2017 negotiates TLS 1.2 with older cipher suites and 2025 does TLS 1.3.
 
-**Version Format Difference:**
-- **GitHub Actions**: Use full version with dots (e.g., `'1.23'`)
-- **AppVeyor**: Remove dots and use just numbers (e.g., `123` for Go 1.23)
+The `build` job sets `GOTOOLCHAIN: local` so the floor legs actually test the floor. Without it, a `toolchain` line re-added by `go get` would silently upgrade the job.
 
-### Complete Upgrade Checklist
-- [ ] Update `.github/workflows/pr-validation.yml`: go version in matrix strategy
-- [ ] Update `appveyor.yml`: default GOVERSION and all matrix entries (typically 4 locations)
-- [ ] Ensure the x86 version maintains its `-x86` suffix
-- [ ] Test changes: verify GitHub Actions and AppVeyor builds complete successfully
-- [ ] Consider updating `go.mod` if using newer Go version than currently required
+### Places a Go version appears
+
+| File | What it controls | Moves when |
+|---|---|---|
+| `go.mod` `go` directive | Consumer floor | A dependency forces it |
+| `.github/workflows/pr-validation.yml` | Tested versions | Go releases a new major |
+| `.devcontainer/Dockerfile` | Dev environment | Any time; must be >= the floor |
+| `appveyor.yml` `GOVERSION` | Windows test toolchain | Constrained by the AppVeyor image |
+
+AppVeyor uses no dots (`125` for Go 1.25), and the 32-bit entry keeps its `-x86` suffix. The AppVeyor worker image only carries certain Go versions, so check the image contents before bumping it.
+
+The `Verify Go version alignment` job in `devcontainer.yml` asserts the devcontainer image is at least the `go` directive. Newer is fine and expected.
 
 ## Common Commands and Expected Output
 
@@ -290,8 +305,8 @@ ls -la
 
 ### Build and Test Status
 ```bash
-go version  # Should be 1.23+
-go build    # Should complete in ~0.5 seconds
+go version  # Should be 1.25+
+go build ./...  # Should complete in ~0.5 seconds
 go test ./msdsn  # Should pass quickly with connection string tests
 ```
 

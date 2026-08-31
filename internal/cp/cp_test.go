@@ -248,6 +248,45 @@ func TestCharsetToUTF8_IncompleteDoubleByte(t *testing.T) {
 	assert.GreaterOrEqual(t, len(result), 2, "Expected at least 2 characters, got %q", result)
 }
 
+func TestCharsetToUTF8_ASCIIFastPath(t *testing.T) {
+	t.Parallel()
+	// Pure ASCII inputs must pass through unchanged, including lengths that
+	// straddle the 8 byte chunked scan boundaries of the ASCII fast path.
+	lengths := []int{0, 1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 128}
+	for _, n := range lengths {
+		s := make([]byte, n)
+		for i := range s {
+			s[i] = byte('a' + i%26)
+		}
+		expected := string(s)
+		for _, sortID := range []uint8{50, 192} { // cp1252 and cp932
+			c := Collation{SortId: sortID}
+			if got := CharsetToUTF8(c, s); got != expected {
+				t.Errorf("CharsetToUTF8(sortId %d, %d ascii bytes) = %q, want %q", sortID, n, got, expected)
+			}
+		}
+	}
+}
+
+func TestCharsetToUTF8_NonASCIIAtChunkBoundary(t *testing.T) {
+	t.Parallel()
+	// A non-ASCII byte placed at an 8 byte chunk boundary must still be
+	// detected by the ASCII fast path scan and decoded by the slow path.
+	c := Collation{SortId: 50} // cp1252
+	positions := []int{0, 7, 8, 15, 16, 31}
+	for _, pos := range positions {
+		s := make([]byte, 32)
+		for i := range s {
+			s[i] = 'a'
+		}
+		s[pos] = 0x80 // cp1252 -> €
+		want := string(s[:pos]) + "€" + string(s[pos+1:])
+		if got := CharsetToUTF8(c, s); got != want {
+			t.Errorf("pos %d: got %q, want %q", pos, got, want)
+		}
+	}
+}
+
 // Test each code page getter returns a valid charset map
 func TestGetCodePages(t *testing.T) {
 	t.Parallel()
@@ -280,11 +319,12 @@ func TestGetCodePages(t *testing.T) {
 			if cm == nil {
 				t.Fatal("getter returned nil")
 			}
-			// Verify ASCII portion (0x00-0x7F) maps correctly
+			// The ASCII range (0x00-0x7F) must map to the identical code points
+			// in every code page; this invariant is required by the CharsetToUTF8
+			// ASCII fast path.
 			for i := 0; i < 128; i++ {
-				if cm.sb[i] != rune(i) && cm.sb[i] != -1 {
-					// Some code pages may have variations even in ASCII range
-					// but most should match
+				if cm.sb[i] != rune(i) {
+					t.Errorf("%s: byte 0x%02x maps to U+%04X, want U+%02X", cp.name, i, cm.sb[i], i)
 				}
 			}
 			// Verify at least some extended chars are defined (0x80-0xFF)

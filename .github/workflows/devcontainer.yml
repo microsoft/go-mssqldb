@@ -29,7 +29,7 @@ jobs:
       contents: read
     steps:
       # actions/checkout v6
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Verify Dockerfile Go version satisfies go.mod
         run: |
@@ -40,7 +40,7 @@ jobs:
           # Extract the Go version from the Dockerfile base image tag
           DOCKERFILE_TAG=$(sed -n 's/.*devcontainers\/go:\([0-9]*\.[0-9]*\).*/\1/p' .devcontainer/Dockerfile)
 
-          echo "go.mod requires:        go ${GOMOD_VERSION} (major.minor: ${GOMOD_MAJOR_MINOR})"
+          echo "go.mod floor:           go ${GOMOD_VERSION} (major.minor: ${GOMOD_MAJOR_MINOR})"
           echo "Dockerfile base image:  go:${DOCKERFILE_TAG}"
 
           if [[ -z "$GOMOD_MAJOR_MINOR" || -z "$DOCKERFILE_TAG" ]]; then
@@ -48,13 +48,16 @@ jobs:
             exit 1
           fi
 
-          if [[ "$GOMOD_MAJOR_MINOR" != "$DOCKERFILE_TAG" ]]; then
+          # The image may be newer than the go directive -- that is the floor we
+          # promise consumers, not the version we develop with. It must not be older.
+          OLDEST=$(printf '%s\n%s\n' "$GOMOD_MAJOR_MINOR" "$DOCKERFILE_TAG" | sort -V | head -1)
+          if [[ "$OLDEST" != "$GOMOD_MAJOR_MINOR" ]]; then
             echo ""
-            echo "ERROR: Version mismatch!"
-            echo "The devcontainer base image (go:${DOCKERFILE_TAG}) does not match"
-            echo "the Go version required by go.mod (${GOMOD_MAJOR_MINOR})."
+            echo "ERROR: The devcontainer cannot build this module!"
+            echo "The base image (go:${DOCKERFILE_TAG}) is older than the Go version"
+            echo "required by go.mod (${GOMOD_MAJOR_MINOR})."
             echo ""
-            echo "Update .devcontainer/Dockerfile:"
+            echo "Update .devcontainer/Dockerfile to ${GOMOD_MAJOR_MINOR} or newer:"
             echo "  FROM mcr.microsoft.com/devcontainers/go:${GOMOD_MAJOR_MINOR}-bookworm"
             echo ""
             echo "You may also need to update the pinned Go tool versions in the Dockerfile"
@@ -62,7 +65,7 @@ jobs:
             exit 1
           fi
 
-          echo "OK: Versions are aligned."
+          echo "OK: The devcontainer satisfies the go.mod requirement."
 
   build:
     name: Build devcontainer
@@ -71,11 +74,11 @@ jobs:
       contents: read
     steps:
       # actions/checkout v6
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build devcontainer image
         # devcontainers/ci v0.3
-        uses: devcontainers/ci@b63b30de439b47a52267f241112c5b453b673db5 # v0.3
+        uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3
         with:
           imageName: go-mssqldb-devcontainer
           push: never

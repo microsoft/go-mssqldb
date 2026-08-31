@@ -620,7 +620,7 @@ func (s *Stmt) sendQuery(ctx context.Context, args []namedValue) (err error) {
 // those commands can be invoke without extra options
 var builtinCommands = []string{
 	"RECONFIGURE", "SHUTDOWN", "CHECKPOINT",
-	"COMMIT", "ROLLBACK",
+	"COMMIT", "ROLLBACK", "REVERT",
 }
 
 // isProc takes the query text in s and determines if it is a stored proc name
