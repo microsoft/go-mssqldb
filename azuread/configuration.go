@@ -111,7 +111,9 @@ var adoNetAuthMap = map[string]string{
 
 func (p *azureFedAuthConfig) validateParameters(params map[string]string) error {
 
-	fedAuthWorkflow := params["fedauth"]
+	// msdsn trims semicolon-style values but not URL query values, so a URL DSN
+	// can deliver surrounding whitespace here.
+	fedAuthWorkflow := strings.TrimSpace(params["fedauth"])
 	if fedAuthWorkflow == "" {
 		return nil
 	}
