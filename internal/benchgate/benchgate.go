@@ -49,7 +49,8 @@ var deltaPattern = regexp.MustCompile(`^[+-][0-9]+(\.[0-9]+)?%$`)
 
 // Parse reads benchstat -format=csv output. Rows outside a recognised table, or
 // whose delta it cannot read, are not returned: callers treat an empty result as
-// "could not evaluate" rather than "nothing regressed".
+// "could not evaluate" rather than "nothing regressed". A delta that has the
+// expected shape but will not convert is an error, not a dropped row.
 func Parse(r io.Reader) ([]Row, error) {
 	cr := csv.NewReader(r)
 	cr.FieldsPerRecord = -1
@@ -84,7 +85,9 @@ func Parse(r io.Reader) ([]Row, error) {
 		case deltaPattern.MatchString(d):
 			v, err := strconv.ParseFloat(strings.TrimSuffix(d, "%"), 64)
 			if err != nil {
-				continue
+				// The delta has the expected shape but will not convert, so our
+				// own assumption is broken. Fail closed rather than drop the row.
+				return nil, fmt.Errorf("delta %q for %s: %w", d, rec[0], err)
 			}
 			row.Delta, row.Significant = v, true
 		default:

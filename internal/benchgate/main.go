@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -16,26 +17,31 @@ const (
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: benchgate detect|confirm [flags]")
-		os.Exit(exitFailure)
+	os.Exit(run(os.Args[1:], os.Stdout))
+}
+
+// run holds everything main does apart from exiting, so it can be tested.
+func run(args []string, out io.Writer) int {
+	if len(args) < 1 {
+		fmt.Fprintln(out, "usage: benchgate detect|confirm [flags]")
+		return exitFailure
 	}
 	var err error
 	var code int
-	switch os.Args[1] {
+	switch args[0] {
 	case "detect":
-		code, err = detect(os.Args[2:])
+		code, err = detect(args[1:])
 	case "confirm":
-		code, err = confirm(os.Args[2:])
+		code, err = confirm(args[1:])
 	default:
-		err = fmt.Errorf("unknown subcommand %q", os.Args[1])
+		err = fmt.Errorf("unknown subcommand %q", args[0])
 		code = exitFailure
 	}
 	if err != nil {
-		fmt.Printf("::error::%v\n", err)
-		os.Exit(exitFailure)
+		fmt.Fprintf(out, "::error::%v\n", err)
+		return exitFailure
 	}
-	os.Exit(code)
+	return code
 }
 
 func parseFile(path string) ([]Row, error) {
