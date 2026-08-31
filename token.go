@@ -1553,6 +1553,9 @@ func (t tokenProcessor) handleCancel() (tokenStruct, error) {
 }
 
 func readCancelConfirmation(ctx context.Context, tokChan chan tokenStruct) (cancelConfirmationResult, error) {
+	// DONE_ATTN may also carry DONE_MORE, so confirmation is not complete
+	// until the response producer closes the channel.
+	confirmed := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -1563,10 +1566,13 @@ func readCancelConfirmation(ctx context.Context, tokChan chan tokenStruct) (canc
 				select {
 				case tok, ok := <-tokChan:
 					if !ok {
+						if confirmed {
+							return cancelConfirmationReceived, nil
+						}
 						return cancelConfirmationChannelClosed, nil
 					}
 					if done, isDone := tok.(doneStruct); isDone && done.Status&doneAttn != 0 {
-						return cancelConfirmationReceived, nil
+						confirmed = true
 					}
 					if tokErr, isErr := tok.(error); isErr {
 						return cancelConfirmationUnavailable, tokErr
@@ -1578,12 +1584,15 @@ func readCancelConfirmation(ctx context.Context, tokChan chan tokenStruct) (canc
 			}
 		case tok, ok := <-tokChan:
 			if !ok {
+				if confirmed {
+					return cancelConfirmationReceived, nil
+				}
 				return cancelConfirmationChannelClosed, nil
 			}
 			switch tok := tok.(type) {
 			case doneStruct:
 				if tok.Status&doneAttn != 0 {
-					return cancelConfirmationReceived, nil
+					confirmed = true
 				}
 			case error:
 				return cancelConfirmationUnavailable, tok

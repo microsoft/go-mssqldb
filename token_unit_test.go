@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -147,6 +148,7 @@ func TestReadCancelConfirmation_Success(t *testing.T) {
 	t.Parallel()
 	tokChan := make(chan tokenStruct, 1)
 	tokChan <- doneStruct{Status: doneAttn}
+	close(tokChan)
 	result, _ := readCancelConfirmation(context.Background(), tokChan)
 	if result != cancelConfirmationReceived {
 		t.Fatalf("expected cancelConfirmationReceived, got %v", result)
@@ -183,6 +185,7 @@ func TestReadCancelConfirmation_SkipsNonAttnTokens(t *testing.T) {
 	tokChan <- orderStruct{}
 	tokChan <- doneStruct{Status: doneCount}
 	tokChan <- doneStruct{Status: doneAttn}
+	close(tokChan)
 	result, _ := readCancelConfirmation(context.Background(), tokChan)
 	if result != cancelConfirmationReceived {
 		t.Fatalf("expected cancelConfirmationReceived, got %v", result)
@@ -193,11 +196,48 @@ func TestReadCancelConfirmation_PrioritizesBufferedTokenOverCancelledContext(t *
 	t.Parallel()
 	tokChan := make(chan tokenStruct, 1)
 	tokChan <- doneStruct{Status: doneAttn}
+	close(tokChan)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	result, _ := readCancelConfirmation(ctx, tokChan)
 	if result != cancelConfirmationReceived {
 		t.Fatalf("expected cancelConfirmationReceived, got %v", result)
+	}
+}
+
+func TestReadCancelConfirmation_DrainsTokensAfterAttention(t *testing.T) {
+	t.Parallel()
+	tokChan := make(chan tokenStruct, 5)
+	go func() {
+		defer close(tokChan)
+		tokChan <- doneStruct{Status: doneAttn | doneMore}
+		for range 10 {
+			tokChan <- orderStruct{}
+		}
+	}()
+
+	result, tokErr := readCancelConfirmation(context.Background(), tokChan)
+	if result != cancelConfirmationReceived {
+		t.Fatalf("expected cancelConfirmationReceived, got %v", result)
+	}
+	if tokErr != nil {
+		t.Fatalf("expected nil tokErr, got %v", tokErr)
+	}
+}
+
+func TestReadCancelConfirmation_AttentionWithoutCloseIsUnavailable(t *testing.T) {
+	t.Parallel()
+	tokChan := make(chan tokenStruct, 1)
+	tokChan <- doneStruct{Status: doneAttn | doneMore}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	result, tokErr := readCancelConfirmation(ctx, tokChan)
+	if result != cancelConfirmationUnavailable {
+		t.Fatalf("expected cancelConfirmationUnavailable, got %v", result)
+	}
+	if tokErr != nil {
+		t.Fatalf("expected nil tokErr, got %v", tokErr)
 	}
 }
 
