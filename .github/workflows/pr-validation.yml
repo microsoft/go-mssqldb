@@ -293,13 +293,18 @@ jobs:
             ' "$1"
           }
 
-          # Count of comparable rows, used to tell "nothing regressed" apart from
-          # "we did not understand the output".
+          # Count only rows this parser actually understands: inside a table whose
+          # header it recognised, with a delta it can read. If benchstat's CSV
+          # layout changes, the count reaches zero and the gate fails closed
+          # instead of reporting "nothing regressed" from rows it never parsed.
           count_rows() {
             awk -F, '
-              /^,/ && $3 == "CI" { next }
+              /^,/ && $3 == "CI" { unit = $2; next }
+              /^,/ { unit = ""; next }
               $1 == "" || $1 == "geomean" { next }
-              NF >= 6 { n++ }
+              unit == "" { next }
+              $6 !~ /^(~|[+-][0-9]+(\.[0-9]+)?%)$/ { next }
+              { n++ }
               END { print n + 0 }
             ' "$1"
           }
@@ -343,8 +348,10 @@ jobs:
           # Sub-benchmarks collapse to their parent: go test splits -bench at '/'
           # and matches each element separately, so "Parent/Sub" cannot be one
           # element. Re-running the parent covers the flagged child.
-          awk '{print $1}' <<< "$REGRESSED" | sort -u > flagged_rows.txt
-          NAMES=$(sed -E 's/-[0-9]+$//; s#/.*##' flagged_rows.txt | sort -u)
+          # Key on benchmark and unit together: the same benchmark regressing in a
+          # different metric is not the candidate reproducing.
+          awk -F'\t' '{ print $1 "\t" $3 }' <<< "$REGRESSED" | sort -u > flagged_rows.txt
+          NAMES=$(cut -f1 flagged_rows.txt | sed -E 's/-[0-9]+$//; s#/.*##' | sort -u)
           PATTERN="^Benchmark($(paste -sd'|' - <<< "$NAMES"))$"
           echo "Re-running: $PATTERN"
 
@@ -385,7 +392,7 @@ jobs:
             exit 1
           fi
           if ! CONFIRMED=$(regressions recheck_diff.csv \
-                | awk 'NR==FNR { want[$1]=1; next } want[$1]' flagged_rows.txt -); then
+                | awk -F'\t' 'NR==FNR { want[$1 SUBSEP $2]=1; next } want[$1 SUBSEP $3]' flagged_rows.txt -); then
             echo "::error::failed to evaluate confirmation run"
             exit 1
           fi
