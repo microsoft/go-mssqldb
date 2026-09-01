@@ -98,7 +98,17 @@ func Parse(r io.Reader) ([]Row, error) {
 		case len(rec) > 0 && rec[0] == "":
 			return nil, fmt.Errorf("unrecognised table header %q", strings.Join(rec, ","))
 		}
-		if unit == "" || rec[0] == "geomean" {
+		if unit == "" {
+			// The goos/goarch/pkg preamble arrives before any header and is a
+			// single column. A full-width record here means a header went
+			// missing, and skipping it would drop whatever it says behind the
+			// tables that did parse.
+			if len(rec) >= 6 && rec[0] != "" {
+				return nil, fmt.Errorf("record outside any table: %q", strings.Join(rec, ","))
+			}
+			continue
+		}
+		if rec[0] == "geomean" {
 			continue
 		}
 		if len(rec) < 6 {
