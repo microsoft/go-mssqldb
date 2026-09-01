@@ -358,6 +358,26 @@ Foo-4,1e-07,0%,1e-07,0%,~,p=0.900 n=10
 	}
 }
 
+// The width of an orphaned record does not matter. benchstat's preamble is
+// single-column, so anything wider with no table in scope is drift, including a
+// short row that would otherwise look like a one-sided benchmark.
+func TestParseFailsClosedOnNarrowRowOutsideAnyTable(t *testing.T) {
+	const in = `,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Foo-4,1e-07,0%,1e-07,0%,~,p=0.900 n=10
+
+,old,,new,,,
+Bar-4,100,0%,125,0%
+`
+	rows, err := Parse(strings.NewReader(in))
+	if err == nil {
+		t.Fatalf("a narrow row outside any table was skipped: %+v", rows)
+	}
+	if !strings.Contains(err.Error(), "Bar-4") {
+		t.Errorf("error = %v, want it to name the offending record", err)
+	}
+}
+
 func TestRunReturnsFoundOnRegression(t *testing.T) {
 	var out strings.Builder
 	if got := run([]string{"detect", "-csv", writeTemp(t, "x.csv", regressedCSV)}, &out); got != exitFound {

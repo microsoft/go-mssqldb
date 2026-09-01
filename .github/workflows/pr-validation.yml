@@ -216,20 +216,26 @@ jobs:
           export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
           BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
           git worktree add ../main-bench origin/main
-            # Run the PR's version of a benchmark on both sides so an edit to the
-            # benchmark itself does not read as a change in what it measures.
-            # Files new in this PR are skipped: a benchmark for a type the PR
-            # introduces cannot compile against main, and has no baseline anyway.
+            # Run the PR's version of the test code on both sides so an edit to a
+            # benchmark, or to a fixture it reads, does not show up as a change in
+            # what it measures. Not all gated benchmarks live in
+            # *_benchmark_test.go, and the ones that do read fixtures defined
+            # elsewhere, so the whole test corpus is copied rather than a subset.
+            #
+            # Files new in this PR are skipped: they cannot compile against main
+            # and have no baseline anyway.
             shopt -s nullglob
-            for f in *_benchmark_test.go msdsn/*_benchmark_test.go; do
-              if [ -e "../main-bench/$f" ]; then cp -v "$f" "../main-bench/$f"; fi
+            for f in *_test.go msdsn/*_test.go; do
+              if [ -e "../main-bench/$f" ]; then cp "$f" "../main-bench/$f"; fi
             done
             shopt -u nullglob
             cd ../main-bench
+            # An existing test file that now references something this PR adds will
+            # not build here. Fall back to main's own test code: less exact for an
+            # edited benchmark, but it always builds, so the gate still runs.
             if ! go vet . ./msdsn > vet_baseline.log 2>&1; then
-              echo "::error::Baseline does not build with this PR's benchmark files. Put benchmarks for types this PR introduces in their own *_benchmark_test.go file so they can be skipped for the baseline."
-              cat vet_baseline.log
-              exit 1
+              echo "::notice::This PR's test files do not build against main, so the baseline uses main's own copies. A comparison for an edited benchmark may not be exact."
+              git checkout -- .
             fi
           go test -run='^$' -bench="$BENCH_PATTERN" \
             -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn 2>&1 | \
@@ -293,12 +299,16 @@ jobs:
           export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
 
           git worktree add ../main-recheck origin/main
-          # Same rule as the baseline: only files the recheck worktree already has.
+          # Same rule as the baseline: the whole test corpus, but only files the
+          # recheck worktree already has, falling back to its own on a build failure.
           shopt -s nullglob
-          for f in *_benchmark_test.go msdsn/*_benchmark_test.go; do
-            if [ -e "../main-recheck/$f" ]; then cp -v "$f" "../main-recheck/$f"; fi
+          for f in *_test.go msdsn/*_test.go; do
+            if [ -e "../main-recheck/$f" ]; then cp "$f" "../main-recheck/$f"; fi
           done
           shopt -u nullglob
+          if ! ( cd ../main-recheck && go vet . ./msdsn > /dev/null 2>&1 ); then
+            git -C ../main-recheck checkout -- .
+          fi
 
           ( cd ../main-recheck && go test -run='^$' -bench="$PATTERN" \
             -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn ) 2>&1 \
