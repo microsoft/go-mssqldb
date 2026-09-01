@@ -858,10 +858,11 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		// byte len types
 		ti.Size = int(r.byte())
 		// The ColumnType helpers switch on Size for these fixed-width nullable
-		// types and panic outside any recover, so reject a bad size here where
-		// badStreamPanicf is recovered into a StreamError.
+		// types and panic outside any recover, so reject a bad size here. Panics
+		// via badStreamPanic rather than badStreamPanicf so the value is a
+		// StreamError and checkBadConn drops the desynced connection.
 		if !validFixedWidthSize(ti.TypeId, ti.Size) {
-			badStreamPanicf("invalid size %d for type id %d", ti.Size, ti.TypeId)
+			badStreamPanic(fmt.Errorf("invalid size %d for type id %d", ti.Size, ti.TypeId))
 		}
 		ti.Buffer = make([]byte, ti.Size)
 		switch ti.TypeId {

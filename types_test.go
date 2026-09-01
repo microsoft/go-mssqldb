@@ -501,11 +501,13 @@ func TestReadVarLen_InvalidFixedWidthSizeRejected(t *testing.T) {
 				if v == nil {
 					t.Fatalf("expected panic for %s", tc.name)
 				}
-				err, ok := v.(error)
+				// Must be a StreamError: checkBadConn only drops the connection
+				// for that type, and a desynced connection must not be reused.
+				se, ok := v.(StreamError)
 				if !ok {
-					t.Fatalf("recovered %T, want error", v)
+					t.Fatalf("recovered %T, want StreamError", v)
 				}
-				assert.Contains(t, err.Error(), "invalid size")
+				assert.Contains(t, se.Error(), "invalid size")
 			}()
 
 			readVarLenSize(tc.typeId, tc.size)
