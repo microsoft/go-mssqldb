@@ -70,14 +70,14 @@ func TestParseHandlesQuotedNameContainingComma(t *testing.T) {
 }
 
 // If benchstat renames a header column the rows are no longer interpretable.
-// Returning none makes the caller fail closed instead of reporting "clean".
+// Erroring keeps the caller from reporting "clean" off a table it cannot read.
 func TestParseFailsClosedOnHeaderDrift(t *testing.T) {
 	const in = `,old,,new,,,
 ,sec/op,Confidence,sec/op,Confidence,vs base,P
 Foo-4,1e-07,0%,1.25e-07,0%,+22.00%,p=0.000 n=10
 `
-	if rows := parseString(t, in); len(rows) != 0 {
-		t.Fatalf("got %d rows, want 0: %+v", len(rows), rows)
+	if _, err := Parse(strings.NewReader(in)); err == nil {
+		t.Fatal("want an error for a drifted header")
 	}
 }
 

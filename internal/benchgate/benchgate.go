@@ -88,10 +88,15 @@ func Parse(r io.Reader) ([]Row, error) {
 		case len(rec) >= 3 && rec[0] == "" && rec[2] == "CI":
 			unit = rec[1]
 			continue
-		case len(rec) > 0 && rec[0] == "":
+		case len(rec) >= 3 && rec[0] == "" && rec[2] == "":
 			// File-list line between tables; the next header sets the unit again.
+			// It is told apart from a header by the empty CI column, so a header
+			// we no longer recognise cannot pass as a separator and quietly drop
+			// its whole table.
 			unit = ""
 			continue
+		case len(rec) > 0 && rec[0] == "":
+			return nil, fmt.Errorf("unrecognised table header %q", strings.Join(rec, ","))
 		}
 		if unit == "" || rec[0] == "geomean" {
 			continue

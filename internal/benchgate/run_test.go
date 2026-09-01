@@ -301,6 +301,24 @@ Both-4,1e-07,0%,1.25e-07,0%,,
 	}
 }
 
+// A drifted header must not be mistaken for the file-list line that separates
+// tables. Treating it as a separator resets the unit and silently skips the
+// whole table, which a preceding intact table would then mask.
+func TestParseFailsClosedOnDriftedHeaderAfterGoodTable(t *testing.T) {
+	const in = `,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Foo-4,1e-07,0%,1e-07,0%,~,p=0.900 n=10
+
+,old,,new,,,
+,B/op,Confidence,B/op,Confidence,vs base,P
+Foo-4,100,0%,125,0%,+25.00%,p=0.000 n=10
+`
+	rows, err := Parse(strings.NewReader(in))
+	if err == nil {
+		t.Fatalf("a drifted header was skipped behind an intact table: %+v", rows)
+	}
+}
+
 func TestRunReturnsFoundOnRegression(t *testing.T) {
 	var out strings.Builder
 	if got := run([]string{"detect", "-csv", writeTemp(t, "x.csv", regressedCSV)}, &out); got != exitFound {
