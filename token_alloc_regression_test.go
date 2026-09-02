@@ -3,6 +3,7 @@ package mssql
 import (
 	"encoding/binary"
 	"fmt"
+	"runtime"
 	"testing"
 
 	"github.com/microsoft/go-mssqldb/msdsn"
@@ -179,21 +180,44 @@ func TestReadVariantType_UnderflowPanics(t *testing.T) {
 
 // TestParseColMetadata72_BogusCountPanics is a regression test for issue #420:
 // parseColMetadata72 allocated make([]columnStruct, count) directly from the
-// attacker-controlled uint16 column count. Even within the uint16 ceiling a
-// count of 0xFFFE preallocates many MiB of columnStruct backing array. The
-// reader now grows the slice as each column is actually parsed, so a bogus
-// count with no backing data fails the stream as a StreamError (EOF while
-// reading the first column) instead of preallocating.
+// attacker-controlled uint16 column count, committing many MiB of columnStruct
+// backing array for a bogus count (up to 0xFFFE) before reading any column
+// bytes. The reader now grows the slice as each column is actually parsed.
+//
+// Asserting only that the parse fails as a StreamError does NOT guard this
+// regression: the pre-fix code panicked the same StreamError on this exact input
+// (it ran make([]columnStruct, 0xFFFE), entered the loop, and the first
+// getBaseTypeInfo read hit EOF and badStreamPanic'd) — the only difference was
+// the ~13 MiB allocated first, which is the whole point of the fix. The property
+// that actually changed is the allocation, so the test measures it.
 func TestParseColMetadata72_BogusCountPanics(t *testing.T) {
 	// A bogus-huge column count (0xFFFE, not the 0xFFFF "no metadata" sentinel)
-	// with no column data behind it. Parsing the first column must run past the
-	// end of the stream and panic a StreamError rather than allocating a giant
-	// slice up front.
+	// with no column data behind it.
 	stream := []byte{0xFE, 0xFF}
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
 	err := recoverErr(func() {
 		parseColMetadata72(bufFromBytes(stream), &tdsSession{})
 	})
+	runtime.ReadMemStats(&after)
+
+	// The parse must still fail cleanly as a StreamError once the wire data runs
+	// out (EOF while reading the first column).
 	assertStreamError(t, err)
+
+	// And it must not pre-size the column slice from the declared count.
+	// make([]columnStruct, 0xFFFE) is well over 10 MiB; the incremental path
+	// allocates only a bounded capacity hint (64 elements, a few KiB). TotalAlloc
+	// is cumulative process-wide bytes, so it only ever grows and GC cannot mask
+	// the pre-fix allocation. A 1 MiB ceiling sits an order of magnitude below
+	// that allocation and far above the new one, separating the two
+	// implementations with headroom on both sides. If someone later "simplifies"
+	// this back to make([]columnStruct, count), this bound goes red even though
+	// the StreamError assertion above would still pass.
+	if grew := after.TotalAlloc - before.TotalAlloc; grew > 1<<20 {
+		t.Fatalf("parsing a bogus column count allocated %d bytes; parseColMetadata72 must not pre-size the column slice from the declared count", grew)
+	}
 }
 
 // TestProcessSingleResponse_MalformedNoOOM feeds crafted malformed token streams
