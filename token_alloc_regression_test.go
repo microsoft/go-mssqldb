@@ -207,15 +207,23 @@ func TestParseColMetadata72_BogusCountPanics(t *testing.T) {
 	assertStreamError(t, err)
 
 	// And it must not pre-size the column slice from the declared count.
-	// make([]columnStruct, 0xFFFE) is well over 10 MiB; the incremental path
+	// make([]columnStruct, 0xFFFE) is well over 14 MiB; the incremental path
 	// allocates only a bounded capacity hint (64 elements, a few KiB). TotalAlloc
 	// is cumulative process-wide bytes, so it only ever grows and GC cannot mask
-	// the pre-fix allocation. A 1 MiB ceiling sits an order of magnitude below
-	// that allocation and far above the new one, separating the two
-	// implementations with headroom on both sides. If someone later "simplifies"
-	// this back to make([]columnStruct, count), this bound goes red even though
-	// the StreamError assertion above would still pass.
-	if grew := after.TotalAlloc - before.TotalAlloc; grew > 1<<20 {
+	// the pre-fix allocation.
+	//
+	// The ceiling is deliberately loose. TotalAlloc is process-global, and other
+	// tests in this package call t.Parallel(); although a non-parallel test like
+	// this one does not overlap the parallel batch, background goroutines left by
+	// earlier tests can still allocate during the measurement window. A very tight
+	// bound would make this test flaky. 4 MiB sits far above any such incidental
+	// noise (the bounded path plus background stays well under 1 MiB in practice)
+	// yet still an order of magnitude below the >14 MiB the pre-fix make() commits,
+	// so it separates the two implementations with headroom on both sides. If
+	// someone later "simplifies" this back to make([]columnStruct, count), this
+	// bound goes red even though the StreamError assertion above would still pass.
+	const allocCeiling = 4 << 20
+	if grew := after.TotalAlloc - before.TotalAlloc; grew > allocCeiling {
 		t.Fatalf("parsing a bogus column count allocated %d bytes; parseColMetadata72 must not pre-size the column slice from the declared count", grew)
 	}
 }
