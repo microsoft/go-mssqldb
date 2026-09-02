@@ -68,6 +68,45 @@ func TestQueryErrorDoesNotHangConnection(t *testing.T) {
 	}
 }
 
+func TestQueryErrorCompletesRemainingBatch(t *testing.T) {
+	checkConnStr(t)
+	db, _ := open(t)
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("CREATE TABLE #issue407_batch (value int NOT NULL)"); err != nil {
+		t.Fatal(err)
+	}
+
+	const batch = `
+SET NOCOUNT ON;
+INSERT INTO #issue407_batch VALUES (1);
+RAISERROR('issue407', 16, 1);
+WAITFOR DELAY '00:00:00.200';
+INSERT INTO #issue407_batch VALUES (2);`
+	rows, err := tx.Query(batch)
+	if rows != nil {
+		rows.Close()
+	}
+	if err == nil {
+		t.Fatal("expected server error from RAISERROR")
+	}
+
+	var count int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM #issue407_batch").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("statements after the error did not complete: got %d rows, want 2", count)
+	}
+}
+
 // TestQueryErrorDoesNotHangMessageLoop is the issue #407 regression test for the
 // message-loop (Rowsq) reader path that go-sqlcmd uses. That path is reached when
 // the caller passes a *sqlexp.ReturnMessage: processQueryResponse returns a Rowsq

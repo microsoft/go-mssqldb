@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -455,6 +456,80 @@ func TestDrain_PrioritizesCancellationOverBufferedTokens(t *testing.T) {
 	if bufferedAtAttention != cap(tokChan) {
 		t.Fatalf("attention was delayed until buffered tokens were consumed: got %d buffered tokens, want %d",
 			bufferedAtAttention, cap(tokChan))
+	}
+}
+
+func TestDrainBeforeCancel_CompletesResponseWithoutAttention(t *testing.T) {
+	t.Parallel()
+	ctx, cancelCtx := context.WithCancel(context.Background())
+	defer cancelCtx()
+
+	tokChan := make(chan tokenStruct, 5)
+	go func() {
+		defer close(tokChan)
+		for range 10 {
+			tokChan <- doneStruct{}
+		}
+	}()
+
+	cancelCalled := false
+	transport := &countingTransport{}
+	reader := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     ctx,
+		sess: &tdsSession{
+			buf: newTdsBuffer(defaultPacketSize, transport),
+		},
+	}
+
+	if err := reader.drainBeforeCancel(func() {
+		cancelCalled = true
+		cancelCtx()
+	}, time.Second); err != nil {
+		t.Fatalf("expected response to drain naturally: %v", err)
+	}
+	if cancelCalled {
+		t.Fatal("natural drain unexpectedly cancelled the response")
+	}
+	_, writeCalls := transport.counts()
+	if writeCalls != 0 {
+		t.Fatalf("natural drain sent %d attention packets, want 0", writeCalls)
+	}
+}
+
+func TestDrainBeforeCancel_EscalatesToAttentionAfterTimeout(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	attentionWritten := make(chan struct{})
+	var attentionOnce sync.Once
+	transport := &countingTransport{
+		onWrite: func() {
+			attentionOnce.Do(func() { close(attentionWritten) })
+		},
+	}
+	tokChan := make(chan tokenStruct, 1)
+	go func() {
+		defer close(tokChan)
+		<-attentionWritten
+		tokChan <- doneStruct{Status: doneAttn}
+	}()
+
+	reader := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     ctx,
+		sess: &tdsSession{
+			buf: newTdsBuffer(defaultPacketSize, transport),
+		},
+	}
+
+	if err := reader.drainBeforeCancel(cancel, 10*time.Millisecond); err != nil {
+		t.Fatalf("expected confirmed attention to complete drain: %v", err)
+	}
+	_, writeCalls := transport.counts()
+	if writeCalls == 0 {
+		t.Fatal("expected stalled natural drain to send attention")
 	}
 }
 

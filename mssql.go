@@ -841,19 +841,11 @@ loop:
 						// query on this session hangs in
 						// startResponseReader. See issue #407.
 						serverErr := s.c.checkBadConn(ctx, token.getError(), false)
-						cancel()
-						// drain returns nil only when the response was
-						// drained cleanly (end of response, or the server
-						// confirmed the cancellation attention). Any non-nil
-						// error means the reader may still be blocked, so this
-						// connection cannot be safely reused. Mark it bad
-						// unconditionally: checkBadConn only evicts for
-						// specific error types, but nextToken can surface an
-						// ordinary error from a failed attention write that
-						// would otherwise leave connectionGood true and hang
-						// the next query. The original server error is still
-						// returned to the caller.
-						if drainErr := reader.drain(); drainErr != nil {
+						// Drain naturally first so statements following the
+						// error retain their historical chance to complete.
+						// If that does not finish promptly,
+						// drainBeforeCancel cancels and sends attention.
+						if drainErr := reader.drainBeforeCancel(cancel, cancelDrainTimeout); drainErr != nil {
 							s.c.connectionGood = false
 						}
 						return nil, serverErr

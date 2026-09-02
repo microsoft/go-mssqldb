@@ -120,11 +120,11 @@ func TestProcessQueryResponse_ErrorTokenDoesNotLeakReader(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		stream = appendDoneToken(stream, tokenDoneInProc, doneMore)
 	}
-	stream = appendDoneToken(stream, tokenDone, doneAttn)
+	stream = appendDoneToken(stream, tokenDone, doneFinal)
 	packet := wrapReplyPacket(stream)
 
-	// countingTransport keeps reads and writes on separate streams so that an
-	// attention packet written during the drain does not corrupt reads.
+	// countingTransport records whether cleanup changed batch semantics by
+	// sending an attention packet.
 	transport := &countingTransport{reader: bytes.NewReader(packet)}
 	sess := &tdsSession{
 		buf:    newTdsBuffer(defaultPacketSize, transport),
@@ -170,6 +170,9 @@ func TestProcessQueryResponse_ErrorTokenDoesNotLeakReader(t *testing.T) {
 	}
 	assert.True(t, conn.connectionGood,
 		"a clean drain must preserve the connection for the next transactional query")
+	_, writeCalls := transport.counts()
+	assert.Zero(t, writeCalls,
+		"a naturally completed response must not send attention and abort the rest of the batch")
 }
 
 func TestSendAttentionWithTimeout_BoundsWrite(t *testing.T) {

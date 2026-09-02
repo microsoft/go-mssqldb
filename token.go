@@ -1311,20 +1311,45 @@ func (t *tokenProcessor) iterateResponse() error {
 	}
 }
 
-// drain discards any tokens the background processSingleResponse goroutine is
-// still producing after the caller has decided to stop reading the response
-// early (for example after an error DONE token that precedes additional result
-// sets). The token channel is only lightly buffered, so a producer that is not
-// drained blocks forever on a channel send, its deferred close never runs, and
-// the next query on the same session hangs in startResponseReader waiting on
+// drainBeforeCancel discards the remaining response without immediately sending
+// attention, preserving the execution of statements that follow a
+// statement-scoped error in the same batch. If the response does not finish
+// within timeout, it cancels the reader and escalates to drain, which sends
+// attention and bounds cancellation cleanup.
+func (t *tokenProcessor) drainBeforeCancel(cancel context.CancelFunc, timeout time.Duration) error {
+	drainCtx, drainCancel := context.WithTimeout(t.ctx, timeout)
+	defer drainCancel()
+
+	naturalDrain := *t
+	naturalDrain.ctx = drainCtx
+	naturalDrain.noAttn = true
+
+	for {
+		tok, err := naturalDrain.nextToken()
+		if err != nil {
+			if err == drainCtx.Err() {
+				cancel()
+				return t.drain()
+			}
+			return err
+		}
+		if tok == nil {
+			return nil
+		}
+	}
+}
+
+// drain discards tokens after the caller has cancelled the reader context. The
+// token channel is only lightly buffered, so a producer that is not drained
+// blocks forever on a channel send, its deferred close never runs, and the next
+// query on the same session hangs in startResponseReader waiting on
 // sess.readDone.
 //
-// The caller must cancel the reader context (via the cancel func returned when
-// the cancellable context was created) before calling drain. Cancelling lets
-// nextToken send an attention so the server stops streaming promptly and bounds
-// the wait via cancelDrainTimeout. drain then reads until nextToken reports the
-// response is finished, guaranteeing the reader goroutine exits and closes
-// sess.readDone. See issue #407.
+// The caller must cancel the reader context before calling drain. Cancelling
+// lets nextToken send an attention so the server stops streaming promptly and
+// bounds the wait via cancelDrainTimeout. drain then reads until nextToken
+// reports the response is finished, guaranteeing the reader goroutine exits and
+// closes sess.readDone. See issue #407.
 //
 // drain returns nil when the response was drained cleanly and a non-nil error
 // when it was not. A clean drain ends either because the reader reached the end
