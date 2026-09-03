@@ -286,6 +286,9 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodeParam
 
 // http://msdn.microsoft.com/en-us/library/ee780895.aspx
 func decodeDateTim4(buf []byte, loc *time.Location) time.Time {
+	if len(buf) != 4 {
+		badStreamPanic(fmt.Errorf("SMALLDATETIME value buffer size %d is invalid, expected 4", len(buf)))
+	}
 	days := binary.LittleEndian.Uint16(buf)
 	mins := binary.LittleEndian.Uint16(buf[2:])
 	return time.Date(1900, 1, 1+int(days),
@@ -343,6 +346,9 @@ func encodeDateTime(t time.Time) (res []byte) {
 }
 
 func decodeDateTime(buf []byte, loc *time.Location) time.Time {
+	if len(buf) != 8 {
+		badStreamPanic(fmt.Errorf("DATETIME value buffer size %d is invalid, expected 8", len(buf)))
+	}
 	days := int32(binary.LittleEndian.Uint32(buf))
 	tm := binary.LittleEndian.Uint32(buf[4:])
 	ns := threeHundredthsOfASecondToNanos(int(tm % 300))
@@ -405,12 +411,15 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 		return nil
 	}
 	loc := encoding.GetTimezone()
+	if int(size) > len(ti.Buffer) {
+		badStreamPanic(fmt.Errorf("byte-len value size %d exceeds column buffer %d", size, len(ti.Buffer)))
+	}
 	r.ReadFull(ti.Buffer[:size])
 	buf := ti.Buffer[:size]
 	switch ti.TypeId {
 	case typeDateN:
 		if len(buf) != 3 {
-			badStreamPanicf("Invalid size for DATENTYPE")
+			badStreamPanic(fmt.Errorf("Invalid size for DATENTYPE"))
 		}
 		return decodeDate(buf, loc)
 	case typeTimeN:
@@ -432,13 +441,13 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 		case 8:
 			return int64(binary.LittleEndian.Uint64(buf))
 		default:
-			badStreamPanicf("Invalid size for INTNTYPE: %d", len(buf))
+			badStreamPanic(fmt.Errorf("Invalid size for INTNTYPE: %d", len(buf)))
 		}
 	case typeDecimal, typeNumeric, typeDecimalN, typeNumericN:
 		return decodeDecimal(ti.Prec, ti.Scale, buf)
 	case typeBitN:
 		if len(buf) != 1 {
-			badStreamPanicf("Invalid size for BITNTYPE")
+			badStreamPanic(fmt.Errorf("Invalid size for BITNTYPE"))
 		}
 		return buf[0] != 0
 	case typeFltN:
@@ -448,7 +457,7 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 		case 8:
 			return math.Float64frombits(binary.LittleEndian.Uint64(buf))
 		default:
-			badStreamPanicf("Invalid size for FLTNTYPE")
+			badStreamPanic(fmt.Errorf("Invalid size for FLTNTYPE"))
 		}
 	case typeMoneyN:
 		switch len(buf) {
@@ -457,7 +466,7 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 		case 8:
 			return decodeMoney(buf)
 		default:
-			badStreamPanicf("Invalid size for MONEYNTYPE")
+			badStreamPanic(fmt.Errorf("Invalid size for MONEYNTYPE"))
 		}
 	case typeDateTim4:
 		return decodeDateTim4(buf, loc)
@@ -470,7 +479,7 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 		case 8:
 			return decodeDateTime(buf, loc)
 		default:
-			badStreamPanicf("Invalid size for DATETIMENTYPE")
+			badStreamPanic(fmt.Errorf("Invalid size for DATETIMENTYPE"))
 		}
 	case typeChar, typeVarChar:
 		return decodeChar(ti.Collation, buf)
@@ -482,7 +491,7 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 		copy(cpy, buf)
 		return cpy
 	default:
-		badStreamPanicf("Invalid typeid")
+		badStreamPanic(fmt.Errorf("Invalid typeid"))
 	}
 	panic("shouldn't get here")
 }
@@ -530,6 +539,9 @@ func readShortLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding ms
 	if size == 0xffff {
 		return nil
 	}
+	if int(size) > len(ti.Buffer) {
+		badStreamPanic(fmt.Errorf("short-len value size %d exceeds column buffer %d", size, len(ti.Buffer)))
+	}
 	r.ReadFull(ti.Buffer[:size])
 	buf := ti.Buffer[:size]
 	switch ti.TypeId {
@@ -547,7 +559,7 @@ func readShortLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding ms
 	case typeUdt:
 		return decodeUdt(*ti, buf)
 	default:
-		badStreamPanicf("Invalid typeid")
+		badStreamPanic(fmt.Errorf("Invalid typeid"))
 	}
 	panic("shoulnd't get here")
 }
@@ -953,6 +965,9 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 }
 
 func decodeMoney(buf []byte) []byte {
+	if len(buf) != 8 {
+		badStreamPanic(fmt.Errorf("MONEY value buffer size %d is invalid, expected 8", len(buf)))
+	}
 	money := int64(uint64(buf[4]) |
 		uint64(buf[5])<<8 |
 		uint64(buf[6])<<16 |
@@ -965,6 +980,9 @@ func decodeMoney(buf []byte) []byte {
 }
 
 func decodeMoney4(buf []byte) []byte {
+	if len(buf) != 4 {
+		badStreamPanic(fmt.Errorf("SMALLMONEY value buffer size %d is invalid, expected 4", len(buf)))
+	}
 	money := int32(binary.LittleEndian.Uint32(buf[0:4]))
 	return decimal.ScaleBytes(strconv.FormatInt(int64(money), 10), 4)
 }
@@ -981,6 +999,14 @@ func decodeGuid(buf []byte, encoding msdsn.EncodeParameters) []byte {
 }
 
 func decodeDecimal(prec uint8, scale uint8, buf []byte) []byte {
+	// A TDS decimal value is a 1-byte sign followed by 0, 4, 8, 12, or 16
+	// mantissa bytes (up to four little-endian uint32 words). The
+	// decimal.Decimal integer array is fixed at four words, and the len(buf)/4
+	// below silently drops a non-multiple-of-4 remainder, so reject any other
+	// length as malformed rather than decoding it incorrectly.
+	if len(buf) < 1 || len(buf) > 17 || (len(buf)-1)%4 != 0 {
+		badStreamPanic(fmt.Errorf("DECIMAL value buffer size %d is invalid", len(buf)))
+	}
 	sign := buf[0]
 	var dec decimal.Decimal
 	dec.SetPositive(sign != 0)
@@ -1002,6 +1028,9 @@ func decodeDateInt(buf []byte) (days int) {
 }
 
 func decodeDate(buf []byte, loc *time.Location) time.Time {
+	if len(buf) != 3 {
+		badStreamPanic(fmt.Errorf("DATE value buffer size %d is invalid, expected 3", len(buf)))
+	}
 	return time.Date(1, 1, 1+decodeDateInt(buf), 0, 0, 0, 0, loc)
 }
 
@@ -1057,6 +1086,12 @@ func encodeTimeInt(seconds, ns, scale int, buf []byte) {
 }
 
 func decodeTime(scale uint8, buf []byte, loc *time.Location) time.Time {
+	if scale > 7 {
+		badStreamPanic(fmt.Errorf("invalid scale %d for TIME value", scale))
+	}
+	if len(buf) != calcTimeSize(int(scale)) {
+		badStreamPanic(fmt.Errorf("TIME value buffer size %d is invalid, expected %d", len(buf), calcTimeSize(int(scale))))
+	}
 	sec, ns := decodeTimeInt(scale, buf)
 	return time.Date(1, 1, 1, 0, 0, sec, ns, loc)
 }
@@ -1069,6 +1104,12 @@ func encodeTime(hour, minute, second, ns, scale int) (buf []byte) {
 }
 
 func decodeDateTime2(scale uint8, buf []byte, loc *time.Location) time.Time {
+	if scale > 7 {
+		badStreamPanic(fmt.Errorf("invalid scale %d for DATETIME2 value", scale))
+	}
+	if len(buf) != calcTimeSize(int(scale))+3 {
+		badStreamPanic(fmt.Errorf("DATETIME2 value buffer size %d is invalid, expected %d", len(buf), calcTimeSize(int(scale))+3))
+	}
 	timesize := len(buf) - 3
 	sec, ns := decodeTimeInt(scale, buf[:timesize])
 	days := decodeDateInt(buf[timesize:])
@@ -1087,6 +1128,12 @@ func encodeDateTime2(val time.Time, scale int) (buf []byte) {
 }
 
 func decodeDateTimeOffset(scale uint8, buf []byte) time.Time {
+	if scale > 7 {
+		badStreamPanic(fmt.Errorf("invalid scale %d for DATETIMEOFFSET value", scale))
+	}
+	if len(buf) != calcTimeSize(int(scale))+3+2 {
+		badStreamPanic(fmt.Errorf("DATETIMEOFFSET value buffer size %d is invalid, expected %d", len(buf), calcTimeSize(int(scale))+3+2))
+	}
 	timesize := len(buf) - 3 - 2
 	sec, ns := decodeTimeInt(scale, buf[:timesize])
 	buf = buf[timesize:]
