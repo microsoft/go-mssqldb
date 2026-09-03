@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"io"
 	"regexp"
 	"sync"
@@ -488,8 +489,8 @@ func TestDrainBeforeCancel_CompletesResponseWithoutAttention(t *testing.T) {
 	}, time.Second); err != nil {
 		t.Fatalf("expected response to drain naturally: %v", err)
 	}
-	if cancelCalled {
-		t.Fatal("natural drain unexpectedly cancelled the response")
+	if !cancelCalled {
+		t.Fatal("natural drain did not release the reader context")
 	}
 	_, writeCalls := transport.counts()
 	if writeCalls != 0 {
@@ -530,6 +531,29 @@ func TestDrainBeforeCancel_EscalatesToAttentionAfterTimeout(t *testing.T) {
 	_, writeCalls := transport.counts()
 	if writeCalls == 0 {
 		t.Fatal("expected stalled natural drain to send attention")
+	}
+}
+
+func TestDrainBeforeCancel_ErrorReleasesReaderContext(t *testing.T) {
+	t.Parallel()
+	sentinel := errors.New("parse failed")
+	tokChan := make(chan tokenStruct, 1)
+	tokChan <- sentinel
+	close(tokChan)
+
+	cancelCalled := false
+	reader := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     context.Background(),
+		sess:    &tdsSession{logger: optionalLogger{}},
+	}
+
+	err := reader.drainBeforeCancel(func() { cancelCalled = true }, time.Second)
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("expected parse error, got %v", err)
+	}
+	if !cancelCalled {
+		t.Fatal("error exit did not release the reader context")
 	}
 }
 

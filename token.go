@@ -1317,6 +1317,8 @@ func (t *tokenProcessor) iterateResponse() error {
 // within timeout, it cancels the reader and escalates to drain, which sends
 // attention and bounds cancellation cleanup.
 func (t *tokenProcessor) drainBeforeCancel(cancel context.CancelFunc, timeout time.Duration) error {
+	defer cancel()
+
 	drainCtx, drainCancel := context.WithTimeout(t.ctx, timeout)
 	defer drainCancel()
 
