@@ -91,6 +91,31 @@ func TestParseFedAuthInfo_MalformedAllocations(t *testing.T) {
 			stream:  append(u32(_MAX_FEDAUTHINFO_LEN+1), u32(0)...),
 			wantSub: "exceeds maximum",
 		},
+		// An option whose dataOffset+dataLength overflows uint32. This reaches the
+		// second loop (all cases above panic at the size cap or the option-count
+		// check, so nothing else exercises it) and is the only input that
+		// distinguishes the uint64 overflow check from the pre-fix uint32 one.
+		// Body: size=13, count=1, then one option {ID=STSURL, dataLength=0xFFFFFFF7,
+		// dataOffset=13}. After the header loop offset==13, so data is empty. Pre-fix
+		// the check computed dataOffset+dataLength in uint32: 13+0xFFFFFFF7 wraps to
+		// 4, 4 > 13 is false, the check passes, and data[0:0xFFFFFFF7] then panics a
+		// slice-bounds runtime.Error — which processSingleResponse recovers as a
+		// generic panic, not a StreamError, so the connection is not marked bad and
+		// is returned to the pool poisoned. In uint64 the sum is ~4 GiB, so it fails
+		// cleanly as a StreamError. This case fails without the uint64 change.
+		"data offset plus length overflow": func() struct {
+			stream  []byte
+			wantSub string
+		} {
+			b := append(u32(13), u32(1)...)
+			b = append(b, fedAuthInfoSTSURL)
+			b = append(b, u32(0xFFFFFFF7)...) // dataLength (read before dataOffset)
+			b = append(b, u32(13)...)         // dataOffset == offset, so it clears the "before data begins" check
+			return struct {
+				stream  []byte
+				wantSub string
+			}{stream: b, wantSub: "exceeds token size"}
+		}(),
 	}
 
 	for name, tc := range cases {

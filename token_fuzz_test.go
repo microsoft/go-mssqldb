@@ -582,6 +582,17 @@ func FuzzProcessSingleResponse(f *testing.F) {
 	f.Add([]byte{byte(tokenFedAuthInfo), 8, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF}, uint16(0))
 	// COLMETADATA with a bogus-huge column count (0xFFFE) and no column data.
 	f.Add([]byte{byte(tokenColMetadata), 0xFE, 0xFF}, uint16(0))
+	// FEDAUTHINFO option whose dataOffset+dataLength overflows uint32: size=13,
+	// count=1, then {ID=STSURL, dataLength=0xFFFFFFF7, dataOffset=13}. Pre-fix the
+	// uint32 sum wrapped past the bounds check and drove a slice-bounds panic; it
+	// must now surface as an error token.
+	f.Add([]byte{byte(tokenFedAuthInfo),
+		13, 0, 0, 0, // size
+		1, 0, 0, 0, // count
+		fedAuthInfoSTSURL,
+		0xF7, 0xFF, 0xFF, 0xFF, // dataLength
+		13, 0, 0, 0, // dataOffset
+	}, uint16(0))
 
 	f.Fuzz(func(t *testing.T, stream []byte, frag uint16) {
 		// Bound input size to keep framing and allocations reasonable. A TDS
