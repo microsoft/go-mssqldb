@@ -82,6 +82,17 @@ const _PLP_TERMINATOR = 0x00000000
 // malformed stream rather than a value we should try to read.
 const _MAX_PLP_LEN = 0x7FFFFFFF
 
+// _MAX_VARIANT_LEN is the largest data length a sql_variant value can
+// legitimately advertise. On SQL Server a sql_variant occupies at most 8016
+// bytes total, which is 8000 bytes of value data plus up to 16 bytes of type
+// metadata. We use that 8016 total as a single conservative upper bound for the
+// trailing data allocation (rather than tracking the exact per-type metadata
+// size), and a sql_variant is never a (max)/LOB type, so any larger length is a
+// malformed stream. Bounding it well below _MAX_PLP_LEN keeps an
+// attacker-controlled size prefix from driving a multi-gigabyte allocation
+// (issue #420).
+const _MAX_VARIANT_LEN = 8016
+
 // TVP COLUMN FLAGS
 const _TVP_END_TOKEN = 0x00
 const _TVP_ROW_TOKEN = 0x01
@@ -574,8 +585,29 @@ func readLongLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msd
 	if size == -1 {
 		return nil
 	}
-	buf := make([]byte, size)
-	r.ReadFull(buf)
+	// The advertised size is attacker-controlled; reject a negative length
+	// before using it (issue #420). A non-negative int32 is inherently within
+	// the protocol LOB maximum (_MAX_PLP_LEN == max int32).
+	if size < 0 {
+		badStreamPanic(fmt.Errorf("invalid TEXT/NTEXT/IMAGE length %d: must be non-negative and within the maximum LOB size of %d bytes", size, int64(_MAX_PLP_LEN)))
+	}
+	// Grow the buffer with the bytes actually received rather than
+	// preallocating the full advertised size, so a hostile server cannot force
+	// a multi-GiB allocation by advertising a huge length and then truncating
+	// the stream (OOM DoS, issue #420). A short read fails the stream cleanly
+	// as an unexpected EOF.
+	var bb bytes.Buffer
+	if initialCap := int64(size); initialCap > 0 {
+		const maxInitialCap = 1 << 16
+		if initialCap > maxInitialCap {
+			initialCap = maxInitialCap
+		}
+		bb.Grow(int(initialCap))
+	}
+	if _, err := io.CopyN(&bb, r, int64(size)); err != nil {
+		badStreamPanic(fmt.Errorf("reading %d-byte TEXT/NTEXT/IMAGE value failed: %w", size, err))
+	}
+	buf := bb.Bytes()
 	switch ti.TypeId {
 	case typeText:
 		return decodeChar(ti.Collation, buf)
@@ -584,9 +616,9 @@ func readLongLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msd
 	case typeNText:
 		return decodeNChar(buf)
 	default:
-		badStreamPanicf("Invalid typeid")
+		badStreamPanic(fmt.Errorf("invalid type id %d for variable-length type", ti.TypeId))
 	}
-	panic("shoulnd't get here")
+	panic("shouldn't get here")
 }
 func writeLongLenType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error) {
 	if buf == nil {
@@ -655,6 +687,14 @@ func readVariantTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 	}
 	vartype := r.byte()
 	propbytes := int32(r.byte())
+	// size-2-propbytes is the trailing data length and is used below as an
+	// allocation size. It is derived from an attacker-controlled size prefix,
+	// so reject an underflowed (negative) or implausibly large value before any
+	// make() to avoid an OOM DoS (issue #420). A sql_variant tops out at ~8 KB
+	// on the wire, so it is bounded far below the LOB ceiling.
+	if datalen := size - 2 - propbytes; datalen < 0 || datalen > _MAX_VARIANT_LEN {
+		badStreamPanic(fmt.Errorf("sql_variant data length %d is invalid", datalen))
+	}
 	switch vartype {
 	case typeGuid:
 		buf := make([]byte, size-2-propbytes)

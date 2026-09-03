@@ -500,8 +500,23 @@ type fedAuthInfoOpt struct {
 	dataLength, dataOffset uint32
 }
 
+// _MAX_FEDAUTHINFO_LEN bounds the total FEDAUTHINFO token size. The token
+// carries only a STSURL and SPN: the STSURL is a login endpoint and the SPN a
+// service principal name, both short URL/UPN-shaped strings encoded in UTF-16,
+// so a few hundred bytes each is realistic and even a pathological pair stays
+// well under 64 KiB. 1 MiB is therefore many times any legitimate token while
+// still small enough that rejecting past it costs nothing; any larger advertised
+// size is a malformed or hostile stream rather than something we should allocate
+// for. The cap keeps an attacker-controlled length prefix from driving an
+// unbounded allocation (OOM DoS, issue #420); a violation fails the stream as a
+// StreamError.
+const _MAX_FEDAUTHINFO_LEN = 1 << 20
+
 func parseFedAuthInfo(r *tdsBuffer) fedAuthInfoStruct {
 	size := r.uint32()
+	if size > _MAX_FEDAUTHINFO_LEN {
+		badStreamPanic(fmt.Errorf("federated authentication info size %d exceeds maximum of %d bytes", size, _MAX_FEDAUTHINFO_LEN))
+	}
 
 	var STSURL, SPN string
 	var err error
@@ -510,6 +525,12 @@ func parseFedAuthInfo(r *tdsBuffer) fedAuthInfoStruct {
 	// then a four byte offset and a four byte length.
 	count := r.uint32()
 	offset := uint32(4)
+	// The option headers (9 bytes each) plus the trailing data must all fit
+	// within the advertised token size. Reject a count that cannot fit before
+	// allocating, so a bogus count cannot pre-allocate gigabytes of options.
+	if uint64(count)*9+uint64(offset) > uint64(size) {
+		badStreamPanic(fmt.Errorf("federated authentication info advertised %d options that do not fit in %d bytes", count, size))
+	}
 	opts := make([]fedAuthInfoOpt, count)
 
 	for i := uint32(0); i < count; i++ {
@@ -530,14 +551,16 @@ func parseFedAuthInfo(r *tdsBuffer) fedAuthInfoStruct {
 
 	for i := uint32(0); i < count; i++ {
 		if opts[i].dataOffset < offset {
-			badStreamPanicf("Fed auth info opt stated data offset %d is before data begins in packet at %d",
-				opts[i].dataOffset, offset)
+			badStreamPanic(fmt.Errorf("fed auth info opt stated data offset %d is before data begins in token at %d",
+				opts[i].dataOffset, offset))
 			// returns via panic
 		}
 
-		if opts[i].dataOffset+opts[i].dataLength > size {
-			badStreamPanicf("Fed auth info opt stated data length %d added to stated offset exceeds size of packet %d",
-				opts[i].dataOffset+opts[i].dataLength, size)
+		// Compute in uint64 so an attacker-controlled offset+length cannot
+		// overflow uint32 and slip past this bounds check (issue #420).
+		if uint64(opts[i].dataOffset)+uint64(opts[i].dataLength) > uint64(size) {
+			badStreamPanic(fmt.Errorf("fed auth info opt data offset %d plus length %d exceeds token size %d",
+				opts[i].dataOffset, opts[i].dataLength, size))
 			// returns via panic
 		}
 
@@ -653,15 +676,32 @@ func parseColMetadata72(r *tdsBuffer, s *tdsSession) (columns []columnStruct) {
 		// no metadata is sent
 		return nil
 	}
-	columns = make([]columnStruct, count)
 	var cekTable *cekTable
 	if s.alwaysEncrypted {
 		// column encryption key list
 		cekTable = readCekTable(r)
 	}
 
-	for i := range columns {
-		column := &columns[i]
+	// Grow the column slice as each column is actually parsed rather than
+	// preallocating make([]columnStruct, count). count is an attacker-controlled
+	// uint16 and columnStruct is large, so pre-sizing from the count alone lets a
+	// bogus value (up to 0xFFFE) commit many MiB up front before any of the
+	// backing bytes are read (OOM DoS, issue #420). The loop still iterates count
+	// times per protocol, but parsing each column consumes bytes from the stream,
+	// so a count that outruns the data fails via badStreamPanic (EOF) after only
+	// the columns actually present are read; the slice therefore never grows past
+	// what the server genuinely sent, no matter how large the declared count is.
+	// The capacity hint is bounded so the count cannot drive even the first
+	// allocation.
+	const initialColumnCap = 64
+	capHint := int(count)
+	if capHint > initialColumnCap {
+		capHint = initialColumnCap
+	}
+	columns = make([]columnStruct, 0, capHint)
+
+	for i := 0; i < int(count); i++ {
+		var column columnStruct
 		baseTi := getBaseTypeInfo(r, true)
 		typeInfo := readTypeInfo(r, baseTi.TypeId, column.cryptoMeta, s.encoding)
 		typeInfo.UserType = baseTi.UserType
@@ -682,6 +722,7 @@ func parseColMetadata72(r *tdsBuffer, s *tdsSession) (columns []columnStruct) {
 		}
 
 		column.ColName = r.BVarChar()
+		columns = append(columns, column)
 	}
 	return columns
 }
