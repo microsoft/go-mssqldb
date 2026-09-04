@@ -280,6 +280,11 @@ func TestStrictEncryptionRespectsContextDeadline(t *testing.T) {
 	if result.elapsed > 5*time.Second {
 		t.Errorf("Connection took %v, expected it to respect the 500ms context deadline", result.elapsed)
 	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("context deadline did not fire")
+	}
 	if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		t.Errorf("context error = %v, want DeadlineExceeded", ctx.Err())
 	}
