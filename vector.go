@@ -649,6 +649,9 @@ func float16ToFloat32(value uint16) float32 {
 
 // copyFloat32Slice returns a copy of the input slice.
 func copyFloat32Slice(src []float32) []float32 {
+	if src == nil {
+		return nil
+	}
 	dst := make([]float32, len(src))
 	copy(dst, src)
 	return dst
@@ -687,6 +690,9 @@ func NewVectorFromFloat64(values []float64) (Vector, error) {
 	max := VectorElementFloat32.MaxDimensions()
 	if len(values) > max {
 		return Vector{}, fmt.Errorf("mssql: vector dimensions %d exceeds maximum %d for %s", len(values), max, VectorElementFloat32)
+	}
+	if values == nil {
+		return Vector{ElementType: VectorElementFloat32}, nil
 	}
 	data := make([]float32, len(values))
 	for i, val := range values {
