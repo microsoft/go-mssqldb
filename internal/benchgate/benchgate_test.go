@@ -32,7 +32,7 @@ func TestParseReadsNameUnitAndDelta(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("got %d rows, want 2 (geomean must be excluded): %+v", len(rows), rows)
 	}
-	if rows[0] != (Row{Name: "Foo-4", Unit: "sec/op", Delta: 25, Significant: true}) {
+	if rows[0] != (Row{Package: "github.com/microsoft/go-mssqldb", Name: "Foo-4", Unit: "sec/op", Delta: 25, Significant: true}) {
 		t.Errorf("first row = %+v", rows[0])
 	}
 	if rows[1].Significant {
@@ -165,6 +165,26 @@ Bar-4,5e+07,0%,6.25e+07,0%,+25.00%,p=0.000 n=10
 	}
 }
 
+func TestParseTracksPackagePreamble(t *testing.T) {
+	const in = `pkg: example.com/root
+,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Foo-4,1e-07,0%,1.25e-07,0%,+25.00%,p=0.000 n=10
+
+pkg: example.com/root/msdsn
+,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Foo-4,1e-07,0%,1.25e-07,0%,+25.00%,p=0.000 n=10
+`
+	rows := parseString(t, in)
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows, want 2: %+v", len(rows), rows)
+	}
+	if rows[0].Package != "example.com/root" || rows[1].Package != "example.com/root/msdsn" {
+		t.Errorf("packages = %q, %q", rows[0].Package, rows[1].Package)
+	}
+}
+
 // The mirror of the gain case: throughput falling is a regression even though
 // the delta is negative, so the threshold applies in the opposite direction.
 func TestRegressionsCatchThroughputLosses(t *testing.T) {
@@ -211,14 +231,14 @@ func TestRegressionsThreshold(t *testing.T) {
 		row   Row
 		wants bool
 	}{
-		{"above threshold", Row{"Foo-4", "sec/op", 25, true}, true},
-		{"exactly at threshold", Row{"Foo-4", "sec/op", 15, true}, true},
-		{"below threshold", Row{"Foo-4", "sec/op", 14.99, true}, false},
-		{"not significant", Row{"Foo-4", "sec/op", 25, false}, false},
-		{"allocs count", Row{"Foo-4", "allocs/op", 25, true}, true},
-		{"bytes per op", Row{"Foo-4", "B/op", 25, true}, true},
-		{"throughput", Row{"Foo-4", "B/s", 25, true}, false},
-		{"unknown unit", Row{"Foo-4", "widgets/op", 25, true}, false},
+		{"above threshold", Row{Name: "Foo-4", Unit: "sec/op", Delta: 25, Significant: true}, true},
+		{"exactly at threshold", Row{Name: "Foo-4", Unit: "sec/op", Delta: 15, Significant: true}, true},
+		{"below threshold", Row{Name: "Foo-4", Unit: "sec/op", Delta: 14.99, Significant: true}, false},
+		{"not significant", Row{Name: "Foo-4", Unit: "sec/op", Delta: 25}, false},
+		{"allocs count", Row{Name: "Foo-4", Unit: "allocs/op", Delta: 25, Significant: true}, true},
+		{"bytes per op", Row{Name: "Foo-4", Unit: "B/op", Delta: 25, Significant: true}, true},
+		{"throughput", Row{Name: "Foo-4", Unit: "B/s", Delta: 25, Significant: true}, false},
+		{"unknown unit", Row{Name: "Foo-4", Unit: "widgets/op", Delta: 25, Significant: true}, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got := len(Regressions([]Row{tt.row})) == 1
@@ -288,5 +308,16 @@ func TestConfirmRequiresReproduction(t *testing.T) {
 	notAgain := []Row{{Name: "Foo-4", Unit: "sec/op", Delta: 1.2, Significant: true}}
 	if got := Confirm(notAgain, flagged); len(got) != 0 {
 		t.Errorf("a 1.2%% second measurement confirmed a 25%% candidate: %+v", got)
+	}
+}
+
+func TestConfirmMatchesPackage(t *testing.T) {
+	flagged := []Key{{Package: "example.com/root", Name: "Foo-4", Unit: "sec/op"}}
+	recheck := []Row{
+		{Package: "example.com/root", Name: "Foo-4", Unit: "sec/op", Delta: 1, Significant: false},
+		{Package: "example.com/root/msdsn", Name: "Foo-4", Unit: "sec/op", Delta: 25, Significant: true},
+	}
+	if got := Confirm(recheck, flagged); len(got) != 0 {
+		t.Errorf("a same-named benchmark in another package confirmed the candidate: %+v", got)
 	}
 }

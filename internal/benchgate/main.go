@@ -56,7 +56,7 @@ func parseFile(path string) ([]Row, error) {
 func detect(args []string) (int, error) {
 	fs := flag.NewFlagSet("detect", flag.ContinueOnError)
 	csvPath := fs.String("csv", "", "benchstat -format=csv output")
-	flaggedPath := fs.String("flagged", "", "file to write flagged name/unit pairs to")
+	flaggedPath := fs.String("flagged", "", "file to write flagged package/name/unit keys to")
 	selectorPath := fs.String("selector", "", "file to write the -bench selector to")
 	if err := fs.Parse(args); err != nil {
 		return exitFailure, err
@@ -101,7 +101,7 @@ func detect(args []string) (int, error) {
 func confirm(args []string) (int, error) {
 	fs := flag.NewFlagSet("confirm", flag.ContinueOnError)
 	csvPath := fs.String("csv", "", "benchstat -format=csv output for the confirmation run")
-	flaggedPath := fs.String("flagged", "", "name/unit pairs written by detect")
+	flaggedPath := fs.String("flagged", "", "package/name/unit keys written by detect")
 	if err := fs.Parse(args); err != nil {
 		return exitFailure, err
 	}
@@ -140,7 +140,7 @@ func confirm(args []string) (int, error) {
 func writeFlagged(path string, rows []Row) error {
 	var b strings.Builder
 	for _, r := range rows {
-		_, _ = fmt.Fprintf(&b, "%s\t%s\n", r.Name, r.Unit)
+		_, _ = fmt.Fprintf(&b, "%s\t%s\t%s\n", r.Package, r.Name, r.Unit)
 	}
 	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
@@ -154,11 +154,11 @@ func readFlagged(path string) ([]Key, error) {
 	var keys []Key
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
-		parts := strings.SplitN(sc.Text(), "\t", 2)
-		if len(parts) != 2 {
+		parts := strings.SplitN(sc.Text(), "\t", 3)
+		if len(parts) != 3 {
 			continue
 		}
-		keys = append(keys, Key{parts[0], parts[1]})
+		keys = append(keys, Key{parts[0], parts[1], parts[2]})
 	}
 	return keys, sc.Err()
 }

@@ -19,20 +19,22 @@ const RegressionThreshold = 15.0
 
 // Row is one benchmark measurement in one unit.
 type Row struct {
+	Package     string
 	Name        string
 	Unit        string
 	Delta       float64 // percent, as benchstat signs it
 	Significant bool
 }
 
-// Key identifies a measurement. A benchmark appears once per unit, and those
-// are separate results: sec/op regressing is not B/op regressing.
+// Key identifies a measurement. Package and unit are both significant: the
+// workflow measures multiple packages, and each benchmark appears once per unit.
 type Key struct {
-	Name string
-	Unit string
+	Package string
+	Name    string
+	Unit    string
 }
 
-func (r Row) Key() Key { return Key{r.Name, r.Unit} }
+func (r Row) Key() Key { return Key{r.Package, r.Name, r.Unit} }
 
 // unitDirection maps a benchstat unit to whether smaller is better. Units are
 // listed explicitly because guessing a direction is worse than not knowing one:
@@ -75,6 +77,7 @@ func Parse(r io.Reader) ([]Row, error) {
 	cr.FieldsPerRecord = -1
 
 	var rows []Row
+	pkg := ""
 	unit := ""
 	for {
 		rec, err := cr.Read()
@@ -83,6 +86,10 @@ func Parse(r io.Reader) ([]Row, error) {
 		}
 		if err != nil {
 			return nil, fmt.Errorf("read csv: %w", err)
+		}
+		if len(rec) == 1 && strings.HasPrefix(rec[0], "pkg: ") {
+			pkg = strings.TrimSpace(strings.TrimPrefix(rec[0], "pkg: "))
+			continue
 		}
 		switch {
 		case len(rec) >= 3 && rec[0] == "" && rec[2] == "CI":
@@ -119,7 +126,7 @@ func Parse(r io.Reader) ([]Row, error) {
 			}
 			continue
 		}
-		row := Row{Name: rec[0], Unit: unit}
+		row := Row{Package: pkg, Name: rec[0], Unit: unit}
 		switch d := strings.TrimSpace(rec[5]); {
 		case d == "":
 			if bothSidesMeasured(rec) {
@@ -210,8 +217,8 @@ func Selector(rows []Row) string {
 }
 
 // Confirm returns the flagged measurements that regressed again. Matching is by
-// name and unit: the same benchmark regressing in a different metric is not the
-// candidate reproducing.
+// package, name, and unit so a same-named benchmark or different metric is not
+// mistaken for the candidate reproducing.
 func Confirm(recheck []Row, flagged []Key) []Row {
 	want := make(map[Key]bool, len(flagged))
 	for _, k := range flagged {

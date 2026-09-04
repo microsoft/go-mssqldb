@@ -15,12 +15,14 @@ func writeTemp(t *testing.T, name, content string) string {
 	return p
 }
 
-const cleanCSV = `,old,,new,,,
+const cleanCSV = `pkg: example.com/root
+,old,,new,,,
 ,sec/op,CI,sec/op,CI,vs base,P
 Foo-4,1e-07,0%,1.01e-07,0%,~,p=0.400 n=10
 `
 
-const regressedCSV = `,old,,new,,,
+const regressedCSV = `pkg: example.com/root
+,old,,new,,,
 ,sec/op,CI,sec/op,CI,vs base,P
 Foo-4,1e-07,0%,1.25e-07,0%,+25.00%,p=0.000 n=10
 `
@@ -76,7 +78,7 @@ func TestDetectWritesFlaggedAndSelector(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != "Foo-4\tsec/op\n" {
+	if string(got) != "example.com/root\tFoo-4\tsec/op\n" {
 		t.Errorf("flagged = %q", got)
 	}
 	sel, err := os.ReadFile(selector)
@@ -95,7 +97,7 @@ func TestDetectMissingFile(t *testing.T) {
 }
 
 func TestConfirmExitCodes(t *testing.T) {
-	flagged := writeTemp(t, "flagged.tsv", "Foo-4\tsec/op\n")
+	flagged := writeTemp(t, "flagged.tsv", "example.com/root\tFoo-4\tsec/op\n")
 
 	code, err := confirm([]string{"-csv", writeTemp(t, "a.csv", regressedCSV), "-flagged", flagged})
 	if err != nil || code != exitFound {
@@ -121,8 +123,8 @@ func TestConfirmExitCodes(t *testing.T) {
 func TestFlaggedRoundTrip(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "flagged.tsv")
 	rows := []Row{
-		{Name: "Foo/size=1,024-4", Unit: "sec/op"},
-		{Name: "Bar-4", Unit: "B/op"},
+		{Package: "example.com/root", Name: "Foo/size=1,024-4", Unit: "sec/op"},
+		{Package: "example.com/root/msdsn", Name: "Bar-4", Unit: "B/op"},
 	}
 	if err := writeFlagged(p, rows); err != nil {
 		t.Fatal(err)
@@ -131,7 +133,10 @@ func TestFlaggedRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Key{{"Foo/size=1,024-4", "sec/op"}, {"Bar-4", "B/op"}}
+	want := []Key{
+		{Package: "example.com/root", Name: "Foo/size=1,024-4", Unit: "sec/op"},
+		{Package: "example.com/root/msdsn", Name: "Bar-4", Unit: "B/op"},
+	}
 	if len(got) != len(want) {
 		t.Fatalf("got %d keys, want %d", len(got), len(want))
 	}
@@ -143,7 +148,7 @@ func TestFlaggedRoundTrip(t *testing.T) {
 }
 
 func TestReadFlaggedSkipsMalformedLines(t *testing.T) {
-	p := writeTemp(t, "flagged.tsv", "Foo-4\tsec/op\nnotabhere\n\nBar-4\tB/op\n")
+	p := writeTemp(t, "flagged.tsv", "example.com/root\tFoo-4\tsec/op\nnotabhere\n\nexample.com/root/msdsn\tBar-4\tB/op\n")
 	got, err := readFlagged(p)
 	if err != nil {
 		t.Fatal(err)

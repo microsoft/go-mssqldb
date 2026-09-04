@@ -9,7 +9,7 @@ import (
 
 func TestRunDispatch(t *testing.T) {
 	csv := writeTemp(t, "in.csv", cleanCSV)
-	flagged := writeTemp(t, "flagged.tsv", "Foo-4\tsec/op\n")
+	flagged := writeTemp(t, "flagged.tsv", "example.com/root\tFoo-4\tsec/op\n")
 
 	for _, tt := range []struct {
 		name string
@@ -59,7 +59,7 @@ func TestConfirmRejectsUnknownFlag(t *testing.T) {
 
 func TestConfirmMissingFiles(t *testing.T) {
 	csv := writeTemp(t, "in.csv", regressedCSV)
-	flagged := writeTemp(t, "flagged.tsv", "Foo-4\tsec/op\n")
+	flagged := writeTemp(t, "flagged.tsv", "example.com/root\tFoo-4\tsec/op\n")
 
 	if _, err := confirm([]string{"-csv", filepath.Join(t.TempDir(), "absent.csv"), "-flagged", flagged}); err == nil {
 		t.Error("want an error for a missing csv file")
@@ -144,12 +144,13 @@ func TestWriteFlaggedSurfacesErrors(t *testing.T) {
 // recheck can come back full of siblings while the candidate itself never ran.
 // Non-empty output must not be read as "the candidate came back clean".
 func TestConfirmFailsWhenCandidateWasNotRemeasured(t *testing.T) {
-	const siblingsOnly = `,old,,new,,,
+	const siblingsOnly = `pkg: example.com/root
+,old,,new,,,
 ,sec/op,CI,sec/op,CI,vs base,P
 Parent/Other-4,1e-07,0%,1e-07,0%,~,p=0.900 n=10
 `
 	csv := writeTemp(t, "recheck.csv", siblingsOnly)
-	flagged := writeTemp(t, "flagged.tsv", "Parent/Sub-4\tsec/op\n")
+	flagged := writeTemp(t, "flagged.tsv", "example.com/root\tParent/Sub-4\tsec/op\n")
 
 	code, err := confirm([]string{"-csv", csv, "-flagged", flagged})
 	if err == nil {
@@ -165,13 +166,14 @@ Parent/Other-4,1e-07,0%,1e-07,0%,~,p=0.900 n=10
 
 // A candidate that was remeasured and came back clean is still noise.
 func TestConfirmAcceptsNoiseOnlyWhenCandidateWasRemeasured(t *testing.T) {
-	const remeasured = `,old,,new,,,
+	const remeasured = `pkg: example.com/root
+,old,,new,,,
 ,sec/op,CI,sec/op,CI,vs base,P
 Parent/Sub-4,1e-07,0%,1e-07,0%,~,p=0.900 n=10
 Parent/Other-4,1e-07,0%,1e-07,0%,~,p=0.900 n=10
 `
 	csv := writeTemp(t, "recheck.csv", remeasured)
-	flagged := writeTemp(t, "flagged.tsv", "Parent/Sub-4\tsec/op\n")
+	flagged := writeTemp(t, "flagged.tsv", "example.com/root\tParent/Sub-4\tsec/op\n")
 
 	code, err := confirm([]string{"-csv", csv, "-flagged", flagged})
 	if err != nil {
@@ -192,10 +194,11 @@ func TestUnmeasured(t *testing.T) {
 		flagged []Key
 		want    int
 	}{
-		{"all present", []Key{{"Foo-4", "sec/op"}}, 0},
-		{"name absent", []Key{{"Bar-4", "sec/op"}}, 1},
-		{"same name, different unit", []Key{{"Foo-4", "allocs/op"}}, 1},
-		{"mixed", []Key{{"Foo-4", "sec/op"}, {"Bar-4", "sec/op"}}, 1},
+		{"all present", []Key{{Name: "Foo-4", Unit: "sec/op"}}, 0},
+		{"name absent", []Key{{Name: "Bar-4", Unit: "sec/op"}}, 1},
+		{"same name, different unit", []Key{{Name: "Foo-4", Unit: "allocs/op"}}, 1},
+		{"same name and unit, different package", []Key{{Package: "example.com/other", Name: "Foo-4", Unit: "sec/op"}}, 1},
+		{"mixed", []Key{{Name: "Foo-4", Unit: "sec/op"}, {Name: "Bar-4", Unit: "sec/op"}}, 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := Unmeasured(rows, tt.flagged); len(got) != tt.want {
