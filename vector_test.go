@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/microsoft/go-mssqldb/msdsn"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -1201,6 +1202,31 @@ func TestVectorTypeFunctions(t *testing.T) {
 			t.Errorf("Expected prec=0, scale=0, got prec=%d, scale=%d", prec, scale)
 		}
 	})
+}
+
+func TestReadVectorTypeRejectsLengthAboveColumnMaximum(t *testing.T) {
+	buf := newTdsBuffer(512, nil)
+	binary.LittleEndian.PutUint16(buf.rbuf[:2], 9)
+	buf.rpos = 0
+	buf.rsize = 2
+	buf.final = true
+
+	ti := typeInfo{TypeId: typeVectorN, Size: 8}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("readVectorType should reject a value larger than the column maximum")
+		}
+		err, ok := recovered.(error)
+		if !ok {
+			t.Fatalf("recovered %T, want error", recovered)
+		}
+		if !strings.Contains(err.Error(), "vector length 9 exceeds column maximum 8") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}()
+
+	readVectorType(&ti, buf, nil, msdsn.EncodeParameters{})
 }
 
 // TestConvertInputParameterVector tests the convertInputParameter function for Vector types.

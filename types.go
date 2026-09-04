@@ -597,6 +597,9 @@ func readVectorType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msds
 	if size == 0xffff {
 		return nil
 	}
+	if c == nil && int(size) > ti.Size {
+		badStreamPanicf("vector length %d exceeds column maximum %d", size, ti.Size)
+	}
 	out := make([]byte, size)
 	r.ReadFull(out)
 	return out
@@ -983,7 +986,6 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		if ti.Size == 0xffff {
 			ti.Reader = readPLPType
 		} else {
-			ti.Buffer = make([]byte, ti.Size)
 			ti.Reader = readVectorType
 		}
 	default:
