@@ -437,6 +437,12 @@ func (v *Vector) decodeFromBytes(buf []byte) error {
 		return fmt.Errorf("mssql: unsupported vector element type: 0x%02X", elementType)
 	}
 
+	maxDimensions := elementType.MaxDimensions()
+	if dimensions > maxDimensions {
+		return fmt.Errorf("mssql: vector dimensions %d exceeds maximum %d for %s",
+			dimensions, maxDimensions, elementType)
+	}
+
 	bytesPerElement := elementType.BytesPerElement()
 	expectedDataSize := vectorHeaderSize + dimensions*bytesPerElement
 	if len(buf) != expectedDataSize {

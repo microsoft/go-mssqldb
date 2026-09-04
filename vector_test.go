@@ -916,6 +916,36 @@ func TestVectorMaxDimensions(t *testing.T) {
 	}
 }
 
+func TestVectorDecodeRejectsTooManyDimensions(t *testing.T) {
+	tests := []struct {
+		name        string
+		elementType VectorElementType
+		dimensions  int
+	}{
+		{name: "float32", elementType: VectorElementFloat32, dimensions: vectorMaxDimensionsFloat32 + 1},
+		{name: "float16", elementType: VectorElementFloat16, dimensions: vectorMaxDimensionsFloat16 + 1},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			buf := make([]byte, vectorHeaderSize+test.dimensions*test.elementType.BytesPerElement())
+			buf[0] = vectorMagic
+			buf[1] = vectorVersion
+			binary.LittleEndian.PutUint16(buf[2:4], uint16(test.dimensions))
+			buf[4] = byte(test.elementType)
+
+			var v Vector
+			err := v.decodeFromBytes(buf)
+			if err == nil {
+				t.Fatal("decodeFromBytes should fail when exceeding max dimensions")
+			}
+			if !strings.Contains(err.Error(), "exceeds maximum") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestVectorBinaryFormat(t *testing.T) {
 	// Test that encoding matches expected TDS format
 	v := Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, 2.0}}
