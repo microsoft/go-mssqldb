@@ -621,18 +621,23 @@ func parseFeatureExtAck(r *tdsBuffer) featureExtAck {
 			}
 			ack[feature] = fedAuthAck
 		case featExtCOLUMNENCRYPTION:
+			if length < 1 {
+				break
+			}
 			colAck := colAckStruct{Version: int(r.byte())}
 			length--
 			if length > 0 {
 				// enclave type is sent as utf16 le
-				enclaveLength := r.byte() * 2
+				enclaveLength := uint32(r.byte()) * 2
 				length--
+				if enclaveLength > length {
+					break
+				}
 				enclaveBytes := make([]byte, enclaveLength)
 				r.ReadFull(enclaveBytes)
 				// if the enclave type is malformed we'll just ignore it
 				colAck.EnclaveType, _ = ucs22str(enclaveBytes)
-				length -= uint32(enclaveLength)
-
+				length -= enclaveLength
 			}
 			ack[feature] = colAck
 		case featExtJSONSUPPORT:

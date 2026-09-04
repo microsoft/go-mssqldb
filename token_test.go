@@ -155,6 +155,43 @@ func TestParseFeatureExtAck(t *testing.T) {
 	}
 }
 
+func TestParseFeatureExtAckMalformedColumnEncryption(t *testing.T) {
+	t.Run("zero-length payload", func(t *testing.T) {
+		data := []byte{
+			featExtCOLUMNENCRYPTION, 0, 0, 0, 0,
+			featExtJSONSUPPORT, 1, 0, 0, 0, jsonSupportVersion,
+			featExtTERMINATOR,
+		}
+
+		ack := parseFeatureExtAck(makeFinalBuf(data))
+
+		if _, ok := ack[featExtCOLUMNENCRYPTION]; ok {
+			t.Error("malformed column encryption acknowledgement was stored")
+		}
+		if version, ok := ack[featExtJSONSUPPORT]; !ok || version != byte(jsonSupportVersion) {
+			t.Errorf("JSON acknowledgement = %#v, want version %#x", version, jsonSupportVersion)
+		}
+	})
+
+	t.Run("enclave length exceeds payload", func(t *testing.T) {
+		data := []byte{
+			featExtCOLUMNENCRYPTION, 4, 0, 0, 0,
+			1, 2, 0xaa, 0xbb,
+			featExtJSONSUPPORT, 1, 0, 0, 0, jsonSupportVersion,
+			featExtTERMINATOR,
+		}
+
+		ack := parseFeatureExtAck(makeFinalBuf(data))
+
+		if _, ok := ack[featExtCOLUMNENCRYPTION]; ok {
+			t.Error("malformed column encryption acknowledgement was stored")
+		}
+		if version, ok := ack[featExtJSONSUPPORT]; !ok || version != byte(jsonSupportVersion) {
+			t.Errorf("JSON acknowledgement = %#v, want version %#x", version, jsonSupportVersion)
+		}
+	})
+}
+
 func makeFinalBuf(data []byte) *tdsBuffer {
 	return &tdsBuffer{
 		packetSize: len(data),
