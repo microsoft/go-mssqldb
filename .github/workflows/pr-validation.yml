@@ -62,8 +62,12 @@ jobs:
           else
             export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}"
           fi
-          docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver -p 1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD mcr.microsoft.com/mssql/server:${{ matrix.sqlImage }}
-          # Wait for SQL Server to be ready - retry up to 60 seconds (30 attempts x 2s)
+          # 2 GB is the documented minimum with no headroom, and SQL 2025 was seen
+          # failing to start at it. MSSQL_MEMORY_LIMIT_MB stays under the container
+          # cap so the engine leaves room for the rest of the container.
+          docker run -m 4GB -e ACCEPT_EULA=1 -e MSSQL_MEMORY_LIMIT_MB=3072 -d --name sqlserver -p 1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD mcr.microsoft.com/mssql/server:${{ matrix.sqlImage }}
+          # Wait for SQL Server to be ready: 30 attempts, 2s apart. Wall time is well
+          # over 60s because a failed sqlcmd blocks on its own connect timeout first.
           READY=0
           for i in {1..30}; do
             if sqlcmd -S localhost -U sa -P "$SQLCMDPASSWORD" -C -Q "SELECT 1" > /dev/null 2>&1; then
@@ -75,7 +79,7 @@ jobs:
             sleep 2
           done
           if [ "$READY" -eq 0 ]; then
-            echo "SQL Server did not become ready within 60 seconds; aborting tests."
+            echo "SQL Server did not become ready after 30 attempts; aborting tests."
             exit 1
           fi
           go test -coverprofile=coverage.out -covermode=atomic -v ./...
@@ -93,7 +97,28 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          if docker ps -a --format '{{.Names}}' | grep -Fxq sqlserver; then
+          # Distinguish "docker could not tell us" from "the container is absent".
+          if ! NAMES=$(docker ps -a --format '{{.Names}}'); then
+            echo "::warning::docker ps failed; cannot determine whether the sqlserver container exists"
+          elif echo "$NAMES" | grep -Fxq sqlserver; then
+            # A memory kill reaches the tests as connection resets and unexpected
+            # EOF, which reads as a driver bug. Say so before dumping the logs.
+            if STATE=$(docker inspect sqlserver --format '{{.State.OOMKilled}} {{.State.ExitCode}} {{.State.Status}} {{.HostConfig.Memory}}'); then
+              read -r OOM CODE STATUS LIMIT <<< "$STATE"
+              if [ "${LIMIT:-0}" -gt 0 ] 2>/dev/null; then
+                LIMIT="$((LIMIT / 1024 / 1024)) MiB"
+              else
+                LIMIT="unset"
+              fi
+              echo "sqlserver: oom-killed=$OOM exit=$CODE status=$STATUS memory-limit=$LIMIT"
+              if [ "$OOM" = "true" ]; then
+                echo "::error::SQL Server was OOM-killed. Connection errors above are a symptom of the container memory limit, not of the driver. Raise -m and MSSQL_MEMORY_LIMIT_MB together, keeping 10-20% headroom between them."
+              elif [ "$CODE" = "137" ]; then
+                echo "::warning::SQL Server exited 137 (SIGKILL) without an OOM flag; memory pressure is still the usual cause."
+              fi
+            else
+              echo "::warning::docker inspect failed; container state unknown"
+            fi
             docker logs sqlserver || echo "Unable to read logs from sqlserver."
           else
             echo "SQL Server container 'sqlserver' was not found."
@@ -101,10 +126,18 @@ jobs:
 
   benchmarks:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    # A normal run is ~50 minutes: two ~24 minute measurement passes plus setup.
+    # A confirmation re-measures only the flagged benchmarks, but a broad
+    # regression can flag most of them, so budget for it costing as much as a
+    # third and fourth pass. Unused minutes are not billed.
+    timeout-minutes: 120
     permissions:
       contents: read
       pull-requests: write
+    env:
+      # Inherited from setup-go today, but stated so the fail-fast behaviour of
+      # the benchstat install cannot change under us if that default does.
+      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -113,6 +146,13 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.27.x'
+      - name: Install benchstat
+        shell: bash
+        # Before the benchmark runs, not after: they take ~46 minutes and this
+        # reaches outside the repo, so a fetch failure should surface at once.
+        run: |
+          go install golang.org/x/perf/cmd/benchstat@latest
+          command -v benchstat
       - name: Install sqlcmd
         run: |
           curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
@@ -125,18 +165,28 @@ jobs:
         run: |
           export SQLCMDPASSWORD=$(date +%s|sha256sum|base64|head -c 32)
           echo "SQLCMDPASSWORD=$SQLCMDPASSWORD" >> $GITHUB_ENV
-          docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver \
+          # 2 GB is the documented minimum with no headroom, and SQL 2025 was seen
+          # failing to start at it. MSSQL_MEMORY_LIMIT_MB stays under the container
+          # cap so the engine leaves room for the rest of the container.
+          docker run -m 4GB -e ACCEPT_EULA=1 -e MSSQL_MEMORY_LIMIT_MB=3072 \
+            -d --name sqlserver \
             -p 1433:1433 -e SA_PASSWORD=$SQLCMDPASSWORD \
             mcr.microsoft.com/mssql/server:2025-latest
           # Wait for SQL Server to be ready
+          READY=0
           for i in {1..30}; do
             if sqlcmd -S localhost -U sa -P "$SQLCMDPASSWORD" -C -Q "SELECT 1" > /dev/null 2>&1; then
               echo "SQL Server is ready (attempt $i)"
+              READY=1
               break
             fi
             echo "Waiting for SQL Server... (attempt $i/30)"
             sleep 2
           done
+          if [ "$READY" -eq 0 ]; then
+            echo "::error::SQL Server did not become ready; aborting benchmarks."
+            exit 1
+          fi
       - name: Warmup run (stabilize CPU/caches)
         shell: bash
         run: |
@@ -148,9 +198,14 @@ jobs:
           BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
           # Throwaway run to warm CPU caches, prime the Go runtime, and settle
           # the OS scheduler. Results are discarded — ensures both measurement
-          # runs start from the same steady-state conditions.
-          go test -run='^$' -bench="$BENCH_PATTERN" \
-            -benchtime=100ms -count=1 -timeout=10m . ./msdsn > /dev/null 2>&1
+          # runs start from the same steady-state conditions. Output is kept so a
+          # failure here is diagnosable rather than a bare exit code.
+          if ! go test -run='^$' -bench="$BENCH_PATTERN" \
+              -benchtime=100ms -count=1 -timeout=10m . ./msdsn > warmup.log 2>&1; then
+            echo "::error::warmup run failed"
+            tail -50 warmup.log
+            exit 1
+          fi
       - name: Run baseline benchmarks (main)
         shell: bash
         run: |
@@ -161,9 +216,27 @@ jobs:
           export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
           BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
           git worktree add ../main-bench origin/main
-          cp -v *_benchmark_test.go ../main-bench/ 2>/dev/null || true
-          cp -v msdsn/*_benchmark_test.go ../main-bench/msdsn/ 2>/dev/null || true
-          cd ../main-bench
+            # Run the PR's version of the test code on both sides so an edit to a
+            # benchmark, or to a fixture it reads, does not show up as a change in
+            # what it measures. Not all gated benchmarks live in
+            # *_benchmark_test.go, and the ones that do read fixtures defined
+            # elsewhere, so the whole test corpus is copied rather than a subset.
+            #
+            # Files new in this PR are skipped: they cannot compile against main
+            # and have no baseline anyway.
+            shopt -s nullglob
+            for f in *_test.go msdsn/*_test.go; do
+              if [ -e "../main-bench/$f" ]; then cp "$f" "../main-bench/$f"; fi
+            done
+            shopt -u nullglob
+            cd ../main-bench
+            # An existing test file that now references something this PR adds will
+            # not build here. Fall back to main's own test code: less exact for an
+            # edited benchmark, but it always builds, so the gate still runs.
+            if ! go vet . ./msdsn > vet_baseline.log 2>&1; then
+              echo "::notice::This PR's test files do not build against main, so the baseline uses main's own copies. A comparison for an edited benchmark may not be exact."
+              git checkout -- .
+            fi
           go test -run='^$' -bench="$BENCH_PATTERN" \
             -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn 2>&1 | \
             tee "$GITHUB_WORKSPACE/bench_old_full.log"
@@ -186,36 +259,81 @@ jobs:
       - name: Compare benchmarks
         shell: bash
         run: |
-          go install golang.org/x/perf/cmd/benchstat@latest
           echo "## Benchmark Comparison (main vs PR)" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           benchstat -alpha=0.01 bench_old.txt bench_new.txt | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           benchstat -alpha=0.01 bench_old.txt bench_new.txt > bench_diff.txt
+          # The table is for humans; the gate reads CSV, where the unit and the
+          # row name are fields rather than something to recover from layout.
+          benchstat -format=csv -alpha=0.01 bench_old.txt bench_new.txt > bench_diff.csv
       - name: Check for regressions
         shell: bash
         run: |
-          if [ ! -f bench_diff.txt ]; then
-            echo "No comparison available, skipping regression check."
-            exit 0
+          # go run does not propagate the program's exit status, so build first.
+          go build -o "$RUNNER_TEMP/benchgate" ./internal/benchgate
+
+          set +e
+          "$RUNNER_TEMP/benchgate" detect \
+            -csv bench_diff.csv \
+            -flagged "$RUNNER_TEMP/flagged.tsv" \
+            -selector "$RUNNER_TEMP/selector.txt"
+          rc=$?
+          set -e
+          case "$rc" in
+            0) exit 0 ;;
+            2) ;;
+            *) echo "::error::could not evaluate the benchmark comparison"; exit 1 ;;
+          esac
+
+          # The two measurement passes are ~20 minutes apart, so a significant
+          # result can be runner drift rather than the diff. Re-measure just the
+          # flagged benchmarks, back to back, and only fail if it reproduces.
+          PATTERN=$(cat "$RUNNER_TEMP/selector.txt")
+          echo "::notice::Candidate regressions found; re-measuring $PATTERN"
+
+          export SQLUSER=sa
+          export SQLPASSWORD=$SQLCMDPASSWORD
+          export DATABASE=master
+          export HOST=localhost
+          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
+
+          git worktree add ../main-recheck origin/main
+          # Same rule as the baseline: the whole test corpus, but only files the
+          # recheck worktree already has, falling back to its own on a build failure.
+          shopt -s nullglob
+          for f in *_test.go msdsn/*_test.go; do
+            if [ -e "../main-recheck/$f" ]; then cp "$f" "../main-recheck/$f"; fi
+          done
+          shopt -u nullglob
+          if ! ( cd ../main-recheck && go vet . ./msdsn > /dev/null 2>&1 ); then
+            git -C ../main-recheck checkout -- .
           fi
-          # Report statistically significant improvements (real %, not ~)
-          if grep -v '~' bench_diff.txt | grep -E '^\S+\s+.+\s+-[0-9]+\.[0-9]+%'; then
-            echo ""
-            echo "::notice::Performance improvements detected (see above)"
-          fi
-          # Fail on statistically significant regressions exceeding 15%
-          # Sequential CI runs produce systematic drift up to ~12%, so we require
-          # both statistical significance (no ~ marker) AND >15% magnitude.
-          # Exclude TdsBuffer_Write_Large: ~120ns operation with multi-flush path
-          # shows 30-46% swings between sequential CI runs due to cache sensitivity.
-          REGRESSED=$(grep -v '~' bench_diff.txt | grep -v 'TdsBuffer_Write_Large' | grep -E '^\S+\s+.+\s+\+[0-9]+\.[0-9]+%' | awk -F'+' '{split($2,a,"%"); if (a[1]+0 >= 15) print}')
-          if [ -n "$REGRESSED" ]; then
-            echo "$REGRESSED"
-            echo "::error::Statistically significant regression detected (>15%, p<0.01)"
-            exit 1
-          fi
-          echo "No significant regressions detected."
+
+          ( cd ../main-recheck && go test -run='^$' -bench="$PATTERN" \
+            -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn ) 2>&1 \
+            | tee recheck_old_full.log
+          go test -run='^$' -bench="$PATTERN" \
+            -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn 2>&1 \
+            | tee recheck_new_full.log
+          git worktree remove ../main-recheck --force
+
+          grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' recheck_old_full.log > recheck_old.txt || true
+          grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' recheck_new_full.log > recheck_new.txt || true
+          benchstat -alpha=0.01 recheck_old.txt recheck_new.txt | tee recheck_diff.txt
+          benchstat -format=csv -alpha=0.01 recheck_old.txt recheck_new.txt > recheck_diff.csv
+
+          set +e
+          "$RUNNER_TEMP/benchgate" confirm \
+            -csv recheck_diff.csv \
+            -flagged "$RUNNER_TEMP/flagged.tsv"
+          rc=$?
+          set -e
+          case "$rc" in
+            0) exit 0 ;;
+            2) echo "::error::Regression reproduced on a second measurement (>15%, p<0.01)"; exit 1 ;;
+            *) echo "::error::could not evaluate the confirmation run"; exit 1 ;;
+          esac
       - name: Post benchmark results to PR
         # Fork PRs get read-only tokens; comment will be skipped gracefully.
         continue-on-error: true
@@ -255,4 +373,34 @@ jobs:
           else
             gh pr comment "${{ github.event.pull_request.number }}" --body "$BODY"
             echo "Posted new benchmark comment."
+          fi
+      - name: Show SQL Server logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          # Distinguish "docker could not tell us" from "the container is absent".
+          if ! NAMES=$(docker ps -a --format '{{.Names}}'); then
+            echo "::warning::docker ps failed; cannot determine whether the sqlserver container exists"
+          elif echo "$NAMES" | grep -Fxq sqlserver; then
+            # A memory kill reaches the benchmarks as connection resets and
+            # unexpected EOF, which reads as a driver bug. Say so before the logs.
+            if STATE=$(docker inspect sqlserver --format '{{.State.OOMKilled}} {{.State.ExitCode}} {{.State.Status}} {{.HostConfig.Memory}}'); then
+              read -r OOM CODE STATUS LIMIT <<< "$STATE"
+              if [ "${LIMIT:-0}" -gt 0 ] 2>/dev/null; then
+                LIMIT="$((LIMIT / 1024 / 1024)) MiB"
+              else
+                LIMIT="unset"
+              fi
+              echo "sqlserver: oom-killed=$OOM exit=$CODE status=$STATUS memory-limit=$LIMIT"
+              if [ "$OOM" = "true" ]; then
+                echo "::error::SQL Server was OOM-killed. Connection errors above are a symptom of the container memory limit, not of the driver. Raise -m and MSSQL_MEMORY_LIMIT_MB together, keeping 10-20% headroom between them."
+              elif [ "$CODE" = "137" ]; then
+                echo "::warning::SQL Server exited 137 (SIGKILL) without an OOM flag; memory pressure is still the usual cause."
+              fi
+            else
+              echo "::warning::docker inspect failed; container state unknown"
+            fi
+            docker logs sqlserver || echo "Unable to read logs from sqlserver."
+          else
+            echo "SQL Server container 'sqlserver' was not found."
           fi
