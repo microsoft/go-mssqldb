@@ -480,13 +480,13 @@ func TestRowCountAccumulatesTriggerRows(t *testing.T) {
 		sess:    &tdsSession{},
 	}
 
-	tokChan <- doneInProcStruct{Status: doneCount, RowCount: 1}
+	tokChan <- doneInProcStruct{Status: doneCount, RowCount: 2}
 	tokChan <- doneStruct{Status: doneFinal | doneCount, RowCount: 1}
 	close(tokChan)
 
 	err := tp.iterateResponse()
 	assert.NoError(t, err)
-	assert.Equal(t, int64(2), tp.rowCount,
+	assert.Equal(t, int64(3), tp.rowCount,
 		"trigger rows must contribute to the total; SET NOCOUNT ON is the documented opt-out")
 }
 
