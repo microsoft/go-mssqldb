@@ -161,8 +161,13 @@ jobs:
           export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
           BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
           git worktree add ../main-bench origin/main
-          cp -v *_benchmark_test.go ../main-bench/ 2>/dev/null || true
-          cp -v msdsn/*_benchmark_test.go ../main-bench/msdsn/ 2>/dev/null || true
+          # Copy only shared benchmark files. PR-only benchmarks may depend on APIs absent from main;
+          # benchstat reports those benchmarks without a baseline measurement.
+          for benchmark in *_benchmark_test.go msdsn/*_benchmark_test.go; do
+            if [ -f "../main-bench/$benchmark" ]; then
+              cp -v "$benchmark" "../main-bench/$benchmark"
+            fi
+          done
           cd ../main-bench
           go test -run='^$' -bench="$BENCH_PATTERN" \
             -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn 2>&1 | \
