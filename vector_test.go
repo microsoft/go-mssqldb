@@ -544,6 +544,29 @@ func TestVectorScanFromFloat32Slice(t *testing.T) {
 	}
 }
 
+func TestVectorScanRejectsTooManyDimensions(t *testing.T) {
+	tests := []struct {
+		name string
+		src  interface{}
+	}{
+		{name: "float32", src: make([]float32, vectorMaxDimensionsFloat32+1)},
+		{name: "float64", src: make([]float64, vectorMaxDimensionsFloat32+1)},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var v Vector
+			err := v.Scan(test.src)
+			if err == nil {
+				t.Fatal("Scan should fail when exceeding max dimensions")
+			}
+			if !strings.Contains(err.Error(), "exceeds maximum 1998") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestNullVector(t *testing.T) {
 	// Valid value
 	nv := NullVector{
