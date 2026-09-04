@@ -597,20 +597,8 @@ func readVectorType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msds
 	if size == 0xffff {
 		return nil
 	}
-	// Reuse ti.Buffer if available and large enough for reading, otherwise allocate new buffer.
-	// Always return a copy that does not alias ti.Buffer to avoid data corruption when
-	// rows are buffered and processed after subsequent reads overwrite ti.Buffer.
-	var readBuf []byte
-	if ti != nil && len(ti.Buffer) >= int(size) {
-		readBuf = ti.Buffer[:size]
-	} else {
-		readBuf = make([]byte, size)
-	}
-	r.ReadFull(readBuf)
-
-	// Return a copy - Vector.Scan() handles decoding
 	out := make([]byte, size)
-	copy(out, readBuf)
+	r.ReadFull(out)
 	return out
 }
 
