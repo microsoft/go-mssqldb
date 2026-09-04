@@ -156,6 +156,28 @@ func TestParseFeatureExtAck(t *testing.T) {
 }
 
 func TestParseFeatureExtAckMalformedColumnEncryption(t *testing.T) {
+	t.Run("valid enclave payload", func(t *testing.T) {
+		data := []byte{
+			featExtCOLUMNENCRYPTION, 8, 0, 0, 0,
+			1, 3, 'V', 0, 'B', 0, 'S', 0,
+			featExtJSONSUPPORT, 1, 0, 0, 0, jsonSupportVersion,
+			featExtTERMINATOR,
+		}
+
+		ack := parseFeatureExtAck(makeFinalBuf(data))
+
+		columnEncryption, ok := ack[featExtCOLUMNENCRYPTION].(colAckStruct)
+		if !ok {
+			t.Fatalf("column encryption acknowledgement = %#v, want colAckStruct", ack[featExtCOLUMNENCRYPTION])
+		}
+		if columnEncryption.Version != 1 || columnEncryption.EnclaveType != "VBS" {
+			t.Errorf("column encryption acknowledgement = %#v, want version 1 and enclave VBS", columnEncryption)
+		}
+		if version, ok := ack[featExtJSONSUPPORT]; !ok || version != byte(jsonSupportVersion) {
+			t.Errorf("JSON acknowledgement = %#v, want version %#x", version, jsonSupportVersion)
+		}
+	})
+
 	t.Run("zero-length payload", func(t *testing.T) {
 		data := []byte{
 			featExtCOLUMNENCRYPTION, 0, 0, 0, 0,
