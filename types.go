@@ -198,7 +198,7 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodeParam
 		typeMoneyN, typeDateTimeN, typeChar,
 		typeVarChar, typeBinary, typeVarBinary:
 
-		// byle len types
+		// byte len types
 		if ti.Size > 0xff {
 			panic("Invalid size for BYTELEN_TYPE")
 		}
@@ -812,6 +812,22 @@ func writePLPType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodePar
 	}
 }
 
+// validFixedWidthSize reports whether size is valid for a fixed-width byte-len
+// type. Every other byte-len type carries a caller-defined width.
+func validFixedWidthSize(typeId uint8, size int) bool {
+	switch typeId {
+	case typeGuid:
+		return size == 16
+	case typeIntN:
+		return size == 1 || size == 2 || size == 4 || size == 8
+	case typeBitN:
+		return size == 1
+	case typeFltN, typeMoneyN, typeDateTimeN:
+		return size == 4 || size == 8
+	}
+	return true
+}
+
 func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) {
 	switch ti.TypeId {
 	case typeDateN:
@@ -842,8 +858,14 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		typeBitN, typeDecimalN, typeNumericN, typeFltN,
 		typeMoneyN, typeDateTimeN, typeChar,
 		typeVarChar, typeBinary, typeVarBinary:
-		// byle len types
+		// byte len types
 		ti.Size = int(r.byte())
+		// Reject invalid fixed widths before allocating the value buffer. Panics
+		// via badStreamPanic rather than badStreamPanicf so the value is a
+		// StreamError and checkBadConn drops the desynced connection.
+		if !validFixedWidthSize(ti.TypeId, ti.Size) {
+			badStreamPanic(fmt.Errorf("invalid size %d for type id %d", ti.Size, ti.TypeId))
+		}
 		ti.Buffer = make([]byte, ti.Size)
 		switch ti.TypeId {
 		case typeDecimal, typeNumeric, typeDecimalN, typeNumericN:
@@ -1224,7 +1246,7 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 	case typeUdt:
 		return reflect.TypeOf([]byte{})
 	default:
-		panic(fmt.Sprintf("not implemented makeGoLangScanType for type %d", ti.TypeId))
+		return reflect.TypeOf((*interface{})(nil)).Elem()
 	}
 }
 
@@ -1351,7 +1373,7 @@ func makeDecl(ti typeInfo) string {
 		}
 		return fmt.Sprintf("%s READONLY", ti.UdtInfo.TypeName)
 	default:
-		panic(fmt.Sprintf("not implemented makeDecl for type %#x", ti.TypeId))
+		return ""
 	}
 }
 
@@ -1460,7 +1482,7 @@ func makeGoLangTypeName(ti typeInfo) string {
 	case typeUdt:
 		return strings.ToUpper(ti.UdtInfo.TypeName)
 	default:
-		panic(fmt.Sprintf("not implemented makeGoLangTypeName for type %d", ti.TypeId))
+		return ""
 	}
 }
 
@@ -1588,17 +1610,19 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 		case "hierarchyid":
 			// https://learn.microsoft.com/en-us/sql/t-sql/data-types/hierarchyid-data-type-method-reference?view=sql-server-ver16
 			return 892, true
-		case "geography":
-		case "geometry":
+		case "geography", "geometry":
 			return 2147483647, true
 		default:
-			panic(fmt.Sprintf("not implemented makeGoLangTypeLength for user defined type %s", ti.UdtInfo.TypeName))
+			// An unrecognized UDT is still variable length, and readVarLen
+			// already parsed its max length out of COLMETADATA.
+			if ti.Size == 0xffff {
+				return 2147483647, true
+			}
+			return int64(ti.Size), true
 		}
 	default:
-		panic(fmt.Sprintf("not implemented makeGoLangTypeLength for type %d", ti.TypeId))
+		return 0, false
 	}
-
-	return 0, false
 }
 
 // makes go/sql type precision and scale as described below
@@ -1711,6 +1735,6 @@ func makeGoLangTypePrecisionScale(ti typeInfo) (int64, int64, bool) {
 	case typeUdt:
 		return 0, 0, false
 	default:
-		panic(fmt.Sprintf("not implemented makeGoLangTypePrecisionScale for type %d", ti.TypeId))
+		return 0, 0, false
 	}
 }
