@@ -784,6 +784,7 @@ var adoSynonyms = map[string]string{
 	"server certificate":        ServerCertificate,
 	"wsid":                      WorkstationID,
 	"column encryption setting": "columnencryption",
+	"authentication":            "fedauth",
 }
 
 func splitConnectionString(dsn string) (res map[string]string) {
