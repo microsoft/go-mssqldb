@@ -488,7 +488,9 @@ func TestReadVarLen_InvalidFixedWidthSizeRejected(t *testing.T) {
 		typeId uint8
 		size   byte
 	}{
+		{"UNIQUEIDENTIFIER size 0", typeGuid, 0},
 		{"INTNTYPE size 3", typeIntN, 3},
+		{"BITNTYPE size 0", typeBitN, 0},
 		{"FLNNTYPE size 2", typeFltN, 2},
 		{"MONEYN size 3", typeMoneyN, 3},
 		{"DATETIMEN size 5", typeDateTimeN, 5},
@@ -523,10 +525,12 @@ func TestReadVarLen_ValidFixedWidthSizesAccepted(t *testing.T) {
 		typeId uint8
 		size   byte
 	}{
+		{"UNIQUEIDENTIFIER size 16", typeGuid, 16},
 		{"INTNTYPE size 1", typeIntN, 1},
 		{"INTNTYPE size 2", typeIntN, 2},
 		{"INTNTYPE size 4", typeIntN, 4},
 		{"INTNTYPE size 8", typeIntN, 8},
+		{"BITNTYPE size 1", typeBitN, 1},
 		{"FLNNTYPE size 4", typeFltN, 4},
 		{"FLNNTYPE size 8", typeFltN, 8},
 		{"MONEYN size 4", typeMoneyN, 4},

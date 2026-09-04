@@ -812,13 +812,16 @@ func writePLPType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodePar
 	}
 }
 
-// validFixedWidthSize reports whether size is one that the ColumnType helpers
-// can describe. Only the fixed-width nullable types are constrained; every other
-// byte-len type carries a caller-defined width.
+// validFixedWidthSize reports whether size is valid for a fixed-width byte-len
+// type. Every other byte-len type carries a caller-defined width.
 func validFixedWidthSize(typeId uint8, size int) bool {
 	switch typeId {
+	case typeGuid:
+		return size == 16
 	case typeIntN:
 		return size == 1 || size == 2 || size == 4 || size == 8
+	case typeBitN:
+		return size == 1
 	case typeFltN, typeMoneyN, typeDateTimeN:
 		return size == 4 || size == 8
 	}
@@ -857,8 +860,7 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		typeVarChar, typeBinary, typeVarBinary:
 		// byte len types
 		ti.Size = int(r.byte())
-		// The ColumnType helpers switch on Size for these fixed-width nullable
-		// types and panic outside any recover, so reject a bad size here. Panics
+		// Reject invalid fixed widths before allocating the value buffer. Panics
 		// via badStreamPanic rather than badStreamPanicf so the value is a
 		// StreamError and checkBadConn drops the desynced connection.
 		if !validFixedWidthSize(ti.TypeId, ti.Size) {
