@@ -467,3 +467,72 @@ func TestNextToken_CancelDrainClosedChannelStartsSecondResponse(t *testing.T) {
 		t.Fatal("expected attention packet to be written")
 	}
 }
+
+// TestRowCountAccumulatesTriggerRows pins the documented SqlClient behaviour:
+// when a trigger fires without SET NOCOUNT ON its rows are included in the
+// total. Measured against SQL Server 2025, ExecuteNonQuery returns 3 for a
+// one-row UPDATE whose trigger writes two rows; this driver must agree.
+func TestRowCountAccumulatesTriggerRows(t *testing.T) {
+	tokChan := make(chan tokenStruct, 10)
+	tp := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     context.Background(),
+		sess:    &tdsSession{},
+	}
+
+	tokChan <- doneInProcStruct{Status: doneCount, RowCount: 2}
+	tokChan <- doneStruct{Status: doneFinal | doneCount, RowCount: 1}
+	close(tokChan)
+
+	err := tp.iterateResponse()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(3), tp.rowCount,
+		"trigger rows must contribute to the total; SET NOCOUNT ON is the documented opt-out")
+}
+
+// TestRowCountMultiStatement pins the sum across a batch. Measured against
+// SQL Server 2025, ExecuteNonQuery returns 5 for a batch updating 3 rows then
+// 2 rows, not the last statement's 2.
+func TestRowCountMultiStatement(t *testing.T) {
+	tokChan := make(chan tokenStruct, 10)
+	tp := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     context.Background(),
+		sess:    &tdsSession{},
+	}
+
+	// First statement: DONE with 3 rows
+	tokChan <- doneStruct{Status: doneCount, RowCount: 3}
+	// Second statement: DONE with 2 rows (final)
+	tokChan <- doneStruct{Status: doneFinal | doneCount, RowCount: 2}
+	close(tokChan)
+
+	err := tp.iterateResponse()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(5), tp.rowCount,
+		"batch row counts are summed, matching ExecuteNonQuery")
+}
+
+// TestRowCountDoneInProcOnlyRPCPath covers the RPC/sp_executesql path, where
+// both the trigger and the outer statement report via DONEINPROC. Both counts
+// contribute, same as the batch path.
+func TestRowCountDoneInProcOnlyRPCPath(t *testing.T) {
+	tokChan := make(chan tokenStruct, 10)
+	tp := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     context.Background(),
+		sess:    &tdsSession{},
+	}
+
+	// Simulate RPC with trigger: trigger's INSERT (1 row), outer UPDATE
+	// (1 row), then DONEPROC without doneCount (common for sp_executesql).
+	tokChan <- doneInProcStruct{Status: doneCount, RowCount: 1} // trigger
+	tokChan <- doneInProcStruct{Status: doneCount, RowCount: 1} // outer stmt
+	tokChan <- doneStruct{Status: doneFinal}                    // DONEPROC, no count
+	close(tokChan)
+
+	err := tp.iterateResponse()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), tp.rowCount,
+		"both DONEINPROC counts contribute")
+}
