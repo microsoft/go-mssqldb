@@ -567,6 +567,65 @@ func TestVectorScanRejectsTooManyDimensions(t *testing.T) {
 	}
 }
 
+func TestVectorConstructorsPreserveNil(t *testing.T) {
+	vector, err := NewVector(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !vector.IsNull() {
+		t.Fatal("NewVector(nil) should return a NULL vector")
+	}
+
+	vector, err = NewVectorWithType(VectorElementFloat16, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !vector.IsNull() {
+		t.Fatal("NewVectorWithType(nil) should return a NULL vector")
+	}
+
+	vector, err = NewVectorFromFloat64(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !vector.IsNull() {
+		t.Fatal("NewVectorFromFloat64(nil) should return a NULL vector")
+	}
+
+	vector, err = NewVector([]float32{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vector.IsNull() {
+		t.Fatal("NewVector(empty slice) should not return a NULL vector")
+	}
+
+	vector, err = NewVectorFromFloat64([]float64{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vector.IsNull() {
+		t.Fatal("NewVectorFromFloat64(empty slice) should not return a NULL vector")
+	}
+}
+
+func TestVectorScanPreservesNilSlices(t *testing.T) {
+	var v Vector
+	if err := v.Scan([]float32(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if !v.IsNull() {
+		t.Fatal("Scan([]float32(nil)) should return a NULL vector")
+	}
+
+	if err := v.Scan([]float64(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if !v.IsNull() {
+		t.Fatal("Scan([]float64(nil)) should return a NULL vector")
+	}
+}
+
 func TestNullVector(t *testing.T) {
 	// Valid value
 	nv := NullVector{
