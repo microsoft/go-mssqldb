@@ -208,17 +208,18 @@ func (v *Vector) Scan(src interface{}) error {
 		*v = val
 		return nil
 	case []float32:
-		v.ElementType = VectorElementFloat32
-		v.Data = copyFloat32Slice(val)
+		vector, err := NewVector(val)
+		if err != nil {
+			return err
+		}
+		*v = vector
 		return nil
 	case []float64:
-		// Convert float64 to float32 (may lose precision)
-		v.ElementType = VectorElementFloat32
-		v.Data = make([]float32, len(val))
-		for i, f := range val {
-			v.Data[i] = float32(f)
+		vector, err := NewVectorFromFloat64(val)
+		if err != nil {
+			return err
 		}
-		checkFloat64PrecisionLoss(val, v.Data)
+		*v = vector
 		return nil
 	case string:
 		// Handle JSON array format: "[1.0, 2.0, 3.0]"
@@ -486,8 +487,8 @@ func (v *Vector) decodeFromJSON(jsonStr string) error {
 		return nil
 	}
 
-	// Parse JSON array using []*float64 to handle null values
-	// (null is used to represent NaN/Inf since JSON doesn't support them)
+	// Parse JSON array using []*float64 to handle null values.
+	// null is used to represent NaN since JSON does not support it.
 	var values []*float64
 	if err := json.Unmarshal([]byte(jsonStr), &values); err != nil {
 		return fmt.Errorf("mssql: failed to parse vector JSON: %w", err)

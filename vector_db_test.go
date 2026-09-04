@@ -222,15 +222,13 @@ func setupVectorTestCustom(t *testing.T, createSQL string) *vectorTestContext {
 	return &vectorTestContext{t: t, conn: conn, tx: tx, tableName: tableName}
 }
 
-// insert inserts a vector and returns the generated ID.
-func (ctx *vectorTestContext) insert(v interface{}) int64 {
+// insert inserts a vector.
+func (ctx *vectorTestContext) insert(v interface{}) {
 	ctx.t.Helper()
-	result, err := ctx.tx.Exec(fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", ctx.tableName), v)
+	_, err := ctx.tx.Exec(fmt.Sprintf("INSERT INTO %s (embedding) VALUES (@p1)", ctx.tableName), v)
 	if err != nil {
 		ctx.t.Fatalf("Failed to insert: %v", err)
 	}
-	id, _ := result.LastInsertId()
-	return id
 }
 
 // selectVector reads a vector by ID.
