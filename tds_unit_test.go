@@ -658,8 +658,11 @@ func TestWrapTLSError(t *testing.T) {
 			wantContains: []string{
 				"TLS Handshake failed",
 				"negative serial number",
+				"does not comply with RFC 5280",
+				"positive serial number",
 				"x509negativeserial=1",
 				"GODEBUG",
+				"temporary compatibility",
 			},
 		},
 		{
@@ -671,6 +674,7 @@ func TestWrapTLSError(t *testing.T) {
 				"tlssha1=1",
 				"GODEBUG",
 				"SHA-256",
+				"temporary compatibility",
 			},
 		},
 		{
@@ -680,6 +684,7 @@ func TestWrapTLSError(t *testing.T) {
 				"TLS Handshake failed",
 				"tlssha1=1",
 				"GODEBUG",
+				"temporary compatibility",
 			},
 		},
 		{
@@ -690,6 +695,7 @@ func TestWrapTLSError(t *testing.T) {
 				"SHA-1",
 				"tlssha1=1",
 				"GODEBUG",
+				"temporary compatibility",
 			},
 		},
 		{
@@ -706,8 +712,8 @@ func TestWrapTLSError(t *testing.T) {
 			err:  x509.InsecureAlgorithmError(x509.SHA1WithRSA),
 			wantContains: []string{
 				"TLS Handshake failed",
-				"signed with SHA-1",
-				"No GODEBUG setting re-enables this",
+				"obsolete SHA-1 signature algorithm",
+				"No GODEBUG setting re-enables SHA-1 certificate verification",
 				"SHA-256",
 			},
 			// x509sha1 was removed in Go 1.24; tlssha1 governs only TLS 1.2 handshakes.

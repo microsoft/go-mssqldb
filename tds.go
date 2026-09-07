@@ -1154,29 +1154,28 @@ func wrapTLSError(err error) error {
 	switch {
 	case strings.Contains(msgLower, "negative serial number"):
 		return fmt.Errorf("TLS Handshake failed: %w. "+
-			"The server certificate has a negative serial number, "+
-			"which Go 1.23+ rejects per RFC 5280. "+
-			"Add x509negativeserial=1 to your GODEBUG environment variable to allow it, "+
+			"The server certificate has a negative serial number and does not comply with RFC 5280. "+
+			"Replace it with a certificate that has a positive serial number. "+
+			"For temporary compatibility, add x509negativeserial=1 to your GODEBUG environment variable, "+
 			"or use encrypt=disable for non-production servers", err)
 	case strings.Contains(msgLower, "insecure algorithm") && strings.Contains(msgLower, "sha1"):
 		// x509sha1 was removed in Go 1.24, so no GODEBUG re-enables this one.
 		return fmt.Errorf("TLS Handshake failed: %w. "+
-			"The server certificate is signed with SHA-1, which Go 1.24+ "+
-			"refuses to verify. No GODEBUG setting re-enables this: "+
-			"reissue the server certificate with SHA-256 or better, "+
-			"or use encrypt=disable for non-production servers", err)
+			"The server certificate uses the obsolete SHA-1 signature algorithm. "+
+			"Reissue the certificate with SHA-256 or better. "+
+			"No GODEBUG setting re-enables SHA-1 certificate verification. "+
+			"For non-production servers, use encrypt=disable", err)
 	case strings.Contains(msgLower, "sha-1") || strings.Contains(msgLower, "sha1"):
 		return fmt.Errorf("TLS Handshake failed: %w. "+
-			"The server uses SHA-1 signatures, which Go 1.25+ "+
-			"disallows per RFC 9155. "+
-			"Add tlssha1=1 to your GODEBUG environment variable to allow it, "+
-			"update the server certificate to SHA-256+, "+
+			"The server uses obsolete SHA-1 TLS signatures, which RFC 9155 disallows. "+
+			"Update the server TLS configuration and certificate to use SHA-256 or better. "+
+			"For temporary compatibility, add tlssha1=1 to your GODEBUG environment variable, "+
 			"or use encrypt=disable for non-production servers", err)
 	case strings.Contains(msgLower, "cannot read handshake") && strings.Contains(msgLower, "eof"):
 		return fmt.Errorf("TLS Handshake failed: %w. "+
-			"The server may be rejecting the connection due to SHA-1 signatures "+
-			"(Go 1.25+ disallows them per RFC 9155) or another TLS incompatibility. "+
-			"Add tlssha1=1 to your GODEBUG environment variable if the server uses SHA-1, "+
+			"The server may have an incompatible TLS configuration, including obsolete SHA-1 signatures. "+
+			"Update the server TLS configuration and certificate. "+
+			"If the server is confirmed to use SHA-1, add tlssha1=1 to GODEBUG for temporary compatibility, "+
 			"or use encrypt=disable for non-production servers", err)
 	default:
 		return fmt.Errorf("TLS Handshake failed: %w", err)
