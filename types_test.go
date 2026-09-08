@@ -9,6 +9,7 @@ import (
 
 	"github.com/microsoft/go-mssqldb/msdsn"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMakeGoLangScanType(t *testing.T) {
@@ -275,11 +276,47 @@ func TestMakeDecl(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			defer handlePanic(t)
-			got := makeDecl(tt.typeInfo)
+			got, err := makeDecl(tt.typeInfo)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expected, got, "makeDecl()")
 		})
 	}
+}
+
+func TestMakeDeclUnknownTypeReturnsError(t *testing.T) {
+	decl, err := makeDecl(typeInfo{TypeId: 0xff})
+	assert.Error(t, err)
+	assert.Empty(t, decl)
+}
+
+func TestMakeDeclInvalidSizeReturnsError(t *testing.T) {
+	tests := []struct {
+		name     string
+		typeInfo typeInfo
+	}{
+		{"typeIntN", typeInfo{TypeId: typeIntN, Size: 3}},
+		{"typeFltN", typeInfo{TypeId: typeFltN, Size: 3}},
+		{"typeMoneyN", typeInfo{TypeId: typeMoneyN, Size: 3}},
+		{"typeDateTimeN", typeInfo{TypeId: typeDateTimeN, Size: 3}},
+		{"typeNChar zero", typeInfo{TypeId: typeNChar, Size: 0}},
+		{"typeNChar odd", typeInfo{TypeId: typeNChar, Size: 3}},
+		{"typeNChar too large", typeInfo{TypeId: typeNChar, Size: 8002}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			decl, err := makeDecl(tt.typeInfo)
+			assert.Error(t, err)
+			assert.Empty(t, decl)
+		})
+	}
+}
+
+func TestMakeRPCParamsReportsUnnamedParameterOrdinal(t *testing.T) {
+	_, _, err := (&Stmt{}).makeRPCParams(
+		[]namedValue{{Ordinal: 1, Value: NChar("")}}, true)
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "parameter ordinal 1")
 }
 
 func handlePanic(t *testing.T) {
