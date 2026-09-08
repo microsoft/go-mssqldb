@@ -1228,130 +1228,130 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 	}
 }
 
-func makeDecl(ti typeInfo) string {
+func makeDecl(ti typeInfo) (string, error) {
 	switch ti.TypeId {
 	case typeNull:
 		// maybe we should use something else here
 		// this is tested in TestNull
-		return "nvarchar(1)"
+		return "nvarchar(1)", nil
 	case typeInt1:
-		return "tinyint"
+		return "tinyint", nil
 	case typeBigBinary:
-		return fmt.Sprintf("binary(%d)", ti.Size)
+		return fmt.Sprintf("binary(%d)", ti.Size), nil
 	case typeInt2:
-		return "smallint"
+		return "smallint", nil
 	case typeInt4:
-		return "int"
+		return "int", nil
 	case typeInt8:
-		return "bigint"
+		return "bigint", nil
 	case typeFlt4:
-		return "real"
+		return "real", nil
 	case typeIntN:
 		switch ti.Size {
 		case 1:
-			return "tinyint"
+			return "tinyint", nil
 		case 2:
-			return "smallint"
+			return "smallint", nil
 		case 4:
-			return "int"
+			return "int", nil
 		case 8:
-			return "bigint"
+			return "bigint", nil
 		default:
-			panic("invalid size of INTNTYPE")
+			return "", fmt.Errorf("invalid size of INTNTYPE: %d", ti.Size)
 		}
 	case typeFlt8:
-		return "float"
+		return "float", nil
 	case typeFltN:
 		switch ti.Size {
 		case 4:
-			return "real"
+			return "real", nil
 		case 8:
-			return "float"
+			return "float", nil
 		default:
-			panic("invalid size of FLNNTYPE")
+			return "", fmt.Errorf("invalid size of FLNNTYPE: %d", ti.Size)
 		}
 	case typeDecimal, typeDecimalN:
-		return fmt.Sprintf("decimal(%d, %d)", ti.Prec, ti.Scale)
+		return fmt.Sprintf("decimal(%d, %d)", ti.Prec, ti.Scale), nil
 	case typeNumeric, typeNumericN:
-		return fmt.Sprintf("numeric(%d, %d)", ti.Prec, ti.Scale)
+		return fmt.Sprintf("numeric(%d, %d)", ti.Prec, ti.Scale), nil
 	case typeMoney4:
-		return "smallmoney"
+		return "smallmoney", nil
 	case typeMoney:
-		return "money"
+		return "money", nil
 	case typeMoneyN:
 		switch ti.Size {
 		case 4:
-			return "smallmoney"
+			return "smallmoney", nil
 		case 8:
-			return "money"
+			return "money", nil
 		default:
-			panic("invalid size of MONEYNTYPE")
+			return "", fmt.Errorf("invalid size of MONEYNTYPE: %d", ti.Size)
 		}
 	case typeBigVarBin:
 		if ti.Size > 8000 || ti.Size == 0 {
-			return "varbinary(max)"
+			return "varbinary(max)", nil
 		} else {
-			return fmt.Sprintf("varbinary(%d)", ti.Size)
+			return fmt.Sprintf("varbinary(%d)", ti.Size), nil
 		}
 	case typeNChar:
-		return fmt.Sprintf("nchar(%d)", ti.Size/2)
+		return fmt.Sprintf("nchar(%d)", ti.Size/2), nil
 	case typeBigChar, typeChar:
-		return fmt.Sprintf("char(%d)", ti.Size)
+		return fmt.Sprintf("char(%d)", ti.Size), nil
 	case typeBigVarChar, typeVarChar:
 		if ti.Size > 8000 || ti.Size == 0 {
-			return "varchar(max)"
+			return "varchar(max)", nil
 		} else {
-			return fmt.Sprintf("varchar(%d)", ti.Size)
+			return fmt.Sprintf("varchar(%d)", ti.Size), nil
 		}
 	case typeNVarChar:
 		if ti.Size > 8000 || ti.Size == 0 {
-			return "nvarchar(max)"
+			return "nvarchar(max)", nil
 		} else {
-			return fmt.Sprintf("nvarchar(%d)", ti.Size/2)
+			return fmt.Sprintf("nvarchar(%d)", ti.Size/2), nil
 		}
 	case typeBit, typeBitN:
-		return "bit"
+		return "bit", nil
 	case typeDateN:
-		return "date"
+		return "date", nil
 	case typeDateTim4:
-		return "smalldatetime"
+		return "smalldatetime", nil
 	case typeDateTime:
-		return "datetime"
+		return "datetime", nil
 	case typeDateTimeN:
 		switch ti.Size {
 		case 4:
-			return "smalldatetime"
+			return "smalldatetime", nil
 		case 8:
-			return "datetime"
+			return "datetime", nil
 		default:
-			panic("invalid size of DATETIMNTYPE")
+			return "", fmt.Errorf("invalid size of DATETIMNTYPE: %d", ti.Size)
 		}
 	case typeTimeN:
 		if ti.Scale == 7 {
-			return "time"
+			return "time", nil
 		}
-		return fmt.Sprintf("time(%d)", ti.Scale)
+		return fmt.Sprintf("time(%d)", ti.Scale), nil
 	case typeDateTime2N:
-		return fmt.Sprintf("datetime2(%d)", ti.Scale)
+		return fmt.Sprintf("datetime2(%d)", ti.Scale), nil
 	case typeDateTimeOffsetN:
-		return fmt.Sprintf("datetimeoffset(%d)", ti.Scale)
+		return fmt.Sprintf("datetimeoffset(%d)", ti.Scale), nil
 	case typeText:
-		return "text"
+		return "text", nil
 	case typeNText:
-		return "ntext"
+		return "ntext", nil
 	case typeUdt:
-		return ti.UdtInfo.TypeName
+		return ti.UdtInfo.TypeName, nil
 	case typeImage:
-		return "image"
+		return "image", nil
 	case typeGuid:
-		return "uniqueidentifier"
+		return "uniqueidentifier", nil
 	case typeTvp:
 		if ti.UdtInfo.SchemaName != "" {
-			return fmt.Sprintf("%s.%s READONLY", ti.UdtInfo.SchemaName, ti.UdtInfo.TypeName)
+			return fmt.Sprintf("%s.%s READONLY", ti.UdtInfo.SchemaName, ti.UdtInfo.TypeName), nil
 		}
-		return fmt.Sprintf("%s READONLY", ti.UdtInfo.TypeName)
+		return fmt.Sprintf("%s READONLY", ti.UdtInfo.TypeName), nil
 	default:
-		panic(fmt.Sprintf("not implemented makeDecl for type %#x", ti.TypeId))
+		return "", fmt.Errorf("not implemented makeDecl for type %#x", ti.TypeId)
 	}
 }
 

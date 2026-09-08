@@ -444,7 +444,6 @@ func (d *Driver) open(ctx context.Context, dsn string) (*Conn, error) {
 	return d.connect(ctx, c, params)
 }
 
-
 func failoverPartnerParams(params msdsn.Config) *msdsn.Config {
 	if params.FailOverPartner == "" {
 		return nil
@@ -733,7 +732,11 @@ func (s *Stmt) makeRPCParams(args []namedValue, isProc bool) ([]param, []string,
 			params[i+offset].ti.Size = 0
 		}
 
-		decls[i] = fmt.Sprintf("%s %s%s", name, makeDecl(tiDecl), output)
+		decl, err := makeDecl(tiDecl)
+		if err != nil {
+			return nil, nil, fmt.Errorf("cannot create declaration for parameter %s: %w", name, err)
+		}
+		decls[i] = fmt.Sprintf("%s %s%s", name, decl, output)
 
 	}
 	return params, decls, nil

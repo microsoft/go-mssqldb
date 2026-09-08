@@ -9,6 +9,7 @@ import (
 
 	"github.com/microsoft/go-mssqldb/msdsn"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMakeGoLangScanType(t *testing.T) {
@@ -275,11 +276,17 @@ func TestMakeDecl(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			defer handlePanic(t)
-			got := makeDecl(tt.typeInfo)
+			got, err := makeDecl(tt.typeInfo)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expected, got, "makeDecl()")
 		})
 	}
+}
+
+func TestMakeDeclUnknownTypeReturnsError(t *testing.T) {
+	decl, err := makeDecl(typeInfo{TypeId: 0xff})
+	assert.Error(t, err)
+	assert.Empty(t, decl)
 }
 
 func handlePanic(t *testing.T) {
