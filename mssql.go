@@ -734,7 +734,11 @@ func (s *Stmt) makeRPCParams(args []namedValue, isProc bool) ([]param, []string,
 
 		decl, err := makeDecl(tiDecl)
 		if err != nil {
-			return nil, nil, fmt.Errorf("cannot create declaration for parameter %s: %w", name, err)
+			parameter := name
+			if parameter == "" {
+				parameter = fmt.Sprintf("ordinal %d", val.Ordinal)
+			}
+			return nil, nil, fmt.Errorf("cannot create declaration for parameter %s: %w", parameter, err)
 		}
 		decls[i] = fmt.Sprintf("%s %s%s", name, decl, output)
 

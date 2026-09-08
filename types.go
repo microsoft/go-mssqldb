@@ -1294,6 +1294,9 @@ func makeDecl(ti typeInfo) (string, error) {
 			return fmt.Sprintf("varbinary(%d)", ti.Size), nil
 		}
 	case typeNChar:
+		if ti.Size <= 0 || ti.Size%2 != 0 || ti.Size > 8000 {
+			return "", fmt.Errorf("invalid size of NCHARTYPE: %d", ti.Size)
+		}
 		return fmt.Sprintf("nchar(%d)", ti.Size/2), nil
 	case typeBigChar, typeChar:
 		return fmt.Sprintf("char(%d)", ti.Size), nil
