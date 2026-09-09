@@ -67,6 +67,9 @@ func TestIsProc(t *testing.T) {
 	t.Run("builtin commands", func(t *testing.T) {
 		for _, command := range builtinCommands {
 			t.Run(command, func(t *testing.T) {
+				if command == "" {
+					t.Fatal("builtinCommands must not contain an empty command")
+				}
 				for _, input := range []string{
 					strings.ToUpper(command),
 					strings.ToLower(command),
