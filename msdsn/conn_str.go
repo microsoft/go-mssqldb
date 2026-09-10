@@ -722,6 +722,8 @@ func (p Config) URL() *url.URL {
 		q.Add(Encrypt, "DISABLE")
 	case EncryptionRequired:
 		q.Add(Encrypt, "true")
+	case EncryptionStrict:
+		q.Add(Encrypt, "strict")
 	}
 	// Only include TrustServerCertificate if it was explicitly set in the original connection string
 	if _, ok := p.Parameters[TrustServerCertificate]; ok {
