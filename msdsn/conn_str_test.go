@@ -716,6 +716,21 @@ func TestTrustServerCertificateRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEncryptionStrictRoundTrip(t *testing.T) {
+	config, err := Parse("sqlserver://user:pass@host?encrypt=strict")
+	require.NoError(t, err, "Failed to parse connection string")
+
+	urlStr := config.URL().String()
+	assert.Contains(t, urlStr, "encrypt=strict")
+
+	config2, err := Parse(urlStr)
+	require.NoError(t, err, "Failed to parse round-tripped URL")
+	assert.Equal(t, Encryption(EncryptionStrict), config2.Encryption,
+		"Encryption changed after round-trip (URL: %s)", urlStr)
+	assert.False(t, config2.TrustServerCertificate,
+		"strict encryption must not trust the server certificate (URL: %s)", urlStr)
+}
+
 func TestTrustServerCertificateURLOverride(t *testing.T) {
 	// Verify that URL() emits a lowercase key that can be cleanly overridden
 	// via url.Values without creating duplicate keys.
