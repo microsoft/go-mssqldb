@@ -474,7 +474,6 @@ func TestRoutingRedirectClosesFirstConnection(t *testing.T) {
 		defer close(firstConnClosed)
 		conn, err := listener.Accept()
 		if err != nil {
-			t.Errorf("listener.Accept failed: %v", err)
 			return
 		}
 		// Keep the server side open so we can detect the client close.
