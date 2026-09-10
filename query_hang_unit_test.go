@@ -177,7 +177,10 @@ func TestProcessQueryResponse_ErrorTokenDoesNotLeakReader(t *testing.T) {
 
 func TestSendAttentionWithTimeout_BoundsWrite(t *testing.T) {
 	t.Run("deadline does not wake write", func(t *testing.T) {
-		transport := &deadlineIgnoringTransport{closed: make(chan struct{})}
+		transport := &deadlineTrackingTransport{
+			deadlineIgnoringTransport: &deadlineIgnoringTransport{closed: make(chan struct{})},
+			deadlineSet:               make(chan struct{}),
+		}
 		start := time.Now()
 		err := sendAttentionWithTimeout(transport, 20*time.Millisecond)
 
@@ -188,6 +191,11 @@ func TestSendAttentionWithTimeout_BoundsWrite(t *testing.T) {
 		case <-transport.closed:
 		case <-time.After(time.Second):
 			t.Fatal("timed-out attention did not close the transport")
+		}
+		select {
+		case <-transport.deadlineSet:
+			t.Fatal("timed-out attention mutated the write deadline during an in-flight write")
+		default:
 		}
 	})
 
@@ -239,6 +247,17 @@ func (t *deadlineIgnoringTransport) Close() error {
 }
 
 func (*deadlineIgnoringTransport) SetWriteDeadline(time.Time) error {
+	return nil
+}
+
+type deadlineTrackingTransport struct {
+	*deadlineIgnoringTransport
+	deadlineSet chan struct{}
+	once        sync.Once
+}
+
+func (t *deadlineTrackingTransport) SetWriteDeadline(time.Time) error {
+	t.once.Do(func() { close(t.deadlineSet) })
 	return nil
 }
 
