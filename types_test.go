@@ -388,6 +388,22 @@ func TestReadPLPType_OverAdvertisedLengthAccepted(t *testing.T) {
 	assert.Equal(t, payload, gotBytes)
 }
 
+func TestReadPLPType_UnderAdvertisedLengthPanics(t *testing.T) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			t.Fatal("expected panic for PLP chunks exceeding the advertised length")
+		}
+		err, ok := v.(error)
+		if !ok {
+			t.Fatalf("recovered %T, want error", v)
+		}
+		assert.Contains(t, err.Error(), "exceed the advertised length")
+	}()
+
+	readPLPStream(plpStream(1, []byte("payload exceeds one byte")))
+}
+
 // TestReadPLPType_UnknownLength verifies the _UNKNOWN_PLP_LEN path still decodes
 // correctly.
 func TestReadPLPType_UnknownLength(t *testing.T) {

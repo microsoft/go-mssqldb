@@ -773,6 +773,9 @@ func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.E
 			if chunksize == 0 {
 				break
 			}
+			if size != _UNKNOWN_PLP_LEN && uint64(chunksize) > size-totalSize {
+				badStreamPanicf("PLP chunks exceed the advertised length of %d bytes", size)
+			}
 			if uint64(chunksize) > uint64(_MAX_PLP_LEN)-totalSize {
 				badStreamPanicf("PLP length exceeds the maximum LOB size of %d bytes", uint64(_MAX_PLP_LEN))
 			}
@@ -795,8 +798,11 @@ func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.E
 	case typeNVarChar, typeNChar, typeNText:
 		return decodeNChar(bytesToDecode)
 	case typeJson:
-		// Server→client: SQL Server sends JSON result set data as UTF-16LE,
-		// consistent with XML and nvarchar. See encoding note on makeJsonParam.
+		// Current SqlClient expects UTF-8, while SQL Server 2025 builds may emit
+		// UTF-16LE. Raw NUL bytes cannot occur in valid UTF-8 JSON.
+		if bytes.IndexByte(bytesToDecode, 0) < 0 {
+			return string(bytesToDecode)
+		}
 		return decodeUcs2(bytesToDecode)
 	case typeUdt:
 		return decodeUdt(*ti, bytesToDecode)

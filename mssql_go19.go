@@ -279,8 +279,8 @@ func makeMoneyParam(val decimal.Decimal) (res param) {
 // Encoding asymmetry (confirmed by SqlClient source and wire captures):
 //   - Client→server (RPC parameters): UTF-8 bytes via PLP, type 0xF4.
 //     SqlClient: Encoding.UTF8.GetBytes(value.ToString()) in WriteParameterVarLen.
-//   - Server→client (result set columns): UTF-16LE bytes via PLP, type 0xF4.
-//     Decoded by decodeUcs2 in readPLPType, same as XML and nvarchar.
+//   - Server→client (result set columns): current SqlClient expects UTF-8,
+//     while SQL Server 2025 builds may emit UTF-16LE. readPLPType accepts both.
 //
 // When the server does not support native JSON (pre-2025), falls back to
 // nvarchar(max) with UTF-16LE encoding in both directions.

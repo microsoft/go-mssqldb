@@ -911,9 +911,8 @@ func TestJSONMarshalUnmarshal(t *testing.T) {
 	})
 }
 
-// TestJSONWireDecoding tests that JSON data received from SQL Server as UTF-16LE
-// is correctly decoded to a Go UTF-8 string. SQL Server sends JSON column data
-// as UTF-16LE on the wire (consistent with XML and nvarchar types).
+// TestJSONWireDecoding tests the UTF-16LE JSON result encoding observed from
+// SQL Server 2025.
 //
 // This test exercises the actual readPLPType code path by constructing a TDS buffer
 // with PLP-framed UTF-16LE data and calling readPLPType with typeJson, verifying
@@ -1084,6 +1083,19 @@ func TestReadTypeInfoJSON(t *testing.T) {
 	// Verify no bytes were consumed from buffer (JSON has no metadata)
 	if r.rpos != 0 {
 		t.Errorf("Expected rpos=0 (no bytes consumed), got rpos=%d", r.rpos)
+	}
+}
+
+func TestJSONUTF8WireDecoding(t *testing.T) {
+	value := `{"emoji":"😀","cjk":"中文"}`
+	stream := plpStream(uint64(len(value)), []byte(value))
+	r := makeFinalBuf(stream)
+	ti := &typeInfo{TypeId: typeJson}
+
+	result := readPLPType(ti, r, nil, msdsn.EncodeParameters{})
+
+	if result != value {
+		t.Errorf("Expected decoded JSON %q, got %q", value, result)
 	}
 }
 
@@ -1587,6 +1599,7 @@ func TestBulkCopyJSONIntegration(t *testing.T) {
 		{2, `{"name":"bob","scores":[100,95,87]}`},
 		{3, nil}, // NULL JSON value
 		{4, `{"emoji":"😀","cjk":"中文","mixed":"hello 世界"}`},
+		{5, json.RawMessage(`{"key":"raw_message"}`)},
 	}
 
 	// BulkCopy insert via transaction on the pinned connection
@@ -1645,10 +1658,20 @@ func TestBulkCopyJSONIntegration(t *testing.T) {
 			if !data.Valid {
 				t.Errorf("Row %d: expected non-NULL value, got NULL", idx)
 			} else {
+				var expectedData string
+				switch value := testRows[idx].data.(type) {
+				case string:
+					expectedData = value
+				case json.RawMessage:
+					expectedData = string(value)
+				default:
+					t.Fatalf("Row %d: unexpected JSON input type %T", idx, value)
+				}
+
 				// Normalize whitespace for comparison: SQL Server may reformat JSON
 				var expected, actual interface{}
-				if err := json.Unmarshal([]byte(testRows[idx].data.(string)), &expected); err != nil {
-					t.Fatalf("Row %d: failed to unmarshal expected JSON %q: %v", idx, testRows[idx].data.(string), err)
+				if err := json.Unmarshal([]byte(expectedData), &expected); err != nil {
+					t.Fatalf("Row %d: failed to unmarshal expected JSON %q: %v", idx, expectedData, err)
 				}
 				if err := json.Unmarshal([]byte(data.String), &actual); err != nil {
 					t.Fatalf("Row %d: failed to unmarshal actual JSON %q: %v", idx, data.String, err)
