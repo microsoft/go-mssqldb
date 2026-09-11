@@ -608,6 +608,23 @@ func FuzzProcessSingleResponse(f *testing.F) {
 	f.Add(encryptedMetadata, uint16(0))
 	f.Add(encryptedMetadata, uint16(3))
 
+	wideMetadata := colMetadataVarBinary(64, 0xfffe)
+	f.Add(wideMetadata, uint16(0))
+	truncatedMetadata := append([]byte{}, wideMetadata...)
+	binary.LittleEndian.PutUint16(truncatedMetadata[1:3], 0xfffe)
+	f.Add(truncatedMetadata, uint16(3))
+
+	emptyPLP := append(colMetadataVarBinary(1, 0xffff), byte(tokenRow))
+	emptyPLP = append(emptyPLP, plpChunks(_MAX_PLP_LEN)...)
+	emptyPLP = append(emptyPLP, doneToken(tokenDone, 0)...)
+	f.Add(emptyPLP, uint16(0))
+	for _, chunkSize := range []uint32{_MAX_PLP_LEN + 1, 0xffffffff} {
+		stream := append(colMetadataVarBinary(1, 0xffff), byte(tokenRow))
+		stream = binary.LittleEndian.AppendUint64(stream, _UNKNOWN_PLP_LEN)
+		stream = binary.LittleEndian.AppendUint32(stream, chunkSize)
+		f.Add(stream, uint16(0))
+	}
+
 	f.Fuzz(func(t *testing.T, stream []byte, frag uint16) {
 		// Bound input size to keep framing and allocations reasonable. A TDS
 		// packet length is a uint16, and the read buffer is 32 KiB, so very

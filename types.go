@@ -120,6 +120,21 @@ type typeInfo struct {
 	Writer    func(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error)
 }
 
+func (ti *typeInfo) getBuffer(size int) []byte {
+	if size > ti.Size || len(ti.Buffer) < size {
+		ti.growBuffer(size)
+	}
+	return ti.Buffer[:size]
+}
+
+// Keep allocation and error construction out of the inlined buffer-reuse path.
+func (ti *typeInfo) growBuffer(size int) {
+	if size > ti.Size {
+		badStreamPanic(fmt.Errorf("value length %d exceeds declared type size %d", size, ti.Size))
+	}
+	ti.Buffer = make([]byte, size)
+}
+
 // Common Language Runtime (CLR) Instances
 // http://msdn.microsoft.com/en-us/library/dd357962.aspx
 type udtInfo struct {
@@ -158,7 +173,6 @@ func readTypeInfo(r *tdsBuffer, typeId byte, c *cryptoMetadata, encoding msdsn.E
 			res.Size = 8
 		}
 		res.Reader = readFixedType
-		res.Buffer = make([]byte, res.Size)
 	default: // all others are VARLENTYPE
 		readVarLen(&res, r, c, encoding)
 	}
@@ -360,8 +374,8 @@ func nanosToThreeHundredthsOfASecond(ns int) int {
 }
 
 func readFixedType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) interface{} {
-	r.ReadFull(ti.Buffer)
-	buf := ti.Buffer
+	buf := ti.getBuffer(ti.Size)
+	r.ReadFull(buf)
 	loc := encoding.GetTimezone()
 	switch ti.TypeId {
 	case typeNull:
@@ -405,8 +419,8 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 		return nil
 	}
 	loc := encoding.GetTimezone()
-	r.ReadFull(ti.Buffer[:size])
-	buf := ti.Buffer[:size]
+	buf := ti.getBuffer(int(size))
+	r.ReadFull(buf)
 	switch ti.TypeId {
 	case typeDateN:
 		if len(buf) != 3 {
@@ -530,8 +544,8 @@ func readShortLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding ms
 	if size == 0xffff {
 		return nil
 	}
-	r.ReadFull(ti.Buffer[:size])
-	buf := ti.Buffer[:size]
+	buf := ti.getBuffer(int(size))
+	r.ReadFull(buf)
 	switch ti.TypeId {
 	case typeBigVarChar, typeBigChar:
 		return decodeChar(ti.Collation, buf)
@@ -780,36 +794,40 @@ func readVariantTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 
 // partially length prefixed stream
 // http://msdn.microsoft.com/en-us/library/dd340469.aspx
+// maxLen bounds the entire value, including all chunks with an unknown total.
+func readPLPBytes(r *tdsBuffer, maxLen uint64) []byte {
+	size := r.uint64()
+	if size == _PLP_NULL {
+		return nil
+	}
+	if size != _UNKNOWN_PLP_LEN && size > maxLen {
+		badStreamPanic(fmt.Errorf("PLP length %d exceeds the maximum LOB size of %d bytes", size, maxLen))
+	}
+	// Even a bounded capacity hint is amplified by many empty PLP columns.
+	buf := bytes.NewBuffer([]byte{})
+	for {
+		chunksize := r.uint32()
+		if chunksize == 0 {
+			break
+		}
+		remaining := maxLen - uint64(buf.Len())
+		if uint64(chunksize) > remaining {
+			badStreamPanic(fmt.Errorf("PLP chunk length %d exceeds the remaining LOB size of %d bytes", chunksize, remaining))
+		}
+		if _, err := io.CopyN(buf, r, int64(chunksize)); err != nil {
+			badStreamPanic(fmt.Errorf("reading PLP value failed: %w", err))
+		}
+	}
+	return buf.Bytes()
+}
+
 func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) interface{} {
 	var bytesToDecode []byte
 	if c == nil {
-		size := r.uint64()
-		var buf *bytes.Buffer
-		switch size {
-		case _PLP_NULL:
-			// null
+		bytesToDecode = readPLPBytes(r, _MAX_PLP_LEN)
+		if bytesToDecode == nil {
 			return nil
-		case _UNKNOWN_PLP_LEN:
-			// size unknown
-			buf = bytes.NewBuffer(make([]byte, 0, 1000))
-		default:
-			// The advertised size is untrusted, so reject anything a real server
-			// cannot produce before using it as an allocation size.
-			if size > _MAX_PLP_LEN {
-				badStreamPanicf("PLP length %d exceeds the maximum LOB size of %d bytes", size, uint64(_MAX_PLP_LEN))
-			}
-			buf = bytes.NewBuffer(make([]byte, 0, size))
 		}
-		for {
-			chunksize := r.uint32()
-			if chunksize == 0 {
-				break
-			}
-			if _, err := io.CopyN(buf, r, int64(chunksize)); err != nil {
-				badStreamPanicf("Reading PLP type failed: %s", err.Error())
-			}
-		}
-		bytesToDecode = buf.Bytes()
 	} else {
 		bytesToDecode = r.rbuf
 	}
@@ -857,7 +875,6 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 	case typeDateN:
 		ti.Size = 3
 		ti.Reader = readByteLenTypeWithEncoding
-		ti.Buffer = make([]byte, ti.Size)
 	case typeTimeN, typeDateTime2N, typeDateTimeOffsetN:
 		ti.Scale = r.byte()
 		switch ti.Scale {
@@ -877,14 +894,12 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 			ti.Size += 5
 		}
 		ti.Reader = readByteLenTypeWithEncoding
-		ti.Buffer = make([]byte, ti.Size)
 	case typeGuid, typeIntN, typeDecimal, typeNumeric,
 		typeBitN, typeDecimalN, typeNumericN, typeFltN,
 		typeMoneyN, typeDateTimeN, typeChar,
 		typeVarChar, typeBinary, typeVarBinary:
 		// byle len types
 		ti.Size = int(r.byte())
-		ti.Buffer = make([]byte, ti.Size)
 		switch ti.TypeId {
 		case typeDecimal, typeNumeric, typeDecimalN, typeNumericN:
 			ti.Prec = r.byte()
@@ -909,7 +924,6 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		ti.UdtInfo.TypeName = r.BVarChar()
 		ti.UdtInfo.AssemblyQualifiedName = r.UsVarChar()
 
-		ti.Buffer = make([]byte, ti.Size)
 		ti.Reader = readPLPType
 	case typeBigVarBin, typeBigVarChar, typeBigBinary, typeBigChar,
 		typeNVarChar, typeNChar:
@@ -922,7 +936,6 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		if ti.Size == 0xffff {
 			ti.Reader = readPLPType
 		} else {
-			ti.Buffer = make([]byte, ti.Size)
 			ti.Reader = readShortLenType
 		}
 	case typeText, typeImage, typeNText, typeVariant:
