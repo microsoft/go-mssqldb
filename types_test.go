@@ -2,6 +2,7 @@ package mssql
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 	"reflect"
 	"testing"
@@ -651,21 +652,25 @@ func TestReadByteLenType_RowSizeExceedsBufferRejected(t *testing.T) {
 	readByteLenTypeWithEncoding(&ti, buf, nil, msdsn.EncodeParameters{})
 }
 
-func TestReadByteLenType_DecimalRowUsesPrecisionWidth(t *testing.T) {
-	row := make([]byte, 10)
-	row[0] = 9
-	row[1] = 1
+func TestReadByteLenType_CompactDecimalRowsAccepted(t *testing.T) {
+	for _, rowSize := range []byte{5, 9} {
+		t.Run(fmt.Sprint(rowSize), func(t *testing.T) {
+			row := make([]byte, rowSize+1)
+			row[0] = rowSize
+			row[1] = 1
 
-	buf := newTdsBuffer(512, nil)
-	copy(buf.rbuf[:len(row)], row)
-	buf.rpos = 0
-	buf.rsize = len(row)
-	buf.final = true
+			buf := newTdsBuffer(512, nil)
+			copy(buf.rbuf[:len(row)], row)
+			buf.rpos = 0
+			buf.rsize = len(row)
+			buf.final = true
 
-	ti := typeInfo{TypeId: typeDecimalN, Size: 17, Prec: 18, Scale: 4, Buffer: make([]byte, 17)}
-	readByteLenTypeWithEncoding(&ti, buf, nil, msdsn.EncodeParameters{})
+			ti := typeInfo{TypeId: typeDecimalN, Size: 17, Prec: 18, Scale: 4, Buffer: make([]byte, 17)}
+			readByteLenTypeWithEncoding(&ti, buf, nil, msdsn.EncodeParameters{})
 
-	assert.Equal(t, len(row), buf.rpos)
+			assert.Equal(t, len(row), buf.rpos)
+		})
+	}
 }
 
 func TestReadByteLenType_InvalidFixedWidthRowSizeRejected(t *testing.T) {
