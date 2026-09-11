@@ -388,6 +388,16 @@ func TestReadPLPType_OverAdvertisedLengthAccepted(t *testing.T) {
 	assert.Equal(t, payload, gotBytes)
 }
 
+func TestReadPLPType_MaxAdvertisedLengthDoesNotPreallocate(t *testing.T) {
+	got := readPLPStream(plpStream(_MAX_PLP_LEN, nil))
+
+	gotBytes, ok := got.([]byte)
+	if !ok {
+		t.Fatalf("readPLPType returned %T, want []byte", got)
+	}
+	assert.Empty(t, gotBytes)
+}
+
 func TestReadPLPType_UnderAdvertisedLengthPanics(t *testing.T) {
 	defer func() {
 		v := recover()

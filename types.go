@@ -78,6 +78,8 @@ const _PLP_NULL = 0xFFFFFFFFFFFFFFFF
 const _UNKNOWN_PLP_LEN = 0xFFFFFFFFFFFFFFFE
 const _PLP_TERMINATOR = 0x00000000
 
+const _PLP_INITIAL_BUFFER_SIZE = 32 * 1024
+
 // _MAX_PLP_LEN is the largest length a PLP value can legitimately advertise.
 // The (max) LOB types top out at 2 GB - 1 byte, so any larger size is a
 // malformed stream rather than a value we should try to read.
@@ -760,12 +762,11 @@ func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.E
 			// size unknown
 			buf = bytes.NewBuffer(make([]byte, 0, 1000))
 		default:
-			// The advertised size is untrusted, so reject anything a real server
-			// cannot produce before using it as an allocation size.
 			if size > _MAX_PLP_LEN {
 				badStreamPanicf("PLP length %d exceeds the maximum LOB size of %d bytes", size, uint64(_MAX_PLP_LEN))
 			}
-			buf = bytes.NewBuffer(make([]byte, 0, size))
+			initialSize := min(size, _PLP_INITIAL_BUFFER_SIZE)
+			buf = bytes.NewBuffer(make([]byte, 0, initialSize))
 		}
 		var totalSize uint64
 		for {

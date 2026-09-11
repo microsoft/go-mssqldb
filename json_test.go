@@ -23,7 +23,7 @@ import (
 func requireNativeJSON(t *testing.T, db *sql.DB, ctx context.Context) {
 	t.Helper()
 	var jsonTypeCount int
-	err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json'").Scan(&jsonTypeCount)
+	err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json' AND is_user_defined = 0").Scan(&jsonTypeCount)
 	if err != nil {
 		t.Skipf("Could not determine JSON type support: %v", err)
 	}
@@ -60,7 +60,7 @@ func setupJSONTest(t *testing.T, requireNative bool) *jsonTestContext {
 // hasNativeJSON returns true if the server supports the native JSON type.
 func (jtc *jsonTestContext) hasNativeJSON() bool {
 	var count int
-	err := jtc.db.QueryRowContext(jtc.ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json'").Scan(&count)
+	err := jtc.db.QueryRowContext(jtc.ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json' AND is_user_defined = 0").Scan(&count)
 	if err != nil {
 		return false
 	}
