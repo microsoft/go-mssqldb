@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"io"
 	"regexp"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -420,6 +422,138 @@ func TestNextToken_CancelDrainCurrentResponseConfirmationReturnsContextError(t *
 	}
 	if writeCalls == 0 {
 		t.Fatal("expected attention packet to be written")
+	}
+}
+
+func TestDrain_PrioritizesCancellationOverBufferedTokens(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tokChan := make(chan tokenStruct, 5)
+	for range 4 {
+		tokChan <- doneStruct{}
+	}
+	tokChan <- doneStruct{Status: doneAttn}
+	close(tokChan)
+
+	var bufferedAtAttention int
+	transport := &countingTransport{
+		onWrite: func() {
+			bufferedAtAttention = len(tokChan)
+		},
+	}
+	reader := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     ctx,
+		sess: &tdsSession{
+			buf: newTdsBuffer(defaultPacketSize, transport),
+		},
+	}
+
+	if err := reader.drain(); err != nil {
+		t.Fatalf("expected confirmed cancellation to drain cleanly: %v", err)
+	}
+	if bufferedAtAttention != cap(tokChan) {
+		t.Fatalf("attention was delayed until buffered tokens were consumed: got %d buffered tokens, want %d",
+			bufferedAtAttention, cap(tokChan))
+	}
+}
+
+func TestDrainBeforeCancel_CompletesResponseWithoutAttention(t *testing.T) {
+	t.Parallel()
+	ctx, cancelCtx := context.WithCancel(context.Background())
+	defer cancelCtx()
+
+	tokChan := make(chan tokenStruct, 5)
+	go func() {
+		defer close(tokChan)
+		for range 10 {
+			tokChan <- doneStruct{}
+		}
+	}()
+
+	cancelCalled := false
+	transport := &countingTransport{}
+	reader := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     ctx,
+		sess: &tdsSession{
+			buf: newTdsBuffer(defaultPacketSize, transport),
+		},
+	}
+
+	if err := reader.drainBeforeCancel(func() {
+		cancelCalled = true
+		cancelCtx()
+	}, time.Second); err != nil {
+		t.Fatalf("expected response to drain naturally: %v", err)
+	}
+	if !cancelCalled {
+		t.Fatal("natural drain did not release the reader context")
+	}
+	_, writeCalls := transport.counts()
+	if writeCalls != 0 {
+		t.Fatalf("natural drain sent %d attention packets, want 0", writeCalls)
+	}
+}
+
+func TestDrainBeforeCancel_EscalatesToAttentionAfterTimeout(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	attentionWritten := make(chan struct{})
+	var attentionOnce sync.Once
+	transport := &countingTransport{
+		onWrite: func() {
+			attentionOnce.Do(func() { close(attentionWritten) })
+		},
+	}
+	tokChan := make(chan tokenStruct, 1)
+	go func() {
+		defer close(tokChan)
+		<-attentionWritten
+		tokChan <- doneStruct{Status: doneAttn}
+	}()
+
+	reader := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     ctx,
+		sess: &tdsSession{
+			buf: newTdsBuffer(defaultPacketSize, transport),
+		},
+	}
+
+	if err := reader.drainBeforeCancel(cancel, 10*time.Millisecond); err != nil {
+		t.Fatalf("expected confirmed attention to complete drain: %v", err)
+	}
+	_, writeCalls := transport.counts()
+	if writeCalls == 0 {
+		t.Fatal("expected stalled natural drain to send attention")
+	}
+}
+
+func TestDrainBeforeCancel_ErrorReleasesReaderContext(t *testing.T) {
+	t.Parallel()
+	sentinel := errors.New("parse failed")
+	tokChan := make(chan tokenStruct, 1)
+	tokChan <- sentinel
+	close(tokChan)
+
+	cancelCalled := false
+	reader := &tokenProcessor{
+		tokChan: tokChan,
+		ctx:     context.Background(),
+		sess:    &tdsSession{logger: optionalLogger{}},
+	}
+
+	err := reader.drainBeforeCancel(func() { cancelCalled = true }, time.Second)
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("expected parse error, got %v", err)
+	}
+	if !cancelCalled {
+		t.Fatal("error exit did not release the reader context")
 	}
 }
 
