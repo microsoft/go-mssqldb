@@ -480,7 +480,7 @@ func TestRowCountAccumulatesTriggerRows(t *testing.T) {
 		sess:    &tdsSession{},
 	}
 
-	tokChan <- doneInProcStruct{Status: doneCount, RowCount: 2}
+	tokChan <- doneInProcStruct{Status: doneMore | doneCount, RowCount: 2}
 	tokChan <- doneStruct{Status: doneFinal | doneCount, RowCount: 1}
 	close(tokChan)
 
@@ -502,7 +502,7 @@ func TestRowCountMultiStatement(t *testing.T) {
 	}
 
 	// First statement: DONE with 3 rows
-	tokChan <- doneStruct{Status: doneCount, RowCount: 3}
+	tokChan <- doneStruct{Status: doneMore | doneCount, RowCount: 3}
 	// Second statement: DONE with 2 rows (final)
 	tokChan <- doneStruct{Status: doneFinal | doneCount, RowCount: 2}
 	close(tokChan)
@@ -526,8 +526,8 @@ func TestRowCountDoneInProcOnlyRPCPath(t *testing.T) {
 
 	// Simulate RPC with trigger: trigger's INSERT (1 row), outer UPDATE
 	// (1 row), then DONEPROC without doneCount (common for sp_executesql).
-	tokChan <- doneInProcStruct{Status: doneCount, RowCount: 1} // trigger
-	tokChan <- doneInProcStruct{Status: doneCount, RowCount: 1} // outer stmt
+	tokChan <- doneInProcStruct{Status: doneMore | doneCount, RowCount: 1} // trigger
+	tokChan <- doneInProcStruct{Status: doneMore | doneCount, RowCount: 1} // outer stmt
 	tokChan <- doneStruct{Status: doneFinal}                    // DONEPROC, no count
 	close(tokChan)
 
