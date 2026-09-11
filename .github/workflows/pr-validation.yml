@@ -141,21 +141,7 @@ jobs:
             echo "Waiting for SQL Server... (attempt $i/30)"
             sleep 2
           done
-      - name: Warmup run (stabilize CPU/caches)
-        shell: bash
-        run: |
-          export SQLUSER=sa
-          export SQLPASSWORD=$SQLCMDPASSWORD
-          export DATABASE=master
-          export HOST=localhost
-          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
-          BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
-          # Throwaway run to warm CPU caches, prime the Go runtime, and settle
-          # the OS scheduler. Results are discarded — ensures both measurement
-          # runs start from the same steady-state conditions.
-          go test -run='^$' -bench="$BENCH_PATTERN" \
-            -benchtime=100ms -count=1 -timeout=10m . ./msdsn > /dev/null 2>&1
-      - name: Run baseline benchmarks (main)
+      - name: Run interleaved benchmarks
         shell: bash
         run: |
           export SQLUSER=sa
@@ -165,27 +151,52 @@ jobs:
           export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
           BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
           git worktree add ../main-bench origin/main
-          cp -v *_benchmark_test.go ../main-bench/ 2>/dev/null || true
-          cp -v msdsn/*_benchmark_test.go ../main-bench/msdsn/ 2>/dev/null || true
-          cd ../main-bench
+          trap 'git worktree remove ../main-bench --force || true' EXIT
+          # Copy only shared benchmark files. PR-only benchmarks may depend on APIs absent from main;
+          # benchstat reports those benchmarks without a baseline measurement.
+          for benchmark in *_benchmark_test.go msdsn/*_benchmark_test.go; do
+            if [ -f "../main-bench/$benchmark" ]; then
+              cp -v "$benchmark" "../main-bench/$benchmark"
+            fi
+          done
+          # Warm both binaries before collecting measurements.
           go test -run='^$' -bench="$BENCH_PATTERN" \
-            -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn 2>&1 | \
-            tee "$GITHUB_WORKSPACE/bench_old_full.log"
-          grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' "$GITHUB_WORKSPACE/bench_old_full.log" > "$GITHUB_WORKSPACE/bench_old.txt"
-          cd "$GITHUB_WORKSPACE"
-          git worktree remove ../main-bench --force
-      - name: Run PR benchmarks
-        shell: bash
-        run: |
-          export SQLUSER=sa
-          export SQLPASSWORD=$SQLCMDPASSWORD
-          export DATABASE=master
-          export HOST=localhost
-          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
-          BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
-          go test -run='^$' -bench="$BENCH_PATTERN" \
-            -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn 2>&1 | \
-            tee bench_new_full.log
+            -benchtime=100ms -count=1 -timeout=10m . ./msdsn > /dev/null
+          (
+            cd ../main-bench
+            go test -run='^$' -bench="$BENCH_PATTERN" \
+              -benchtime=100ms -count=1 -timeout=10m . ./msdsn > /dev/null
+          )
+
+          : > bench_old_full.log
+          : > bench_new_full.log
+          for iteration in {1..10}; do
+            if ((iteration % 2)); then
+              first=main
+              second=pr
+            else
+              first=pr
+              second=main
+            fi
+
+            for revision in "$first" "$second"; do
+              if [ "$revision" = main ]; then
+                (
+                  cd ../main-bench
+                  go test -run='^$' -bench="$BENCH_PATTERN" \
+                    -benchtime=1s -count=1 -benchmem -timeout=10m \
+                    -ldflags="-randlayout=$iteration" . ./msdsn
+                ) 2>&1 | tee -a "$GITHUB_WORKSPACE/bench_old_full.log"
+              else
+                go test -run='^$' -bench="$BENCH_PATTERN" \
+                  -benchtime=1s -count=1 -benchmem -timeout=10m \
+                  -ldflags="-randlayout=$iteration" . ./msdsn 2>&1 | \
+                  tee -a bench_new_full.log
+              fi
+            done
+          done
+
+          grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' bench_old_full.log > bench_old.txt
           grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' bench_new_full.log > bench_new.txt
       - name: Compare benchmarks
         shell: bash
@@ -209,8 +220,9 @@ jobs:
             echo "::notice::Performance improvements detected (see above)"
           fi
           # Fail on statistically significant regressions exceeding 15%
-          # Sequential CI runs produce systematic drift up to ~12%, so we require
-          # both statistical significance (no ~ marker) AND >15% magnitude.
+          # Interleaved samples and randomized function layouts reduce runner and
+          # binary-layout variance. Require both statistical significance (no ~
+          # marker) AND >15% magnitude.
           # Exclude TdsBuffer_Write_Large: ~120ns operation with multi-flush path
           # shows 30-46% swings between sequential CI runs due to cache sensitivity.
           REGRESSED=$(grep -v '~' bench_diff.txt | grep -v 'TdsBuffer_Write_Large' | grep -E '^\S+\s+.+\s+\+[0-9]+\.[0-9]+%' | awk -F'+' '{split($2,a,"%"); if (a[1]+0 >= 15) print}')
