@@ -215,6 +215,14 @@ func TestNullJSONType(t *testing.T) {
 
 // TestNullJSONScanInterface tests the NullJSON.Scan method with various input types.
 func TestNullJSONScanInterface(t *testing.T) {
+	t.Run("Scan on nil receiver", func(t *testing.T) {
+		var nj *NullJSON
+		err := nj.Scan(`{"test":"value"}`)
+		if err == nil {
+			t.Fatal("Scan on nil *NullJSON returned nil error")
+		}
+	})
+
 	t.Run("Scan nil", func(t *testing.T) {
 		var nj NullJSON
 		err := nj.Scan(nil)

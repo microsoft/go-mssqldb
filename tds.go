@@ -1077,7 +1077,12 @@ func interpretPreloginResponse(p msdsn.Config, fe *featureExtFedAuth, fields map
 	return
 }
 
-func prepareLogin(ctx context.Context, c *Connector, p msdsn.Config, logger ContextLogger, auth integratedauth.IntegratedAuthenticator, fe *featureExtFedAuth, packetSize uint32) (l *login, err error) {
+func serverSupportsJSONFeatureExt(fields map[uint8][]byte) bool {
+	version := fields[preloginVERSION]
+	return len(version) > 0 && version[0] >= 11 // SQL Server 2012 introduced FeatureExt in TDS 7.4.
+}
+
+func prepareLogin(ctx context.Context, c *Connector, p msdsn.Config, logger ContextLogger, auth integratedauth.IntegratedAuthenticator, fe *featureExtFedAuth, packetSize uint32, jsonFeatureExtSupported bool) (l *login, err error) {
 	var TDSVersion uint32
 	if p.Encryption == msdsn.EncryptionStrict {
 		TDSVersion = verTDS80
@@ -1114,10 +1119,9 @@ func prepareLogin(ctx context.Context, c *Connector, p msdsn.Config, logger Cont
 	if p.ColumnEncryption {
 		_ = l.FeatureExt.Add(&featureExtColumnEncryption{})
 	}
-	// Request JSON support to enable native JSON type handling.
-	// Per TDS spec, servers that don't recognize a feature extension ID
-	// must ignore it without error, so this is safe for older servers.
-	_ = l.FeatureExt.Add(&featureExtJsonSupport{})
+	if jsonFeatureExtSupported {
+		_ = l.FeatureExt.Add(&featureExtJsonSupport{})
+	}
 	switch {
 	case fe.FedAuthLibrary == FedAuthLibrarySecurityToken:
 		if uint64(p.LogFlags)&logDebug != 0 {
@@ -1352,7 +1356,7 @@ initiate_connection:
 		}
 	}
 
-	login, err := prepareLogin(ctx, c, p, logger, auth, fedAuth, uint32(outbuf.PackageSize()))
+	login, err := prepareLogin(ctx, c, p, logger, auth, fedAuth, uint32(outbuf.PackageSize()), serverSupportsJSONFeatureExt(fields))
 	if err != nil {
 		return nil, err
 	}

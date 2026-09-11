@@ -104,6 +104,9 @@ type NullJSON struct {
 
 // Scan implements the Scanner interface.
 func (nj *NullJSON) Scan(value interface{}) error {
+	if nj == nil {
+		return fmt.Errorf("mssql.NullJSON: Scan on nil pointer")
+	}
 	if value == nil {
 		nj.JSON, nj.Valid = nil, false
 		return nil
