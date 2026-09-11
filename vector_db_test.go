@@ -6,84 +6,10 @@ import (
 	"fmt"
 	"math"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/microsoft/go-mssqldb/msdsn"
 )
-
-// vectorTestDB holds the shared test database state for vector tests.
-// If we're connected to a system database, we create a user database for testing.
-var (
-	vectorTestDBOnce    sync.Once
-	vectorTestDBName    string
-	vectorTestDBCreated bool
-)
-
-// setupVectorTestDB ensures we're using a user database for vector tests.
-// System databases (master, tempdb, msdb, model) don't support PREVIEW_FEATURES.
-// Database cleanup is handled by drop-before-create logic at the start of each test run.
-func setupVectorTestDB(t *testing.T, conn *sql.DB) {
-	t.Helper()
-
-	vectorTestDBOnce.Do(func() {
-		// Check current database
-		var currentDB string
-		err := conn.QueryRow("SELECT DB_NAME()").Scan(&currentDB)
-		if err != nil {
-			t.Logf("Warning: Could not get current database: %v", err)
-			return
-		}
-
-		// Check if it's a system database
-		systemDBs := []string{"master", "tempdb", "msdb", "model"}
-		isSystemDB := false
-		for _, sysDB := range systemDBs {
-			if strings.EqualFold(currentDB, sysDB) {
-				isSystemDB = true
-				break
-			}
-		}
-
-		if !isSystemDB {
-			// Already in a user database, no need to create one
-			t.Logf("Using existing user database: %s", currentDB)
-			return
-		}
-
-		// We need to use a test database
-		// Use a fixed, clearly prefixed name to avoid accumulating test databases
-		// The prefix makes it obviously a test database
-		vectorTestDBName = "go_mssqldb_vector_test"
-		t.Logf("Connected to system database '%s', will use test database '%s'", currentDB, vectorTestDBName)
-
-		// Drop any existing test database from previous runs, then create fresh.
-		// This is best-effort: if the test login lacks permissions, we skip database
-		// creation and float16 tests will be skipped when they need PREVIEW_FEATURES.
-		if _, err := conn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS [%s]", vectorTestDBName)); err != nil {
-			t.Logf("Warning: Could not drop test database (may lack permissions): %v", err)
-			return
-		}
-
-		// Create the test database
-		_, err = conn.Exec(fmt.Sprintf("CREATE DATABASE [%s]", vectorTestDBName))
-		if err != nil {
-			t.Logf("Warning: Could not create test database (may lack permissions): %v", err)
-			return
-		}
-		t.Logf("Created test database '%s'", vectorTestDBName)
-		vectorTestDBCreated = true
-		// Note: We don't use t.Cleanup() here because sync.Once ties it to the first
-		// test that runs, which would try to drop the database while other tests are
-		// still using it. Instead, we rely on drop-before-create at the start of each
-		// test run to clean up any leftover databases from previous runs.
-	})
-
-	// Note: We don't attempt to USE the test database here because USE is session-scoped
-	// and *sql.DB may pick different connections per call. The tests create their own
-	// tables in the current database context, which is sufficient for isolation.
-	// The test database creation above is primarily for cleanup between test runs.
-}
 
 // skipIfVectorNotSupported checks if the SQL Server instance supports VECTOR type.
 // VECTOR is only supported in SQL Server 2025+. If not supported, the test is skipped.
@@ -129,9 +55,6 @@ func skipIfVectorNotSupported(t *testing.T, conn *sql.DB) {
 	// Clean up the check table on the same connection where it was created
 	singleConn.ExecContext(ctx, "DROP TABLE #vector_check")
 
-	// Now that we know VECTOR is supported, ensure we're in a user database
-	// for tests that need PREVIEW_FEATURES (float16 tests).
-	setupVectorTestDB(t, conn)
 }
 
 // mustNewVector is a test helper that creates a Vector and panics on error.
@@ -151,7 +74,15 @@ func openWithVectorTypeSupport(t testing.TB, vectorTypeSupport msdsn.VectorTypeS
 	})
 
 	config := testConnParams(t)
-	config.VectorTypeSupport = vectorTypeSupport
+	if config.Parameters == nil {
+		config.Parameters = make(map[string]string)
+	}
+	switch vectorTypeSupport {
+	case msdsn.VectorTypeSupportV1:
+		config.Parameters[msdsn.VectorTypeSupportParam] = "v1"
+	default:
+		config.Parameters[msdsn.VectorTypeSupportParam] = "off"
+	}
 	connectionString := config.URL().String()
 
 	connector, err := NewConnector(connectionString)
@@ -437,7 +368,7 @@ func TestVectorDistance(t *testing.T) {
 	}
 
 	if len(results) != 4 {
-		t.Errorf("Expected 4 results, got %d", len(results))
+		t.Fatalf("Expected 4 results, got %d", len(results))
 	}
 	if results[0].name != "vec_a" || results[0].distance != 0.0 {
 		t.Errorf("Expected vec_a with distance 0, got %s with distance %f", results[0].name, results[0].distance)
@@ -480,8 +411,8 @@ func TestVectorColumnMetadata(t *testing.T) {
 	t.Logf("Column type: %s", typeName)
 
 	// Verify length is reported correctly (dimensions)
-	if length, ok := embeddingCol.Length(); ok {
-		t.Logf("Column length: %d", length)
+	if length, ok := embeddingCol.Length(); !ok || length != dimensions {
+		t.Errorf("Column length = %d, %t; want %d, true", length, ok, dimensions)
 	}
 
 	// Verify we can actually scan the vector data correctly
@@ -546,6 +477,67 @@ func TestVectorBatchInsert(t *testing.T) {
 		t.Errorf("Expected %d rows, got %d", count, actualCount)
 	}
 	t.Logf("Batch inserted %d vectors successfully", count)
+}
+
+func TestVectorBulkCopy(t *testing.T) {
+	ctx := setupVectorTest(t, 3, true)
+
+	stmt, err := ctx.tx.Prepare(CopyIn(ctx.tableName, BulkOptions{}, "embedding"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stmt.Close()
+
+	for _, value := range []interface{}{
+		mustNewVector([]float32{1, 2, 3}),
+		NullVector{Valid: false},
+	} {
+		if _, err := stmt.Exec(value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := stmt.Exec(); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := ctx.tx.Query(fmt.Sprintf("SELECT embedding FROM %s ORDER BY id", ctx.tableName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		t.Fatal("missing vector row")
+	}
+	var vector Vector
+	if err := rows.Scan(&vector); err != nil {
+		t.Fatal(err)
+	}
+	if len(vector.Data) != 3 {
+		t.Fatalf("bulk vector dimensions = %d; want 3", len(vector.Data))
+	}
+	if !floatsEqualVector(vector.Data[0], 1) ||
+		!floatsEqualVector(vector.Data[1], 2) ||
+		!floatsEqualVector(vector.Data[2], 3) {
+		t.Fatalf("bulk vector = %v; want [1 2 3]", vector.Data)
+	}
+
+	if !rows.Next() {
+		t.Fatal("missing NULL row")
+	}
+	var nullVector NullVector
+	if err := rows.Scan(&nullVector); err != nil {
+		t.Fatal(err)
+	}
+	if nullVector.Valid {
+		t.Fatal("bulk NULL vector scanned as valid")
+	}
+	if rows.Next() {
+		t.Fatal("unexpected extra row")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // TestVectorSliceFloat32Insert tests inserting []float32 directly without wrapping in Vector.
@@ -683,17 +675,10 @@ func TestVectorFloat16(t *testing.T) {
 	defer conn.Close()
 	skipIfVectorNotSupported(t, conn)
 
-	// Determine which database to use for PREVIEW_FEATURES
-	// If we created a test database, use that; otherwise use the current database
 	var targetDB string
-	if vectorTestDBCreated && vectorTestDBName != "" {
-		targetDB = vectorTestDBName
-	} else {
-		// Get the current database name from the connection string config
-		err := conn.QueryRow("SELECT DB_NAME()").Scan(&targetDB)
-		if err != nil {
-			t.Fatalf("Failed to get current database: %v", err)
-		}
+	err := conn.QueryRow("SELECT DB_NAME()").Scan(&targetDB)
+	if err != nil {
+		t.Fatalf("Failed to get current database: %v", err)
 	}
 
 	// Check if it's a system database - we can't enable PREVIEW_FEATURES on system databases

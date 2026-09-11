@@ -178,7 +178,7 @@ queryVector, _ := mssql.NewVector([]float32{1.0, 0.0, 0.0})
 
 // Search for similar vectors using cosine distance
 rows, err := db.Query(`
-    SELECT TOP 10 name, VECTOR_DISTANCE('cosine', embedding, @p1) as distance
+    SELECT TOP 10 name, VECTOR_DISTANCE('cosine', embedding, CAST(@p1 AS VECTOR(3))) as distance
     FROM embeddings
     ORDER BY distance
 `, queryVector)
@@ -259,9 +259,9 @@ CREATE TABLE embeddings (
 );
 ```
 
-> **Note:** The element type is determined by the SQL Server column definition (e.g., `VECTOR(3)` for float32, `VECTOR(3, float16)` for float16), not by the Go-side `Vector` struct. When inserting float32 vectors from Go with a compatible server, they are transmitted using the native binary vector format. For float16 vectors (or when binary parameters aren't supported), vectors are sent as JSON strings and SQL Server converts them to the column's declared element type.
+> **Note:** The element type is determined by the SQL Server column definition (e.g., `VECTOR(3)` for float32, `VECTOR(3, float16)` for float16), not by the Go-side `Vector` struct. With `vectortypesupport=v1`, float32 parameters and results use the native binary vector format. Float16 parameters use JSON, and float16 results use JSON because native float16 results require protocol version 2.
 >
-> **float16 TDS Limitation:** Currently, float16 vector parameters are sent as JSON over TDS because a binary parameter format for float16 is not yet available. The driver reads float16 vectors from SQL Server using the binary vector format and converts them to float32 values in Go.
+> **float16 TDS Limitation:** Protocol version 1 does not preserve float16 result metadata. JSON results with 1998 or fewer dimensions scan as float32; larger results scan as float16.
 
 
 
@@ -323,7 +323,7 @@ if err := tx.Commit(); err != nil {
 
 3. **NULL vectors and dimensions**: When inserting a NULL vector using `mssql.NullVector{Valid: false}`, the driver sends the value as an `NVARCHAR(1)` NULL so that SQL Server does not enforce any vector dimension matching for that parameter. You typically do not need to declare a specific vector dimension for NULL parameters; dimension matching still applies to non-NULL vectors and to table definitions that use the `VECTOR` type with a fixed dimension.
 
-4. **Element type with JSON fallback**: JSON doesn't contain vector element-type metadata. With `vectortypesupport=off`, `Vector.Scan` decodes arrays with 1 through 1998 dimensions as float32 and larger arrays as float16. A float16 vector with 1998 or fewer dimensions therefore scans as float32. Use `vectortypesupport=v1` when the application must preserve the element type returned by SQL Server.
+4. **Element type with JSON fallback**: JSON doesn't contain vector element-type metadata. With `vectortypesupport=off`, `Vector.Scan` decodes arrays with 1 through 1998 dimensions as float32 and larger arrays as float16. A float16 vector with 1998 or fewer dimensions therefore scans as float32. Protocol version 1 provides native float32 results only; float16 results require protocol version 2, which this release does not negotiate.
 
 ## Precision Loss Warnings
 
@@ -356,8 +356,8 @@ The `vectortypesupport` connection string parameter controls how vector data is 
 
 | Value | Description |
 |-------|-------------|
-| `off` (default) | Vectors are sent as JSON strings using standard parameter types. This mode is intended for backward-compatible client behavior and works with SQL Server 2025+ even without vector feature negotiation; older SQL Server versions still cannot store `VECTOR` columns or use `VECTOR` functions. |
-| `v1` | Enables native binary TDS protocol for vectors. Requires SQL Server 2025+. |
+| `off` (default) | Vectors are sent as JSON strings using standard parameter types. This mode is intended for backward-compatible client behavior and works with SQL Server 2025 and later versions even without vector feature negotiation; older SQL Server versions still cannot store `VECTOR` columns or use `VECTOR` functions. |
+| `v1` | Enables native binary TDS protocol version 1 for float32 vectors. Float16 still uses JSON. Requires SQL Server 2025 and later versions. |
 
 ### Examples
 
@@ -375,7 +375,7 @@ db, _ := sql.Open("sqlserver", "odbc:server=host;vectortypesupport=v1")
 db, _ := sql.Open("sqlserver", "server=host;vectortypesupport=v1")
 ```
 
-**Note:** The default is `off` to ensure backward compatibility. When connecting to SQL Server 2025+, setting `vectortypesupport=v1` enables the optimized binary format which may provide better performance for large vectors.
+**Note:** The default is `off` to ensure backward compatibility. When connecting to SQL Server 2025 and later versions, setting `vectortypesupport=v1` enables the optimized binary format for float32 vectors.
 
 ## See Also
 

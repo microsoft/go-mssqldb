@@ -637,11 +637,11 @@ func parseFeatureExtAck(r *tdsBuffer) featureExtAck {
 			ack[feature] = colAck
 		case featExtVECTORSUPPORT:
 			// Vector support ack contains a single byte indicating the version
-			if length < 1 {
-				badStreamPanicf("invalid featExtVECTORSUPPORT feature ack: length < 1")
+			if length != 1 {
+				badStreamPanicf("invalid featExtVECTORSUPPORT feature ack length %d", length)
 			}
 			version := r.byte()
-			length--
+			length = 0
 			ack[feature] = version
 		}
 

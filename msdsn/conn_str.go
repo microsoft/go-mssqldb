@@ -181,12 +181,18 @@ type Config struct {
 	TrustServerCertificate bool
 	// Parameters related to type encoding
 	Encoding EncodeParameters
-	// VectorTypeSupport controls native vector type handling.
-	// Matches JDBC/ODBC vectorTypeSupport connection property.
-	// Default is VectorTypeSupportOff for backward compatibility.
-	VectorTypeSupport VectorTypeSupport
 	// EPA mode determines how the Channel Bindings are calculated.
 	EpaEnabled bool
+}
+
+// VectorTypeSupport returns the configured native vector protocol version.
+func (p Config) VectorTypeSupport() VectorTypeSupport {
+	switch strings.ToLower(p.Parameters[VectorTypeSupportParam]) {
+	case "v1", "1":
+		return VectorTypeSupportV1
+	default:
+		return VectorTypeSupportOff
+	}
 }
 
 func readDERFile(filename string) ([]byte, error) {
@@ -672,13 +678,10 @@ func Parse(dsn string) (Config, error) {
 
 	// Parse vectorTypeSupport: off, v1 (default: off for backward compatibility)
 	// Matches JDBC/ODBC vectorTypeSupport connection property
-	p.VectorTypeSupport = VectorTypeSupportOff
 	if vectorSupport, ok := params[VectorTypeSupportParam]; ok {
 		switch strings.ToLower(vectorSupport) {
 		case "off", "0":
-			p.VectorTypeSupport = VectorTypeSupportOff
 		case "v1", "1":
-			p.VectorTypeSupport = VectorTypeSupportV1
 		default:
 			return p, fmt.Errorf("invalid vectortypesupport '%s': must be 'off' or 'v1'", vectorSupport)
 		}
@@ -786,8 +789,8 @@ func (p Config) URL() *url.URL {
 		q.Add(FailoverPartnerSpn, p.FailOverPartnerSPN)
 	}
 
-	if p.VectorTypeSupport != VectorTypeSupportOff {
-		switch p.VectorTypeSupport {
+	if p.VectorTypeSupport() != VectorTypeSupportOff {
+		switch p.VectorTypeSupport() {
 		case VectorTypeSupportV1:
 			q.Add(VectorTypeSupportParam, "v1")
 		}

@@ -1105,7 +1105,7 @@ func prepareLogin(ctx context.Context, c *Connector, p msdsn.Config, logger Cont
 	}
 	// Only request vector support when enabled via connection string (vectortypesupport=v1)
 	// Default is off for backward compatibility, matching ODBC behavior
-	if p.VectorTypeSupport == msdsn.VectorTypeSupportV1 {
+	if p.VectorTypeSupport() == msdsn.VectorTypeSupportV1 {
 		_ = l.FeatureExt.Add(&featureExtVector{})
 	}
 	switch {

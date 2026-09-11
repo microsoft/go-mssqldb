@@ -891,6 +891,9 @@ func readVectorPLPType(_ *typeInfo, r *tdsBuffer, c *cryptoMetadata, _ msdsn.Enc
 		if uint64(len(out))+uint64(chunkSize) > vectorMaxWireSize {
 			badStreamPanicf("vector PLP accumulated length exceeds maximum %d", vectorMaxWireSize)
 		}
+		if size != _UNKNOWN_PLP_LEN && uint64(len(out))+uint64(chunkSize) > size {
+			badStreamPanicf("vector PLP chunk exceeds advertised length %d", size)
+		}
 		offset := len(out)
 		out = append(out, make([]byte, int(chunkSize))...)
 		r.ReadFull(out[offset:])

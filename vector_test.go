@@ -49,10 +49,6 @@ func TestVectorEncodeDecode(t *testing.T) {
 		vector Vector
 	}{
 		{
-			name:   "empty vector",
-			vector: Vector{ElementType: VectorElementFloat32, Data: []float32{}},
-		},
-		{
 			name:   "single element",
 			vector: Vector{ElementType: VectorElementFloat32, Data: []float32{1.0}},
 		},
@@ -409,51 +405,13 @@ func TestVectorValue(t *testing.T) {
 	}
 }
 
-func TestVectorValueNaNRoundTrip(t *testing.T) {
-	// Test that NaN values can round-trip through ToJSON/decodeFromJSON
-	// ToJSON encodes NaN as null, decodeFromJSON should decode null back to NaN
+func TestVectorValueNaNRejected(t *testing.T) {
 	v := Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, float32(math.NaN()), 3.0}}
-
-	val, err := v.Value()
-	if err != nil {
-		t.Fatalf("Value() failed: %v", err)
+	if _, err := v.Value(); err == nil {
+		t.Fatal("Value() should return error for vector with NaN values")
 	}
-
-	jsonStr, ok := val.(string)
-	if !ok {
-		t.Fatalf("Value() should return string, got %T", val)
-	}
-
-	// NaN should be encoded as null
-	expectedJSON := "[1, null, 3]"
-	if jsonStr != expectedJSON {
-		t.Errorf("Value() returned %q, expected %q", jsonStr, expectedJSON)
-	}
-
-	// Test that the JSON can be decoded back to a Vector with NaN
-	var decoded Vector
-	err = decoded.decodeFromJSON(jsonStr)
-	if err != nil {
-		t.Fatalf("decodeFromJSON failed: %v", err)
-	}
-
-	if len(decoded.Data) != len(v.Data) {
-		t.Fatalf("length mismatch: got %d, want %d", len(decoded.Data), len(v.Data))
-	}
-
-	// First element should match
-	if decoded.Data[0] != 1.0 {
-		t.Errorf("index 0: got %v, want 1.0", decoded.Data[0])
-	}
-
-	// Second element should be NaN (null in JSON -> NaN)
-	if !math.IsNaN(float64(decoded.Data[1])) {
-		t.Errorf("index 1: got %v, want NaN", decoded.Data[1])
-	}
-
-	// Third element should match
-	if decoded.Data[2] != 3.0 {
-		t.Errorf("index 2: got %v, want 3.0", decoded.Data[2])
+	if got := v.ToJSON(); got != "" {
+		t.Fatalf("ToJSON() = %q; want empty string", got)
 	}
 }
 
@@ -593,20 +551,16 @@ func TestVectorConstructorsPreserveNil(t *testing.T) {
 		t.Fatal("NewVectorFromFloat64(nil) should return a NULL vector")
 	}
 
-	vector, err = NewVector([]float32{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if vector.IsNull() {
-		t.Fatal("NewVector(empty slice) should not return a NULL vector")
+	if _, err = NewVector([]float32{}); err == nil {
+		t.Fatal("NewVector(empty slice) should fail")
 	}
 
-	vector, err = NewVectorFromFloat64([]float64{})
-	if err != nil {
-		t.Fatal(err)
+	if _, err = NewVectorWithType(VectorElementFloat16, []float32{}); err == nil {
+		t.Fatal("NewVectorWithType(empty slice) should fail")
 	}
-	if vector.IsNull() {
-		t.Fatal("NewVectorFromFloat64(empty slice) should not return a NULL vector")
+
+	if _, err = NewVectorFromFloat64([]float64{}); err == nil {
+		t.Fatal("NewVectorFromFloat64(empty slice) should fail")
 	}
 }
 
@@ -706,15 +660,101 @@ func TestVectorScanUnsupportedType(t *testing.T) {
 
 func TestVectorDecodeEmptyJSON(t *testing.T) {
 	var v Vector
-	err := v.decodeFromJSON("[]")
+	if err := v.decodeFromJSON("[]"); err == nil {
+		t.Fatal("decodeFromJSON([]) should fail")
+	}
+}
+
+func TestVectorDecodeJSONNullElement(t *testing.T) {
+	var v Vector
+	if err := v.decodeFromJSON("[1,null,3]"); err == nil {
+		t.Fatal("decodeFromJSON should reject null elements")
+	}
+}
+
+func TestVectorRejectsZeroDimensions(t *testing.T) {
+	vector := Vector{ElementType: VectorElementFloat32, Data: []float32{}}
+	if _, err := vector.encodeToBytes(); err == nil {
+		t.Fatal("encodeToBytes should reject zero dimensions")
+	}
+
+	payload := []byte{vectorMagic, vectorVersion, 0, 0, byte(VectorElementFloat32), 0, 0, 0}
+	if err := vector.decodeFromBytes(payload); err == nil {
+		t.Fatal("decodeFromBytes should reject zero dimensions")
+	}
+
+	if _, err := vector.Value(); err == nil {
+		t.Fatal("Value should reject zero dimensions")
+	}
+}
+
+func TestBulkMakeParamVector(t *testing.T) {
+	bulk := &Bulk{cn: &Conn{sess: &tdsSession{}}}
+	column := columnStruct{ti: typeInfo{
+		TypeId: typeVectorN,
+		Size:   vectorHeaderSize + 3*VectorElementFloat32.BytesPerElement(),
+		Scale:  byte(VectorElementFloat32),
+	}}
+	vector := Vector{ElementType: VectorElementFloat32, Data: []float32{1, 2, 3}}
+
+	param, err := bulk.makeParam(vector, column)
 	if err != nil {
-		t.Fatalf("decodeFromJSON([]) failed: %v", err)
+		t.Fatal(err)
 	}
-	if v.Data == nil {
-		t.Error("Empty array should produce non-nil slice")
+	if param.ti.TypeId != typeVectorN || param.ti.Size != len(param.buffer) {
+		t.Fatalf("unexpected vector parameter metadata: %#v", param.ti)
 	}
-	if len(v.Data) != 0 {
-		t.Error("Empty array should produce zero-length slice")
+
+	var decoded Vector
+	if err := decoded.decodeFromBytes(param.buffer); err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, vector, decoded)
+}
+
+func TestBulkMakeParamVectorValidation(t *testing.T) {
+	bulk := &Bulk{cn: &Conn{sess: &tdsSession{}}}
+	column := columnStruct{ti: typeInfo{
+		TypeId: typeVectorN,
+		Size:   vectorHeaderSize + 3*VectorElementFloat32.BytesPerElement(),
+		Scale:  byte(VectorElementFloat32),
+	}}
+
+	for name, vector := range map[string]Vector{
+		"wrong dimensions":   {ElementType: VectorElementFloat32, Data: []float32{1, 2}},
+		"wrong element type": {ElementType: VectorElementFloat16, Data: []float32{1, 2, 3}},
+		"empty":              {ElementType: VectorElementFloat32, Data: []float32{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := bulk.makeParam(vector, column); err == nil {
+				t.Fatal("makeParam should reject invalid vector")
+			}
+		})
+	}
+}
+
+func TestBulkMakeParamNullVector(t *testing.T) {
+	bulk := &Bulk{cn: &Conn{sess: &tdsSession{}}}
+	column := columnStruct{ti: typeInfo{
+		TypeId: typeVectorN,
+		Size:   vectorHeaderSize + 3*VectorElementFloat32.BytesPerElement(),
+		Scale:  byte(VectorElementFloat32),
+	}}
+
+	for name, value := range map[string]interface{}{
+		"nil vector pointer":      (*Vector)(nil),
+		"invalid null vector":     NullVector{},
+		"nil null vector pointer": (*NullVector)(nil),
+	} {
+		t.Run(name, func(t *testing.T) {
+			param, err := bulk.makeParam(value, column)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if param.ti.TypeId != typeVectorN || param.buffer != nil {
+				t.Fatalf("unexpected NULL vector parameter: %#v", param)
+			}
+		})
 	}
 }
 
@@ -1324,6 +1364,16 @@ func TestReadVectorPLPTypeRejectsOversizedPayload(t *testing.T) {
 			name:   "advertised length mismatch",
 			stream: plpStream(20, make([]byte, 12)),
 			want:   "vector PLP length 12 does not match advertised length 20",
+		},
+		{
+			name: "chunk exceeds advertised length",
+			stream: func() []byte {
+				stream := make([]byte, 8+4+8+4)
+				binary.LittleEndian.PutUint64(stream, 4)
+				binary.LittleEndian.PutUint32(stream[8:], 8)
+				return stream
+			}(),
+			want: "vector PLP chunk exceeds advertised length 4",
 		},
 	}
 

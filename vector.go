@@ -235,15 +235,17 @@ func (v *Vector) Scan(src interface{}) error {
 
 // Value implements the driver.Valuer interface for Vector.
 // Returns the vector as a JSON array string for SQL Server parameter binding.
-// Returns an error if the vector contains Infinity values (which cannot be represented in JSON).
+// Returns an error if the vector is empty or contains non-finite values.
 func (v Vector) Value() (driver.Value, error) {
 	if v.Data == nil {
 		return nil, nil
 	}
-	// Check for Inf values which cannot be round-tripped through JSON
+	if len(v.Data) == 0 {
+		return nil, errors.New("mssql: vector dimensions must be at least 1")
+	}
 	for _, val := range v.Data {
-		if math.IsInf(float64(val), 0) {
-			return nil, errors.New("mssql: vector contains Infinity values which cannot be encoded as JSON parameter")
+		if math.IsNaN(float64(val)) || math.IsInf(float64(val), 0) {
+			return nil, errors.New("mssql: vector contains non-finite values which cannot be encoded as JSON parameter")
 		}
 	}
 	return v.ToJSON(), nil
@@ -304,13 +306,11 @@ func (v Vector) String() string {
 
 // ToJSON returns the Vector as a JSON array string suitable for SQL Server parameter binding.
 // Format: "[1.0, 2.0, 3.0]"
-// Returns an empty string for nil/NULL vectors or if the vector contains Infinity values.
+// Returns an empty string for nil/NULL vectors or vectors containing non-finite values.
 // This format is used when sending vectors as parameters via RPC calls,
 // following the backward compatibility approach used by SqlClient.
-// Note: NaN values are encoded as JSON null; Infinity values return empty string
-// since they cannot be losslessly round-tripped through JSON.
 func (v Vector) ToJSON() string {
-	if v.Data == nil {
+	if len(v.Data) == 0 {
 		return ""
 	}
 
@@ -323,19 +323,10 @@ func (v Vector) ToJSON() string {
 			sb.WriteString(", ")
 		}
 		f := float64(val)
-		if math.IsInf(f, 0) {
-			// Infinity cannot be represented in JSON and would round-trip as NaN.
-			// Return empty string to avoid silently encoding Infinity; callers should
-			// treat this as a serialization failure when v.Data is non-nil.
+		if math.IsNaN(f) || math.IsInf(f, 0) {
 			return ""
 		}
-		if math.IsNaN(f) {
-			// JSON does not support NaN as a numeric literal.
-			// Encode as null; decodeFromJSON will convert back to NaN.
-			sb.WriteString("null")
-		} else {
-			sb.WriteString(strconv.FormatFloat(f, 'g', -1, 32))
-		}
+		sb.WriteString(strconv.FormatFloat(f, 'g', -1, 32))
 	}
 	sb.WriteByte(']')
 	return sb.String()
@@ -368,6 +359,9 @@ func (v Vector) encodeToBytes() ([]byte, error) {
 	}
 
 	dimensions := len(v.Data)
+	if dimensions == 0 {
+		return nil, errors.New("mssql: vector dimensions must be at least 1")
+	}
 	maxDimensions := v.ElementType.MaxDimensions()
 	if dimensions > maxDimensions {
 		return nil, fmt.Errorf("mssql: vector dimensions %d exceeds maximum %d for %s",
@@ -434,6 +428,9 @@ func (v *Vector) decodeFromBytes(buf []byte) error {
 	}
 
 	dimensions := int(binary.LittleEndian.Uint16(buf[2:4]))
+	if dimensions == 0 {
+		return errors.New("mssql: vector dimensions must be at least 1")
+	}
 	elementType := VectorElementType(buf[4])
 
 	// Validate element type
@@ -476,18 +473,12 @@ func (v *Vector) decodeFromBytes(buf []byte) error {
 
 // decodeFromJSON decodes a Vector from a JSON array string.
 // Format: "[1.0, 2.0, 3.0]"
-// Note: JSON null values are decoded as NaN since JSON does not support
-// special floating-point values (NaN, Inf) as numeric literals.
-// This allows round-tripping of NaN values through ToJSON()/decodeFromJSON().
 func (v *Vector) decodeFromJSON(jsonStr string) error {
 	// Trim whitespace
 	jsonStr = strings.TrimSpace(jsonStr)
 
-	// Check for empty array - return empty slice (not nil) to distinguish from NULL
 	if jsonStr == "[]" {
-		v.Data = make([]float32, 0)
-		v.ElementType = VectorElementFloat32
-		return nil
+		return errors.New("mssql: vector dimensions must be at least 1")
 	}
 
 	// Check for JSON null - represents SQL NULL (Data == nil)
@@ -518,11 +509,9 @@ func (v *Vector) decodeFromJSON(jsonStr string) error {
 			return fmt.Errorf("mssql: failed to parse vector JSON: %w", err)
 		}
 		if val == nil {
-			// null represents NaN (JSON doesn't support NaN/Inf literals)
-			data = append(data, float32(math.NaN()))
-		} else {
-			data = append(data, float32(*val))
+			return errors.New("mssql: vector JSON elements must be numbers")
 		}
+		data = append(data, float32(*val))
 	}
 	if _, err := decoder.Token(); err != nil {
 		return fmt.Errorf("mssql: failed to parse vector JSON: %w", err)
@@ -691,6 +680,9 @@ func copyFloat32Slice(src []float32) []float32 {
 
 // newVectorFromFloat32 creates a Vector from float32 slice with dimension validation.
 func newVectorFromFloat32(elementType VectorElementType, values []float32) (Vector, error) {
+	if values != nil && len(values) == 0 {
+		return Vector{}, errors.New("mssql: vector dimensions must be at least 1")
+	}
 	max := elementType.MaxDimensions()
 	if len(values) > max {
 		return Vector{}, fmt.Errorf("mssql: vector dimensions %d exceeds maximum %d for %s", len(values), max, elementType)
@@ -719,6 +711,9 @@ func NewVectorWithType(elementType VectorElementType, values []float32) (Vector,
 // a warning will be generated for the first value that loses precision.
 // Returns an error if the number of dimensions exceeds the maximum allowed.
 func NewVectorFromFloat64(values []float64) (Vector, error) {
+	if values != nil && len(values) == 0 {
+		return Vector{}, errors.New("mssql: vector dimensions must be at least 1")
+	}
 	max := VectorElementFloat32.MaxDimensions()
 	if len(values) > max {
 		return Vector{}, fmt.Errorf("mssql: vector dimensions %d exceeds maximum %d for %s", len(values), max, VectorElementFloat32)
