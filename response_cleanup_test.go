@@ -29,42 +29,44 @@ func (s *blockingOutput) Scan(interface{}) error {
 
 func (blockingOutput) Value() (driver.Value, error) { return int64(0), nil }
 
+var responseCleanupActions = []struct {
+	name string
+	run  func(*Conn) error
+}{
+	{"query", func(c *Conn) error {
+		rows, err := (&Stmt{c: c, query: "SELECT 1"}).queryContext(context.Background(), nil)
+		if err == nil {
+			err = rows.Close()
+		}
+		return err
+	}},
+	{"exec", func(c *Conn) error {
+		_, err := (&Stmt{c: c, query: "SELECT 1"}).exec(context.Background(), nil)
+		return err
+	}},
+	{"begin", func(c *Conn) error { _, err := c.Begin(); return err }},
+	{"commit", func(c *Conn) error { return c.Commit() }},
+	{"rollback", func(c *Conn) error { return c.Rollback() }},
+	{"reset", func(c *Conn) error {
+		c.connector.SessionInitSQL = "SELECT 1"
+		return c.ResetSession(context.Background())
+	}},
+	{"bulk row", func(c *Conn) error {
+		b := &Bulk{cn: c, ctx: context.Background(), headerSent: true}
+		if err := b.AddRow(nil); err != nil {
+			return err
+		}
+		return c.sess.buf.FinishPacket()
+	}},
+	{"bulk done", func(c *Conn) error {
+		b := &Bulk{cn: c, ctx: context.Background(), headerSent: true}
+		_, err := b.Done()
+		return err
+	}},
+}
+
 func TestResponseCleanup_SerializesRequests(t *testing.T) {
-	for _, action := range []struct {
-		name string
-		run  func(*Conn) error
-	}{
-		{"query", func(c *Conn) error {
-			rows, err := (&Stmt{c: c, query: "SELECT 1"}).queryContext(context.Background(), nil)
-			if err == nil {
-				err = rows.Close()
-			}
-			return err
-		}},
-		{"exec", func(c *Conn) error {
-			_, err := (&Stmt{c: c, query: "SELECT 1"}).exec(context.Background(), nil)
-			return err
-		}},
-		{"begin", func(c *Conn) error { _, err := c.Begin(); return err }},
-		{"commit", func(c *Conn) error { return c.Commit() }},
-		{"rollback", func(c *Conn) error { return c.Rollback() }},
-		{"reset", func(c *Conn) error {
-			c.connector.SessionInitSQL = "SELECT 1"
-			return c.ResetSession(context.Background())
-		}},
-		{"bulk row", func(c *Conn) error {
-			b := &Bulk{cn: c, ctx: context.Background(), headerSent: true}
-			if err := b.AddRow(nil); err != nil {
-				return err
-			}
-			return c.sess.buf.FinishPacket()
-		}},
-		{"bulk done", func(c *Conn) error {
-			b := &Bulk{cn: c, ctx: context.Background(), headerSent: true}
-			_, err := b.Done()
-			return err
-		}},
-	} {
+	for _, action := range responseCleanupActions {
 		t.Run(action.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				tail := compatDone(doneError | doneMore)
@@ -162,17 +164,28 @@ func TestResponseCleanup_WaitCancellationDoesNotCancelPriorBatch(t *testing.T) {
 }
 
 func TestResponseCleanup_FailurePreventsReuse(t *testing.T) {
-	original := errors.New("response truncated")
-	c := compatConn(&compatTransport{})
-	defer c.sess.buf.bufClose()
-	c.sess.cleanup = &responseCleanup{done: make(chan struct{}), err: original}
-	close(c.sess.cleanup.done)
-	assert.False(t, c.IsValid())
-	for range 2 {
-		_, err := (&Stmt{c: c, query: "SELECT 1"}).exec(context.Background(), nil)
-		assert.ErrorIs(t, err, driver.ErrBadConn)
-		assert.False(t, c.IsValid())
-		assert.Zero(t, c.sess.buf.transport.(*compatTransport).writes.Load())
+	for _, action := range responseCleanupActions {
+		t.Run(action.name, func(t *testing.T) {
+			transport := &compatTransport{Reader: bytes.NewReader(compatReply(compatDone(doneFinal), true))}
+			c := compatConn(transport)
+			defer c.Close()
+			c.inTransaction, c.sess.tranid = true, 1
+			c.sess.buf.BeginPacket(packBulkLoadBCP, false)
+			c.sess.cleanup = &responseCleanup{
+				done: make(chan struct{}), err: errors.New("response truncated"),
+			}
+			close(c.sess.cleanup.done)
+			require.False(t, c.IsValid())
+			for range 2 {
+				require.ErrorIs(t, action.run(c), driver.ErrBadConn)
+				require.False(t, c.IsValid())
+				require.Zero(t, transport.writes.Load())
+				require.Equal(t, 8, c.sess.buf.wpos, "failed cleanup must also prevent buffered bulk writes")
+				require.True(t, c.inTransaction, "rejected requests must not change transaction state")
+				require.EqualValues(t, 1, c.sess.tranid)
+				require.False(t, c.resetSession, "rejected reset must not update session state")
+			}
+		})
 	}
 }
 
