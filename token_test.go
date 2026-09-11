@@ -601,3 +601,96 @@ func TestNextToken_CancelDrainClosedChannelStartsSecondResponse(t *testing.T) {
 		t.Fatal("expected attention packet to be written")
 	}
 }
+
+// blockingTransport blocks Read until unblock is closed, then returns EOF.
+// It signals readEntered when a Read call begins, allowing deterministic
+// synchronization of the start of Read.
+type blockingTransport struct {
+	unblock     chan struct{}
+	readEntered chan struct{}
+}
+
+func (b *blockingTransport) Read([]byte) (int, error) {
+	select {
+	case b.readEntered <- struct{}{}:
+	default:
+	}
+	<-b.unblock
+	return 0, io.EOF
+}
+
+func (b *blockingTransport) Write(p []byte) (int, error) { return len(p), nil }
+func (b *blockingTransport) Close() error                 { return nil }
+
+// TestStartResponseReaderSerializes verifies that startResponseReader waits for
+// the previous goroutine to finish before launching a new one.
+func TestStartResponseReaderSerializes(t *testing.T) {
+	// First reader: transport blocks until we say so.
+	readEntered := make(chan struct{}, 1)
+	unblock := make(chan struct{})
+	var closeOnce sync.Once
+	closeUnblock := func() { closeOnce.Do(func() { close(unblock) }) }
+	t.Cleanup(closeUnblock)
+	sess := &tdsSession{
+		buf: newTdsBuffer(defaultPacketSize, &blockingTransport{
+			unblock:     unblock,
+			readEntered: readEntered,
+		}),
+	}
+
+	ch1 := make(chan tokenStruct, 10)
+	sess.startResponseReader(context.Background(), ch1, outputs{})
+
+	// Wait for the first goroutine to actually enter Read, proving it's blocked.
+	select {
+	case <-readEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first reader never entered Read")
+	}
+
+	// Launch second startResponseReader in a goroutine; it should block on
+	// <-sess.readDone until the first reader finishes.
+	ch2 := make(chan tokenStruct, 10)
+	goroutineStarted := make(chan struct{})
+	secondCallReturned := make(chan struct{})
+	go func() {
+		close(goroutineStarted)
+		sess.startResponseReader(context.Background(), ch2, outputs{})
+		close(secondCallReturned)
+	}()
+
+	// Wait for the goroutine to be scheduled and reach startResponseReader.
+	<-goroutineStarted
+
+	// The second reader must not enter Read or return from startResponseReader
+	// while the first reader is blocked.
+	select {
+	case <-readEntered:
+		t.Fatal("second reader entered Read before first completed")
+	case <-secondCallReturned:
+		t.Fatal("second startResponseReader returned before first completed")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Unblock the first reader. processSingleResponse will receive EOF from
+	// BeginRead as an error, send it to ch1, and return, closing readDone.
+	closeUnblock()
+
+	// The second call should now return and its reader should enter Read.
+	select {
+	case <-secondCallReturned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second startResponseReader did not return after first completed")
+	}
+	select {
+	case <-readEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second reader never entered Read")
+	}
+	select {
+	case <-time.After(5 * time.Second):
+		t.Fatal("second reader did not finish after entering Read")
+	case <-ch2:
+		// Expected: second reader started and wrote (or closed) ch2.
+	}
+}
