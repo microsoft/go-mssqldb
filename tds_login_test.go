@@ -147,8 +147,9 @@ func TestLoginWithSQLServerAuth(t *testing.T) {
 			fmt.Sprintf("12 01 00 2f 00 00 01 00  00 00 1a 00 06 01 00 20\n"+
 				"00 01 02 00 21 00 01 03  00 22 00 04 04 00 26 00\n"+
 				"01 ff %s             00 00  00 00 00 00 00 00 00\n", v),
-			// LOGIN7 OptionFlags3 = 0x10: fExtension bit set because we now always send
-			// feature extensions (JSON support). Packet length increased by 11 bytes:
+			// LOGIN7 OptionFlags3 = 0x10: the mocked server's PRELOGIN response
+			// advertises FeatureExt support, so JSON support is requested.
+			// Packet length increased by 11 bytes:
 			// 4 bytes for the featureExtOffset DWORD plus 7 bytes for the JSON feature
 			// extension block (feature ID + uint32 length + version + terminator).
 			fmt.Sprintf("10 01 00 d1 00 00 01 00  c9 00 00 00 04 00 00 74\n"+
