@@ -688,6 +688,15 @@ func TestWrapTLSError(t *testing.T) {
 			},
 		},
 		{
+			name: "hostname containing sha1 falls to default",
+			err:  fmt.Errorf("x509: certificate is valid for sha1.example.com, not db.example.com"),
+			wantContains: []string{
+				"TLS Handshake failed",
+				"sha1.example.com",
+			},
+			wantNotContains: []string{"GODEBUG", "tlssha1"},
+		},
+		{
 			name: "Go 1.25 handshake EOF",
 			err:  fmt.Errorf("cannot read handshake packet: EOF"),
 			wantContains: []string{
