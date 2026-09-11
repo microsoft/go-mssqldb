@@ -655,6 +655,21 @@ func TestJSONNativeSupport_SQL2025(t *testing.T) {
 		if string(result.JSON) != `{"test":1}` {
 			t.Errorf("Expected {\"test\":1}, got: %s", result.JSON)
 		}
+		if err := rows.Close(); err != nil {
+			t.Fatalf("Failed to close JSON rows: %v", err)
+		}
+
+		var raw any
+		if err := conn.QueryRowContext(jtc.ctx, `SELECT CAST('{"test":1}' AS JSON)`).Scan(&raw); err != nil {
+			t.Fatalf("Failed to scan JSON into any: %v", err)
+		}
+		value, ok := raw.(string)
+		if !ok {
+			t.Fatalf("Expected JSON scanned into any to contain string, got %T", raw)
+		}
+		if value != `{"test":1}` {
+			t.Errorf("Expected {\"test\":1}, got: %s", value)
+		}
 	})
 
 	t.Run("JSON with SQL Server JSON functions", func(t *testing.T) {
@@ -1575,10 +1590,28 @@ func TestBulkCopyJSONMakeParam(t *testing.T) {
 	})
 }
 
+func TestBulkCopyRawMessagePreservesByteColumnBehavior(t *testing.T) {
+	b := &Bulk{}
+	raw := json.RawMessage(`{"key":"value"}`)
+
+	for _, typeID := range []byte{typeBigVarChar, typeBigVarBin, typeGuid} {
+		param, err := b.makeParam(raw, columnStruct{ti: typeInfo{TypeId: typeID}})
+		if err != nil {
+			t.Fatalf("Bulk.makeParam(json.RawMessage) for type %#x returned error: %v", typeID, err)
+		}
+		if !bytes.Equal(param.buffer, raw) {
+			t.Errorf("Type %#x: expected buffer %v, got %v", typeID, []byte(raw), param.buffer)
+		}
+	}
+}
+
 // TestBulkCopyJSONIntegration tests BulkCopy with native JSON columns on SQL Server 2025+.
 // Verifies the full pipeline: sendBulkCommand converts JSON to nvarchar(max),
 // string data is encoded as UTF-16LE nvarchar, and SQL Server converts to JSON for storage.
 func TestBulkCopyJSONIntegration(t *testing.T) {
+	if dsn := makeConnStr(t); strings.HasSuffix(strings.Split(dsn.Host, ":")[0], ".database.windows.net") {
+		t.Skip("TDS level bulk copy is not supported on Azure SQL Server")
+	}
 	jtc := setupJSONTest(t, true) // requires native JSON
 
 	// Use a single connection so the temp table is visible to all operations.
@@ -1703,7 +1736,7 @@ func TestBulkCopyJSONIntegration(t *testing.T) {
 // output parameters from stored procedures. The procedure uses nvarchar(max)
 // parameters because stored procedure JSON type parameters are a separate feature.
 func TestJSONOutputParameterViaNvarchar(t *testing.T) {
-	jtc := setupJSONTest(t, true) // requires native JSON
+	jtc := setupJSONTest(t, false)
 
 	// Use a single connection so the temp stored procedure is visible.
 	conn := jtc.conn()
