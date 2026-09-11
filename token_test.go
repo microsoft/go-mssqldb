@@ -157,6 +157,93 @@ func TestParseFeatureExtAck(t *testing.T) {
 	}
 }
 
+func TestParseFeatureExtAckMalformedColumnEncryption(t *testing.T) {
+	t.Run("valid enclave payload", func(t *testing.T) {
+		data := []byte{
+			featExtCOLUMNENCRYPTION, 8, 0, 0, 0,
+			1, 3, 'V', 0, 'B', 0, 'S', 0,
+			featExtJSONSUPPORT, 1, 0, 0, 0, jsonSupportVersion,
+			featExtTERMINATOR,
+		}
+
+		ack := parseFeatureExtAck(makeFinalBuf(data))
+
+		columnEncryption, ok := ack[featExtCOLUMNENCRYPTION].(colAckStruct)
+		if !ok {
+			t.Fatalf("column encryption acknowledgement = %#v, want colAckStruct", ack[featExtCOLUMNENCRYPTION])
+		}
+		if columnEncryption.Version != 1 || columnEncryption.EnclaveType != "VBS" {
+			t.Errorf("column encryption acknowledgement = %#v, want version 1 and enclave VBS", columnEncryption)
+		}
+		if version, ok := ack[featExtJSONSUPPORT]; !ok || version != byte(jsonSupportVersion) {
+			t.Errorf("JSON acknowledgement = %#v, want version %#x", version, jsonSupportVersion)
+		}
+	})
+
+	t.Run("zero-length payload", func(t *testing.T) {
+		data := []byte{
+			featExtCOLUMNENCRYPTION, 0, 0, 0, 0,
+			featExtJSONSUPPORT, 1, 0, 0, 0, jsonSupportVersion,
+			featExtTERMINATOR,
+		}
+
+		ack := parseFeatureExtAck(makeFinalBuf(data))
+
+		if _, ok := ack[featExtCOLUMNENCRYPTION]; ok {
+			t.Error("malformed column encryption acknowledgement was stored")
+		}
+		if version, ok := ack[featExtJSONSUPPORT]; !ok || version != byte(jsonSupportVersion) {
+			t.Errorf("JSON acknowledgement = %#v, want version %#x", version, jsonSupportVersion)
+		}
+	})
+
+	t.Run("enclave length exceeds payload", func(t *testing.T) {
+		data := []byte{
+			featExtCOLUMNENCRYPTION, 4, 0, 0, 0,
+			1, 2, 0xaa, 0xbb,
+			featExtJSONSUPPORT, 1, 0, 0, 0, jsonSupportVersion,
+			featExtTERMINATOR,
+		}
+
+		ack := parseFeatureExtAck(makeFinalBuf(data))
+
+		if _, ok := ack[featExtCOLUMNENCRYPTION]; ok {
+			t.Error("malformed column encryption acknowledgement was stored")
+		}
+		if version, ok := ack[featExtJSONSUPPORT]; !ok || version != byte(jsonSupportVersion) {
+			t.Errorf("JSON acknowledgement = %#v, want version %#x", version, jsonSupportVersion)
+		}
+	})
+}
+
+func TestParseFeatureExtAckRejectsInvalidPayloadLengths(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "JSON payload consumes terminator",
+			data: []byte{featExtJSONSUPPORT, 1, 0, 0, 0, featExtTERMINATOR},
+		},
+		{
+			name: "payload exceeds limit",
+			data: []byte{0x7f, 0xff, 0xff, 0xff, 0xff, featExtTERMINATOR},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			defer func() {
+				if v := recover(); v == nil {
+					t.Fatal("expected malformed FEATUREEXTACK to panic")
+				}
+			}()
+			parseFeatureExtAck(makeFinalBuf(test.data))
+			t.Fatal("parseFeatureExtAck should have panicked")
+		})
+	}
+}
+
 func makeFinalBuf(data []byte) *tdsBuffer {
 	return &tdsBuffer{
 		packetSize: len(data),

@@ -1,6 +1,7 @@
 package mssql
 
 import (
+	"bytes"
 	"encoding/binary"
 	"math"
 	"reflect"
@@ -343,6 +344,29 @@ func readPLPStream(stream []byte) interface{} {
 	return readPLPType(&ti, buf, nil, msdsn.EncodeParameters{})
 }
 
+func TestWriteShortLenType(t *testing.T) {
+	t.Run("value", func(t *testing.T) {
+		var buf bytes.Buffer
+		data := []byte{1, 2, 3}
+		if err := writeShortLenType(&buf, typeInfo{Size: len(data)}, data, msdsn.EncodeParameters{}); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := buf.Bytes(), []byte{3, 0, 1, 2, 3}; !bytes.Equal(got, want) {
+			t.Fatalf("encoded value = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("NULL", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := writeShortLenType(&buf, typeInfo{}, nil, msdsn.EncodeParameters{}); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := buf.Bytes(), []byte{0xff, 0xff}; !bytes.Equal(got, want) {
+			t.Fatalf("encoded NULL = %v, want %v", got, want)
+		}
+	})
+}
+
 // TestReadPLPType_OversizedLengthPanics is a regression test for issue #218:
 // readPLPType used the untrusted advertised length as the initial buffer
 // capacity, so a crafted size aborted the process with an OOM. A (max) LOB tops
@@ -388,6 +412,32 @@ func TestReadPLPType_OverAdvertisedLengthAccepted(t *testing.T) {
 	assert.Equal(t, payload, gotBytes)
 }
 
+func TestReadPLPType_MaxAdvertisedLengthDoesNotPreallocate(t *testing.T) {
+	got := readPLPStream(plpStream(_MAX_PLP_LEN, nil))
+
+	gotBytes, ok := got.([]byte)
+	if !ok {
+		t.Fatalf("readPLPType returned %T, want []byte", got)
+	}
+	assert.Empty(t, gotBytes)
+}
+
+func TestReadPLPType_UnderAdvertisedLengthPanics(t *testing.T) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			t.Fatal("expected panic for PLP chunks exceeding the advertised length")
+		}
+		err, ok := v.(error)
+		if !ok {
+			t.Fatalf("recovered %T, want error", v)
+		}
+		assert.Contains(t, err.Error(), "exceed the advertised length")
+	}()
+
+	readPLPStream(plpStream(1, []byte("payload exceeds one byte")))
+}
+
 // TestReadPLPType_UnknownLength verifies the _UNKNOWN_PLP_LEN path still decodes
 // correctly.
 func TestReadPLPType_UnknownLength(t *testing.T) {
@@ -408,4 +458,24 @@ func TestReadPLPType_UnknownLength(t *testing.T) {
 		t.Fatalf("readPLPType returned %T, want []byte", got)
 	}
 	assert.Equal(t, payload, gotBytes)
+}
+
+func TestReadPLPType_UnknownLengthOversizedChunkPanics(t *testing.T) {
+	stream := make([]byte, 12)
+	binary.LittleEndian.PutUint64(stream, _UNKNOWN_PLP_LEN)
+	binary.LittleEndian.PutUint32(stream[8:], _MAX_PLP_LEN+1)
+
+	defer func() {
+		v := recover()
+		if v == nil {
+			t.Fatal("expected panic for oversized unknown-length PLP chunk")
+		}
+		err, ok := v.(error)
+		if !ok {
+			t.Fatalf("recovered %T, want error", v)
+		}
+		assert.Contains(t, err.Error(), "exceeds the maximum LOB size")
+	}()
+
+	readPLPStream(stream)
 }

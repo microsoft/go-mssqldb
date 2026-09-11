@@ -623,48 +623,80 @@ type colAckStruct struct {
 
 type featureExtAck map[byte]interface{}
 
+const maxFeatureExtAckDataLength = 1 << 20
+
 func parseFeatureExtAck(r *tdsBuffer) featureExtAck {
 	ack := map[byte]interface{}{}
 
 	for feature := r.byte(); feature != featExtTERMINATOR; feature = r.byte() {
 		length := r.uint32()
+		if length > maxFeatureExtAckDataLength {
+			badStreamPanicf("FEATUREEXTACK payload length %d exceeds the maximum of %d bytes", length, maxFeatureExtAckDataLength)
+		}
+		if r.final && uint64(length) >= uint64(r.rsize-r.rpos) {
+			badStreamPanicf("FEATUREEXTACK payload length %d leaves no room for the terminator", length)
+		}
+
+		data := make([]byte, length)
+		r.ReadFull(data)
+		payload := bytes.NewReader(data)
 
 		switch feature {
 		case featExtFEDAUTH:
 			// In theory we need to know the federated authentication library to
 			// know how to parse, but the alternatives provide compatible structures.
 			fedAuthAck := fedAuthAckStruct{}
-			if length >= 32 {
+			if payload.Len() >= 32 {
 				fedAuthAck.Nonce = make([]byte, 32)
-				r.ReadFull(fedAuthAck.Nonce)
-				length -= 32
+				if _, err := io.ReadFull(payload, fedAuthAck.Nonce); err != nil {
+					badStreamPanic(err)
+				}
 			}
-			if length >= 32 {
+			if payload.Len() >= 32 {
 				fedAuthAck.Signature = make([]byte, 32)
-				r.ReadFull(fedAuthAck.Signature)
-				length -= 32
+				if _, err := io.ReadFull(payload, fedAuthAck.Signature); err != nil {
+					badStreamPanic(err)
+				}
 			}
 			ack[feature] = fedAuthAck
 		case featExtCOLUMNENCRYPTION:
-			colAck := colAckStruct{Version: int(r.byte())}
-			length--
-			if length > 0 {
+			if length < 1 {
+				break
+			}
+			version, err := payload.ReadByte()
+			if err != nil {
+				badStreamPanic(err)
+			}
+			colAck := colAckStruct{Version: int(version)}
+			if payload.Len() > 0 {
 				// enclave type is sent as utf16 le
-				enclaveLength := r.byte() * 2
-				length--
+				enclaveSize, err := payload.ReadByte()
+				if err != nil {
+					badStreamPanic(err)
+				}
+				enclaveLength := int(enclaveSize) * 2
+				if enclaveLength > payload.Len() {
+					break
+				}
 				enclaveBytes := make([]byte, enclaveLength)
-				r.ReadFull(enclaveBytes)
+				if _, err := io.ReadFull(payload, enclaveBytes); err != nil {
+					badStreamPanic(err)
+				}
 				// if the enclave type is malformed we'll just ignore it
 				colAck.EnclaveType, _ = ucs22str(enclaveBytes)
-				length -= uint32(enclaveLength)
-
 			}
 			ack[feature] = colAck
-		}
-
-		// Skip unprocessed bytes
-		if length > 0 {
-			io.CopyN(io.Discard, r, int64(length))
+		case featExtJSONSUPPORT:
+			// JSON support acknowledgement contains a version byte.
+			// If length != 1 (malformed ack), we intentionally skip storing
+			// the ack so the driver falls back to nvarchar(max) encoding.
+			if length == 1 {
+				version, err := payload.ReadByte()
+				if err != nil {
+					badStreamPanic(err)
+				}
+				ack[feature] = version
+			}
 		}
 	}
 
