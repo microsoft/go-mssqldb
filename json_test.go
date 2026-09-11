@@ -618,10 +618,35 @@ func TestJSONNativeSupport_SQL2025(t *testing.T) {
 	})
 
 	t.Run("JSON type in column metadata", func(t *testing.T) {
-		// Query a JSON literal and check that the driver correctly handles the response
-		var result NullJSON
-		err := conn.QueryRowContext(jtc.ctx, `SELECT CAST('{"test":1}' AS JSON)`).Scan(&result)
+		rows, err := conn.QueryContext(jtc.ctx, `SELECT CAST('{"test":1}' AS JSON)`)
 		if err != nil {
+			t.Fatalf("Failed to query JSON literal: %v", err)
+		}
+		defer rows.Close()
+
+		columnTypes, err := rows.ColumnTypes()
+		if err != nil {
+			t.Fatalf("Failed to read JSON column metadata: %v", err)
+		}
+		if len(columnTypes) != 1 {
+			t.Fatalf("Expected one column, got %d", len(columnTypes))
+		}
+		if got := columnTypes[0].DatabaseTypeName(); got != "JSON" {
+			t.Errorf("Expected database type JSON, got %s", got)
+		}
+		length, ok := columnTypes[0].Length()
+		if !ok {
+			t.Fatal("Expected JSON column length metadata")
+		}
+		if length != 2147483645 {
+			t.Errorf("Expected JSON column length 2147483645, got %d", length)
+		}
+
+		if !rows.Next() {
+			t.Fatalf("Expected one JSON row: %v", rows.Err())
+		}
+		var result NullJSON
+		if err := rows.Scan(&result); err != nil {
 			t.Fatalf("Failed to query JSON literal: %v", err)
 		}
 		if !result.Valid {

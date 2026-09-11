@@ -409,3 +409,23 @@ func TestReadPLPType_UnknownLength(t *testing.T) {
 	}
 	assert.Equal(t, payload, gotBytes)
 }
+
+func TestReadPLPType_UnknownLengthOversizedChunkPanics(t *testing.T) {
+	stream := make([]byte, 12)
+	binary.LittleEndian.PutUint64(stream, _UNKNOWN_PLP_LEN)
+	binary.LittleEndian.PutUint32(stream[8:], _MAX_PLP_LEN+1)
+
+	defer func() {
+		v := recover()
+		if v == nil {
+			t.Fatal("expected panic for oversized unknown-length PLP chunk")
+		}
+		err, ok := v.(error)
+		if !ok {
+			t.Fatalf("recovered %T, want error", v)
+		}
+		assert.Contains(t, err.Error(), "exceeds the maximum LOB size")
+	}()
+
+	readPLPStream(stream)
+}

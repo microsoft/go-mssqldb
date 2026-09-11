@@ -767,11 +767,16 @@ func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.E
 			}
 			buf = bytes.NewBuffer(make([]byte, 0, size))
 		}
+		var totalSize uint64
 		for {
 			chunksize := r.uint32()
 			if chunksize == 0 {
 				break
 			}
+			if uint64(chunksize) > uint64(_MAX_PLP_LEN)-totalSize {
+				badStreamPanicf("PLP length exceeds the maximum LOB size of %d bytes", uint64(_MAX_PLP_LEN))
+			}
+			totalSize += uint64(chunksize)
 			if _, err := io.CopyN(buf, r, int64(chunksize)); err != nil {
 				badStreamPanicf("Reading PLP type failed: %s", err.Error())
 			}
