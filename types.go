@@ -551,14 +551,17 @@ func readShortLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding ms
 }
 
 func writeShortLenType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error) {
+	var size [2]byte
 	if buf == nil {
-		err = binary.Write(w, binary.LittleEndian, uint16(0xffff))
+		binary.LittleEndian.PutUint16(size[:], 0xffff)
+		_, err = w.Write(size[:])
 		return
 	}
 	if ti.Size > 0xfffe {
 		panic("Invalid size for USHORTLEN_TYPE")
 	}
-	err = binary.Write(w, binary.LittleEndian, uint16(ti.Size))
+	binary.LittleEndian.PutUint16(size[:], uint16(ti.Size))
+	_, err = w.Write(size[:])
 	if err != nil {
 		return
 	}

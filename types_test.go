@@ -1,6 +1,7 @@
 package mssql
 
 import (
+	"bytes"
 	"encoding/binary"
 	"math"
 	"reflect"
@@ -341,6 +342,29 @@ func readPLPStream(stream []byte) interface{} {
 
 	ti := typeInfo{TypeId: typeBigVarBin}
 	return readPLPType(&ti, buf, nil, msdsn.EncodeParameters{})
+}
+
+func TestWriteShortLenType(t *testing.T) {
+	t.Run("value", func(t *testing.T) {
+		var buf bytes.Buffer
+		data := []byte{1, 2, 3}
+		if err := writeShortLenType(&buf, typeInfo{Size: len(data)}, data, msdsn.EncodeParameters{}); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := buf.Bytes(), []byte{3, 0, 1, 2, 3}; !bytes.Equal(got, want) {
+			t.Fatalf("encoded value = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("NULL", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := writeShortLenType(&buf, typeInfo{}, nil, msdsn.EncodeParameters{}); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := buf.Bytes(), []byte{0xff, 0xff}; !bytes.Equal(got, want) {
+			t.Fatalf("encoded NULL = %v, want %v", got, want)
+		}
+	})
 }
 
 // TestReadPLPType_OversizedLengthPanics is a regression test for issue #218:

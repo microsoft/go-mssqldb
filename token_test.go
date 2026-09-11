@@ -216,6 +216,34 @@ func TestParseFeatureExtAckMalformedColumnEncryption(t *testing.T) {
 	})
 }
 
+func TestParseFeatureExtAckRejectsInvalidPayloadLengths(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "JSON payload consumes terminator",
+			data: []byte{featExtJSONSUPPORT, 1, 0, 0, 0, featExtTERMINATOR},
+		},
+		{
+			name: "payload exceeds limit",
+			data: []byte{0x7f, 0xff, 0xff, 0xff, 0xff, featExtTERMINATOR},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			defer func() {
+				if v := recover(); v == nil {
+					t.Fatal("expected malformed FEATUREEXTACK to panic")
+				}
+			}()
+			parseFeatureExtAck(makeFinalBuf(test.data))
+			t.Fatal("parseFeatureExtAck should have panicked")
+		})
+	}
+}
+
 func makeFinalBuf(data []byte) *tdsBuffer {
 	return &tdsBuffer{
 		packetSize: len(data),

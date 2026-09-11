@@ -25,7 +25,7 @@ func requireNativeJSON(t *testing.T, db *sql.DB, ctx context.Context) {
 	var jsonTypeCount int
 	err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json' AND is_user_defined = 0").Scan(&jsonTypeCount)
 	if err != nil {
-		t.Skipf("Could not determine JSON type support: %v", err)
+		t.Fatalf("Could not determine JSON type support: %v", err)
 	}
 	if jsonTypeCount == 0 {
 		t.Skipf("Native JSON type is not supported on this server (no 'json' type in sys.types)")
@@ -59,10 +59,11 @@ func setupJSONTest(t *testing.T, requireNative bool) *jsonTestContext {
 
 // hasNativeJSON returns true if the server supports the native JSON type.
 func (jtc *jsonTestContext) hasNativeJSON() bool {
+	jtc.t.Helper()
 	var count int
 	err := jtc.db.QueryRowContext(jtc.ctx, "SELECT COUNT(*) FROM sys.types WHERE name = 'json' AND is_user_defined = 0").Scan(&count)
 	if err != nil {
-		return false
+		jtc.t.Fatalf("Could not determine JSON type support: %v", err)
 	}
 	return count > 0
 }
@@ -84,6 +85,16 @@ func (jtc *jsonTestContext) conn() *sql.Conn {
 // - Azure SQL Managed Instance with Always-up-to-date update policy
 func TestJSONType(t *testing.T) {
 	jtc := setupJSONTest(t, true)
+
+	conn := jtc.conn()
+	if err := conn.Raw(func(driverConn interface{}) error {
+		if !driverConn.(*Conn).sess.jsonSupported {
+			t.Error("server exposes native JSON but did not acknowledge JSON FeatureExt")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	t.Run("JSON parameter round-trip", func(t *testing.T) {
 		jsonValue := json.RawMessage(`{"name":"test","value":123,"nested":{"key":"value"}}`)
@@ -1846,6 +1857,33 @@ func TestJSONScan(t *testing.T) {
 			t.Error("Scan did not copy json.RawMessage data")
 		}
 	})
+	for _, test := range []struct {
+		name  string
+		value interface{}
+	}{
+		{name: "empty string", value: ""},
+		{name: "empty []byte", value: []byte{}},
+		{name: "empty json.RawMessage", value: json.RawMessage{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var j JSON
+			if err := j.Scan(test.value); err != nil {
+				t.Fatal(err)
+			}
+			if j == nil {
+				t.Fatal("empty non-NULL value scanned as nil")
+			}
+
+			stmt := &Stmt{c: &Conn{sess: &tdsSession{jsonSupported: true}}}
+			param, err := stmt.makeParam(j)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if param.buffer == nil {
+				t.Fatal("scanned empty value reused as a NULL parameter")
+			}
+		})
+	}
 	t.Run("scan nil value", func(t *testing.T) {
 		var j JSON
 		err := j.Scan(nil)
