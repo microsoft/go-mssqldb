@@ -737,6 +737,22 @@ func TestVectorDecodeInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestVectorDecodeJSONRejectsOversizedArray(t *testing.T) {
+	values := make([]string, vectorMaxDimensionsFloat32+1)
+	for i := range values {
+		values[i] = "1"
+	}
+
+	var v Vector
+	err := v.decodeFromJSON("[" + strings.Join(values, ",") + "]")
+	if err == nil {
+		t.Fatal("decodeFromJSON should reject an oversized vector")
+	}
+	if !strings.Contains(err.Error(), "vector dimensions 1999 exceeds maximum 1998 for FLOAT32") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestVectorString(t *testing.T) {
 	testCases := []struct {
 		vector   Vector
@@ -1227,6 +1243,58 @@ func TestReadVectorTypeRejectsLengthAboveColumnMaximum(t *testing.T) {
 	}()
 
 	readVectorType(&ti, buf, nil, msdsn.EncodeParameters{})
+}
+
+func TestReadVectorPLPTypeRejectsOversizedPayload(t *testing.T) {
+	tests := []struct {
+		name   string
+		stream []byte
+	}{
+		{
+			name:   "advertised length",
+			stream: plpStream(vectorMaxWireSize+1, []byte{vectorMagic}),
+		},
+		{
+			name:   "unknown length chunks",
+			stream: plpStream(_UNKNOWN_PLP_LEN, make([]byte, vectorMaxWireSize+1)),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			metadata := newTdsBuffer(3, nil)
+			binary.LittleEndian.PutUint16(metadata.rbuf[:2], 0xffff)
+			metadata.rbuf[2] = byte(VectorElementFloat32)
+			metadata.rpos = 0
+			metadata.rsize = 3
+			metadata.final = true
+
+			ti := typeInfo{TypeId: typeVectorN}
+			readVarLen(&ti, metadata, nil, msdsn.EncodeParameters{})
+
+			buf := newTdsBuffer(uint16(len(test.stream)), nil)
+			copy(buf.rbuf[:len(test.stream)], test.stream)
+			buf.rpos = 0
+			buf.rsize = len(test.stream)
+			buf.final = true
+
+			defer func() {
+				recovered := recover()
+				if recovered == nil {
+					t.Fatal("readVectorPLPType should reject an oversized payload")
+				}
+				err, ok := recovered.(error)
+				if !ok {
+					t.Fatalf("recovered %T, want error", recovered)
+				}
+				if !strings.Contains(err.Error(), "exceeds maximum 8000") {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}()
+
+			ti.Reader(&ti, buf, nil, msdsn.EncodeParameters{})
+		})
+	}
 }
 
 // TestConvertInputParameterVector tests the convertInputParameter function for Vector types.

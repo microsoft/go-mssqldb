@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"strconv"
 	"strings"
@@ -102,6 +103,7 @@ const (
 	// For float16: (8000 - 8) / 2 = 3996 dimensions
 	vectorMaxDimensionsFloat32 = 1998
 	vectorMaxDimensionsFloat16 = 3996
+	vectorMaxWireSize          = 8000
 )
 
 // String returns the string representation of the element type.
@@ -493,22 +495,41 @@ func (v *Vector) decodeFromJSON(jsonStr string) error {
 		return nil
 	}
 
-	// Parse JSON array using []*float64 to handle null values.
-	// null is used to represent NaN since JSON does not support it.
-	var values []*float64
-	if err := json.Unmarshal([]byte(jsonStr), &values); err != nil {
+	decoder := json.NewDecoder(strings.NewReader(jsonStr))
+	token, err := decoder.Token()
+	if err != nil {
 		return fmt.Errorf("mssql: failed to parse vector JSON: %w", err)
 	}
+	delim, ok := token.(json.Delim)
+	if !ok || delim != '[' {
+		return errors.New("mssql: failed to parse vector JSON: expected array")
+	}
 
-	// Convert to float32, mapping null to NaN
-	data := make([]float32, len(values))
-	for i, val := range values {
+	data := make([]float32, 0)
+	for decoder.More() {
+		if len(data) >= vectorMaxDimensionsFloat32 {
+			return fmt.Errorf("mssql: vector dimensions %d exceeds maximum %d for %s",
+				len(data)+1, vectorMaxDimensionsFloat32, VectorElementFloat32)
+		}
+		var val *float64
+		if err := decoder.Decode(&val); err != nil {
+			return fmt.Errorf("mssql: failed to parse vector JSON: %w", err)
+		}
 		if val == nil {
 			// null represents NaN (JSON doesn't support NaN/Inf literals)
-			data[i] = float32(math.NaN())
+			data = append(data, float32(math.NaN()))
 		} else {
-			data[i] = float32(*val)
+			data = append(data, float32(*val))
 		}
+	}
+	if _, err := decoder.Token(); err != nil {
+		return fmt.Errorf("mssql: failed to parse vector JSON: %w", err)
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		if err == nil {
+			return errors.New("mssql: failed to parse vector JSON: unexpected trailing data")
+		}
+		return fmt.Errorf("mssql: failed to parse vector JSON: %w", err)
 	}
 
 	v.ElementType = VectorElementFloat32

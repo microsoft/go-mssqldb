@@ -854,6 +854,47 @@ func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.E
 	panic("shouldn't get here")
 }
 
+func readVectorPLPType(_ *typeInfo, r *tdsBuffer, c *cryptoMetadata, _ msdsn.EncodeParameters) interface{} {
+	if c != nil {
+		size := r.rsize - r.rpos
+		if size > vectorMaxWireSize {
+			badStreamPanicf("vector PLP length %d exceeds maximum %d", size, vectorMaxWireSize)
+		}
+		out := make([]byte, size)
+		r.ReadFull(out)
+		return out
+	}
+
+	size := r.uint64()
+	switch size {
+	case _PLP_NULL:
+		return nil
+	case _UNKNOWN_PLP_LEN:
+	default:
+		if size > vectorMaxWireSize {
+			badStreamPanicf("vector PLP length %d exceeds maximum %d", size, vectorMaxWireSize)
+		}
+	}
+
+	capacity := 1000
+	if size != _UNKNOWN_PLP_LEN {
+		capacity = int(size)
+	}
+	out := make([]byte, 0, capacity)
+	for {
+		chunkSize := r.uint32()
+		if chunkSize == _PLP_TERMINATOR {
+			return out
+		}
+		if uint64(len(out))+uint64(chunkSize) > vectorMaxWireSize {
+			badStreamPanicf("vector PLP accumulated length exceeds maximum %d", vectorMaxWireSize)
+		}
+		offset := len(out)
+		out = append(out, make([]byte, int(chunkSize))...)
+		r.ReadFull(out[offset:])
+	}
+}
+
 func writePLPType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error) {
 	if buf == nil {
 		err = binary.Write(w, binary.LittleEndian, uint64(_PLP_NULL))
@@ -984,7 +1025,7 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		// Vector dimensions can be up to 1998 (float32) or 3996 (float16).
 		// Dimension count can be derived as: (ti.Size - 8) / bytesPerDim when needed.
 		if ti.Size == 0xffff {
-			ti.Reader = readPLPType
+			ti.Reader = readVectorPLPType
 		} else {
 			ti.Reader = readVectorType
 		}
