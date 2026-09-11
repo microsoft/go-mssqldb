@@ -13,8 +13,8 @@ var _ driver.Connector = &Connector{}
 var _ driver.SessionResetter = &Conn{}
 
 func (c *Conn) ResetSession(ctx context.Context) error {
-	if !c.connectionGood {
-		return driver.ErrBadConn
+	if err := c.awaitResponse(ctx); err != nil {
+		return err
 	}
 	c.resetSession = true
 

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -117,30 +116,6 @@ const (
 // If the drain fails for any reason (timeout, I/O error, or context cancellation),
 // the connection is marked bad via checkBadConn.
 const cancelDrainTimeout = 5 * time.Second
-
-func sendAttentionWithTimeout(transport io.ReadWriteCloser, timeout time.Duration) error {
-	packet := make([]byte, headerSize)
-	packet[0] = byte(packAttention)
-	packet[1] = 1
-	binary.BigEndian.PutUint16(packet[2:4], uint16(headerSize))
-	packet[6] = 1
-
-	result := make(chan error, 1)
-	go func() {
-		_, err := transport.Write(packet)
-		result <- err
-	}()
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case err := <-result:
-		return err
-	case <-timer.C:
-		go transport.Close()
-		return fmt.Errorf("attention write timed out after %s", timeout)
-	}
-}
 
 type cancelConfirmationResult uint8
 
@@ -1020,6 +995,10 @@ func parseReturnValue(r *tdsBuffer, s *tdsSession) (nv namedValue) {
 }
 
 func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenStruct, outs outputs) {
+	messageCtx := ctx
+	if outs.messageCtx != nil {
+		messageCtx = outs.messageCtx
+	}
 	defer func() {
 		if err := recover(); err != nil {
 			sess.LogF(ctx, msdsn.LogErrors, "intercepted panic: %v", err)
@@ -1038,14 +1017,14 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				derr = fmt.Errorf("unhandled session error: %v", e)
 			}
 			if outs.msgq != nil {
-				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgError{Error: derr})
+				_ = sqlexp.ReturnMessageEnqueue(messageCtx, outs.msgq, sqlexp.MsgError{Error: derr})
 			}
 			ch <- derr
 		}
 		if outs.msgq != nil {
 			// Wake the message loop so NextResultSet can observe completion
 			// or the terminal error before the token channel is closed.
-			_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNextResultSet{})
+			_ = sqlexp.ReturnMessageEnqueue(messageCtx, outs.msgq, sqlexp.MsgNextResultSet{})
 		}
 		close(ch)
 	}()
@@ -1101,7 +1080,7 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				sess.LogF(ctx, msdsn.LogRows, "(%d rows affected)", done.RowCount)
 
 				if (colsReceived || done.CurCmd != cmdSelect) && outs.msgq != nil {
-					_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgRowsAffected{Count: int64(done.RowCount)})
+					_ = sqlexp.ReturnMessageEnqueue(messageCtx, outs.msgq, sqlexp.MsgRowsAffected{Count: int64(done.RowCount)})
 				}
 			}
 
@@ -1112,7 +1091,7 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				// It's not clear how to handle them correctly here, and data/sql seems
 				// to set Rows.Err correctly when ctx expires already
 				sess.LogF(ctx, msdsn.LogDebug, "queueing MsgNextResultSet after tokenDoneInProc")
-				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNextResultSet{})
+				_ = sqlexp.ReturnMessageEnqueue(messageCtx, outs.msgq, sqlexp.MsgNextResultSet{})
 			}
 			colsReceived = false
 			if done.Status&doneMore == 0 {
@@ -1133,7 +1112,7 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				sess.LogF(ctx, msdsn.LogRows, "(Rows affected: %d)", done.RowCount)
 
 				if (colsReceived || done.CurCmd != cmdSelect) && outs.msgq != nil {
-					_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgRowsAffected{Count: int64(done.RowCount)})
+					_ = sqlexp.ReturnMessageEnqueue(messageCtx, outs.msgq, sqlexp.MsgRowsAffected{Count: int64(done.RowCount)})
 				}
 
 			}
@@ -1143,7 +1122,7 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 			colsReceived = false
 			if outs.msgq != nil {
 				sess.LogF(ctx, msdsn.LogDebug, "queueing MsgNextResultSet after tokenDone or tokenDoneProc")
-				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNextResultSet{})
+				_ = sqlexp.ReturnMessageEnqueue(messageCtx, outs.msgq, sqlexp.MsgNextResultSet{})
 			}
 			if done.Status&doneMore == 0 {
 				return
@@ -1153,7 +1132,7 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 			ch <- columns
 			colsReceived = true
 			if outs.msgq != nil {
-				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNext{})
+				_ = sqlexp.ReturnMessageEnqueue(messageCtx, outs.msgq, sqlexp.MsgNext{})
 			}
 
 		case tokenRow:
@@ -1180,14 +1159,14 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 			errs = append(errs, err)
 			sess.LogS(ctx, msdsn.LogErrors, err.Message)
 			if outs.msgq != nil {
-				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgError{Error: err})
+				_ = sqlexp.ReturnMessageEnqueue(messageCtx, outs.msgq, sqlexp.MsgError{Error: err})
 			}
 		case tokenInfo:
 			info := parseInfo(sess.buf)
 			sess.LogF(ctx, msdsn.LogDebug, "got INFO %d %s", info.Number, info.Message)
 			sess.LogS(ctx, msdsn.LogMessages, info.Message)
 			if outs.msgq != nil {
-				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNotice{Message: info})
+				_ = sqlexp.ReturnMessageEnqueue(messageCtx, outs.msgq, sqlexp.MsgNotice{Message: info})
 			}
 		case tokenReturnValue:
 			nv := parseReturnValue(sess.buf, sess)
@@ -1196,8 +1175,10 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				if ov, has := outs.params[name]; has {
 					err = scanIntoOut(name, nv.Value, ov)
 					if err != nil {
-						ch <- err
-						return
+						if outs.msgq != nil {
+							_ = sqlexp.ReturnMessageEnqueue(messageCtx, outs.msgq, sqlexp.MsgNextResultSet{})
+						}
+						ch <- outputParameterError{err}
 					}
 				}
 			}
@@ -1215,18 +1196,18 @@ type tokenProcessor struct {
 	lastRow    []interface{}
 	rowCount   int64
 	firstError error
+	cancel     context.CancelFunc
+	// Message delivery can stop independently of SQL execution when the caller
+	// returns an error and hands the remaining response to a background drain.
+	cancelMessages context.CancelFunc
+	errorKind      responseErrorKind
+	finished       bool
+	cleanup        *responseCleanup
 	// whether to skip sending attention when ctx is done
 	noAttn bool
-	// cancelConfirmed, when non-nil, is set to true by nextToken whenever the
-	// server confirms a cancellation attention. drain uses it to tell a context
-	// error that means "attention confirmed, the stream is clean" apart from an
-	// identical context.Canceled/DeadlineExceeded value that was instead
-	// forwarded as a token-channel error by token parsing (for example a row
-	// parse failure or an Always Encrypted key provider returning a context
-	// error). The latter means the response was abandoned mid-stream with
-	// unread TDS data still on the wire, so the connection must not be reused.
-	// It is a pointer so the signal survives nextToken's value receiver.
-	cancelConfirmed *bool
+	// Cancellation confirmation and error origin are independent of the public
+	// error value: a provider can return the same error as the caller's context.
+	cancelConfirmed bool
 }
 
 // startResponseReader waits for any previous reader goroutine to finish,
@@ -1244,13 +1225,24 @@ func (sess *tdsSession) startResponseReader(ctx context.Context, tokChan chan to
 }
 
 func startReading(sess *tdsSession, ctx context.Context, outs outputs) *tokenProcessor {
+	ctx, cancel := context.WithCancel(ctx)
+	var cancelMessages context.CancelFunc
+	if outs.msgq != nil {
+		// Keep this response's queue even if the caller reuses ReturnMessage
+		// for a subsequent request while the old response is being discarded.
+		messages := *outs.msgq
+		outs.msgq = &messages
+		outs.messageCtx, cancelMessages = context.WithCancel(ctx)
+	}
 	tokChan := make(chan tokenStruct, 5)
 	sess.startResponseReader(ctx, tokChan, outs)
 	return &tokenProcessor{
-		tokChan: tokChan,
-		ctx:     ctx,
-		sess:    sess,
-		outs:    outs,
+		tokChan:        tokChan,
+		ctx:            ctx,
+		sess:           sess,
+		outs:           outs,
+		cancel:         cancel,
+		cancelMessages: cancelMessages,
 	}
 }
 
@@ -1293,78 +1285,19 @@ func (t *tokenProcessor) iterateResponse() error {
 	}
 }
 
-// drainBeforeCancel discards the remaining response without immediately sending
-// attention, preserving the execution of statements that follow a
-// statement-scoped error in the same batch. If the response does not finish
-// within timeout, it cancels the reader and escalates to drain, which sends
-// attention and bounds cancellation cleanup.
-func (t *tokenProcessor) drainBeforeCancel(cancel context.CancelFunc, timeout time.Duration) error {
-	defer cancel()
-
-	drainCtx, drainCancel := context.WithTimeout(t.ctx, timeout)
-	defer drainCancel()
-
-	naturalDrain := *t
-	naturalDrain.ctx = drainCtx
-	naturalDrain.noAttn = true
-
-	for {
-		tok, err := naturalDrain.nextToken()
-		if err != nil {
-			if err == drainCtx.Err() {
-				cancel()
-				return t.drain()
-			}
-			return err
-		}
-		if tok == nil {
-			return nil
-		}
-	}
-}
-
-// drain discards tokens after the caller has cancelled the reader context. The
-// token channel is only lightly buffered, so a producer that is not drained
-// blocks forever on a channel send, its deferred close never runs, and the next
-// query on the same session hangs in startResponseReader waiting on
-// sess.readDone.
-//
-// The caller must cancel the reader context before calling drain. Cancelling
-// lets nextToken send an attention so the server stops streaming promptly and
-// bounds the wait via cancelDrainTimeout. drain then reads until nextToken
-// reports the response is finished, guaranteeing the reader goroutine exits and
-// closes sess.readDone. See issue #407.
-//
-// drain returns nil when the response was drained cleanly and a non-nil error
-// when it was not. A clean drain ends either because the reader reached the end
-// of the response (nextToken returns a nil token) or because the server
-// confirmed the cancellation attention. Both outcomes mean the background
-// reader goroutine has exited and sess.readDone is closed, so the connection is
-// safe to reuse.
-//
-// Confirmed cancellation is identified by an out-of-band signal that nextToken
-// sets (cancelConfirmed), not by the error value alone: nextToken surfaces the
-// reader context's own error (context.Canceled/DeadlineExceeded) when the
-// attention is confirmed, but the exact same values can also arrive as an
-// ordinary token-channel error produced by token parsing — for example a row
-// parse failure or an Always Encrypted key provider returning a context error.
-// Treating those as a clean drain would leave unread TDS data on the wire with
-// connectionGood still true, so only a context error accompanied by the
-// confirmation signal counts as success. Every other terminal error means the
-// drain did not complete (attention could not be sent, the server never
-// confirmed cancellation, or parsing failed mid-stream); the reader may still
-// be blocked and the connection must not be reused. The caller is responsible
-// for evicting the connection whenever drain returns non-nil, without inspecting
-// the error's concrete type.
+// drain consumes the rest of a response under its original operation context.
+// Only caller cancellation sends ATTENTION. Assignment errors do not prevent
+// decoding later tokens; parser and transport errors make cleanup unsuccessful.
 func (t *tokenProcessor) drain() error {
-	var confirmed bool
-	t.cancelConfirmed = &confirmed
-	defer func() { t.cancelConfirmed = nil }()
+	t.cancelConfirmed = false
+	defer func() { t.cancelConfirmed = false }()
 	for {
-		confirmed = false
 		tok, err := t.nextTokenWithCancelPriority(true)
 		if err != nil {
-			if confirmed &&
+			if t.errorKind == responseErrorOutput {
+				continue
+			}
+			if t.cancelConfirmed &&
 				(err == context.Canceled || err == context.DeadlineExceeded) {
 				return nil
 			}
@@ -1373,68 +1306,44 @@ func (t *tokenProcessor) drain() error {
 		if tok == nil {
 			return nil
 		}
+		if status, ok := tok.(ReturnStatus); ok && t.outs.returnStatus != nil {
+			*t.outs.returnStatus = status
+		}
 	}
 }
 
-// markCancelConfirmed records, via the out-of-band pointer drain installed, that
-// the server confirmed a cancellation attention. It is a no-op when no drain is
-// in progress (cancelConfirmed is nil), so ordinary callers of nextToken are
-// unaffected. nextToken takes a value receiver, so the signal must travel
-// through a pointer field rather than a plain bool.
-func (t tokenProcessor) markCancelConfirmed() {
-	if t.cancelConfirmed != nil {
-		*t.cancelConfirmed = true
-	}
+func (t *tokenProcessor) markCancelConfirmed() {
+	t.cancelConfirmed = true
 }
 
-// wrapTokenChannelError normalizes an error that arrived over the token channel
-// (produced by processSingleResponse / token parsing) so that every nextToken
-// caller evicts the connection. Any error delivered as a token means
-// processSingleResponse stopped mid-response and returned, leaving the abandoned
-// response's unread TDS bytes on the wire: a row/NBC-row parse failure, an
-// Always Encrypted key provider or decryption error, a badStreamPanicf stream
-// corruption, or the reader context's own context.Canceled/DeadlineExceeded.
-// None of those leave the connection in a reusable state.
-//
-// checkBadConn, however, only recognizes a subset of error types as fatal (net
-// errors, ServerError, and an already-wrapped StreamError), so an ordinary error
-// such as an Always Encrypted decryption failure would otherwise pass through
-// with connectionGood still true and let the pool reuse a connection whose
-// response was abandoned. Conservatively wrapping every token-channel error in
-// StreamError makes checkBadConn treat it as fatal regardless of its concrete
-// type, and also stops the "err == ctx.Err()" comparisons in Rows/Rowsq.Close
-// from misclassifying a channel-delivered context error as a clean cancellation.
-// StreamError.Unwrap preserves errors.Is/errors.As on the original error, so
-// callers can still inspect the underlying cause. Errors that checkBadConn
-// already recognizes as fatal are returned unchanged, preserving their public
-// concrete types. The confirmed-attention path is unaffected because it returns
-// its context error directly from t.ctx.Err() without routing through here. See
-// issue #407.
-func wrapTokenChannelError(err error) error {
-	if err == nil {
-		return nil
-	}
-	switch err.(type) {
-	case ServerError, StreamError:
-		return err
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return StreamError{InnerError: err}
-	}
-	if _, ok := err.(net.Error); ok {
-		return err
-	}
-	return StreamError{InnerError: err}
-}
-
-func (t tokenProcessor) nextToken() (tokenStruct, error) {
+func (t *tokenProcessor) nextToken() (tokenStruct, error) {
 	return t.nextTokenWithCancelPriority(false)
+}
+
+func (t *tokenProcessor) acceptToken(tok tokenStruct) (tokenStruct, error) {
+	switch v := tok.(type) {
+	case outputParameterError:
+		t.errorKind = responseErrorOutput
+		return nil, v.error
+	case error:
+		t.errorKind = responseErrorFatal
+		t.finished = true
+		return nil, v
+	case nil:
+		t.finished = true
+		t.release()
+	}
+	return tok, nil
 }
 
 // nextTokenWithCancelPriority lets drain send attention before consuming
 // already-buffered tokens. Ordinary callers retain the historical token-first
 // behavior so a response that completed concurrently with cancellation wins.
-func (t tokenProcessor) nextTokenWithCancelPriority(cancelFirst bool) (tokenStruct, error) {
+func (t *tokenProcessor) nextTokenWithCancelPriority(cancelFirst bool) (tokenStruct, error) {
+	if t.finished || t.cleanup != nil {
+		return nil, nil
+	}
+	t.errorKind = responseErrorNone
 	if cancelFirst {
 		select {
 		case <-t.ctx.Done():
@@ -1446,43 +1355,27 @@ func (t tokenProcessor) nextTokenWithCancelPriority(cancelFirst bool) (tokenStru
 	// we do this separate non-blocking check on token channel to
 	// prioritize it over cancellation channel
 	select {
-	case tok, more := <-t.tokChan:
-		err, more := tok.(error)
-		if more {
-			t.sess.LogF(t.ctx, msdsn.LogDebug, "%s", "nextToken returned an error:"+err.Error())
-			// this is an error and not a token
-			return nil, wrapTokenChannelError(err)
-		} else {
-			return tok, nil
-		}
+	case tok := <-t.tokChan:
+		return t.acceptToken(tok)
 	default:
 		// there are no tokens on the channel, will need to wait
 	}
 
 	select {
-	case tok, more := <-t.tokChan:
-		if more {
-			err, ok := tok.(error)
-			if ok {
-				return nil, wrapTokenChannelError(err)
-			} else {
-				return tok, nil
-			}
-		} else {
-			// completed reading response
-			return nil, nil
-		}
+	case tok := <-t.tokChan:
+		return t.acceptToken(tok)
 	case <-t.ctx.Done():
 		return t.handleCancel()
 	}
 }
 
-func (t tokenProcessor) handleCancel() (tokenStruct, error) {
+func (t *tokenProcessor) handleCancel() (tokenStruct, error) {
+	defer func() { t.finished = true }()
 	if t.noAttn {
 		return nil, t.ctx.Err()
 	}
 	t.sess.LogF(t.ctx, msdsn.LogDebug, "Sending attention to the server")
-	if err := sendAttentionWithTimeout(t.sess.buf.transport, cancelDrainTimeout); err != nil {
+	if err := sendAttention(t.sess.buf); err != nil {
 		// The attention write failed, so the transport is broken and the
 		// TDS stream can no longer be trusted. The background
 		// processSingleResponse goroutine may still be blocked sending to
@@ -1496,12 +1389,8 @@ func (t tokenProcessor) handleCancel() (tokenStruct, error) {
 			for range t.tokChan {
 			}
 		}()
-		// Wrap the write error in StreamError so every caller that routes
-		// it through checkBadConn evicts the connection. An unwrapped
-		// transport error can be an "ordinary" error type that checkBadConn
-		// does not treat as fatal, which would leave connectionGood true and
-		// let database/sql reuse a connection whose transport just failed.
-		return nil, StreamError{InnerError: err}
+		t.errorKind = responseErrorFatal
+		return nil, err
 	}
 
 	// now the server should send cancellation confirmation
@@ -1523,6 +1412,7 @@ func (t tokenProcessor) handleCancel() (tokenStruct, error) {
 		t.markCancelConfirmed()
 		return nil, t.ctx.Err()
 	case cancelConfirmationUnavailable:
+		t.errorKind = responseErrorFatal
 		// Drain tokChan in the background so processSingleResponse
 		// can finish sending and exit once the connection closes. Its
 		// deferred close(tokChan) guarantees this drain also exits.
@@ -1558,6 +1448,7 @@ func (t tokenProcessor) handleCancel() (tokenStruct, error) {
 		for range t.tokChan {
 		}
 	}()
+	t.errorKind = responseErrorFatal
 	return nil, cancelDrainError("second response", drainCtx2, tokErr2)
 }
 
@@ -1583,6 +1474,9 @@ func readCancelConfirmation(ctx context.Context, tokChan chan tokenStruct) (canc
 					if done, isDone := tok.(doneStruct); isDone && done.Status&doneAttn != 0 {
 						confirmed = true
 					}
+					if _, ok := tok.(outputParameterError); ok {
+						continue
+					}
 					if tokErr, isErr := tok.(error); isErr {
 						return cancelConfirmationUnavailable, tokErr
 					}
@@ -1599,6 +1493,8 @@ func readCancelConfirmation(ctx context.Context, tokChan chan tokenStruct) (canc
 				return cancelConfirmationChannelClosed, nil
 			}
 			switch tok := tok.(type) {
+			case outputParameterError:
+				continue
 			case doneStruct:
 				if tok.Status&doneAttn != 0 {
 					confirmed = true

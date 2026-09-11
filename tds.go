@@ -204,6 +204,9 @@ type tdsSession struct {
 	// readDone is closed when the current processSingleResponse goroutine
 	// completes. startResponseReader waits on this to prevent concurrent buffer reads.
 	readDone chan struct{}
+	// cleanup is installed by the connection's caller before returning an
+	// early error. Its result is published by closing cleanup.done.
+	cleanup *responseCleanup
 }
 
 type alwaysEncryptedSettings struct {
@@ -1347,6 +1350,7 @@ initiate_connection:
 	// packet exchanges to complete the login sequence.
 	for loginAck := false; !loginAck; {
 		reader := startReading(sess, ctx, outputs{})
+		defer reader.release()
 		// don't send attention or wait for cancel confirmation during login
 		reader.noAttn = true
 

@@ -415,6 +415,10 @@ func TestNextToken_CancelDrainCurrentResponseConfirmationReturnsContextError(t *
 	if err != context.Canceled {
 		t.Fatalf("expected context.Canceled, got %T: %v", err, err)
 	}
+	conn := &Conn{connectionGood: true}
+	if got := conn.responseError(&reader, err); got != context.Canceled || !conn.IsValid() {
+		t.Fatalf("confirmed cancellation changed error or connection validity: %v", got)
+	}
 
 	readCalls, writeCalls := transport.counts()
 	if readCalls != 0 {
@@ -460,7 +464,7 @@ func TestDrain_PrioritizesCancellationOverBufferedTokens(t *testing.T) {
 	}
 }
 
-func TestDrainBeforeCancel_CompletesResponseWithoutAttention(t *testing.T) {
+func TestDiscard_CompletesResponseWithoutAttention(t *testing.T) {
 	t.Parallel()
 	ctx, cancelCtx := context.WithCancel(context.Background())
 	defer cancelCtx()
@@ -478,15 +482,18 @@ func TestDrainBeforeCancel_CompletesResponseWithoutAttention(t *testing.T) {
 	reader := &tokenProcessor{
 		tokChan: tokChan,
 		ctx:     ctx,
+		cancel: func() {
+			cancelCalled = true
+			cancelCtx()
+		},
 		sess: &tdsSession{
 			buf: newTdsBuffer(defaultPacketSize, transport),
 		},
 	}
 
-	if err := reader.drainBeforeCancel(func() {
-		cancelCalled = true
-		cancelCtx()
-	}, time.Second); err != nil {
+	reader.discard()
+	<-reader.cleanup.done
+	if err := reader.cleanup.err; err != nil {
 		t.Fatalf("expected response to drain naturally: %v", err)
 	}
 	if !cancelCalled {
@@ -498,9 +505,9 @@ func TestDrainBeforeCancel_CompletesResponseWithoutAttention(t *testing.T) {
 	}
 }
 
-func TestDrainBeforeCancel_EscalatesToAttentionAfterTimeout(t *testing.T) {
+func TestDiscard_HonorsCallerDeadline(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 
 	attentionWritten := make(chan struct{})
@@ -520,21 +527,24 @@ func TestDrainBeforeCancel_EscalatesToAttentionAfterTimeout(t *testing.T) {
 	reader := &tokenProcessor{
 		tokChan: tokChan,
 		ctx:     ctx,
+		cancel:  cancel,
 		sess: &tdsSession{
 			buf: newTdsBuffer(defaultPacketSize, transport),
 		},
 	}
 
-	if err := reader.drainBeforeCancel(cancel, 10*time.Millisecond); err != nil {
+	reader.discard()
+	<-reader.cleanup.done
+	if err := reader.cleanup.err; err != nil {
 		t.Fatalf("expected confirmed attention to complete drain: %v", err)
 	}
 	_, writeCalls := transport.counts()
 	if writeCalls == 0 {
-		t.Fatal("expected stalled natural drain to send attention")
+		t.Fatal("expected caller deadline to send attention")
 	}
 }
 
-func TestDrainBeforeCancel_ErrorReleasesReaderContext(t *testing.T) {
+func TestDiscard_ErrorReleasesReaderContext(t *testing.T) {
 	t.Parallel()
 	sentinel := errors.New("parse failed")
 	tokChan := make(chan tokenStruct, 1)
@@ -545,10 +555,13 @@ func TestDrainBeforeCancel_ErrorReleasesReaderContext(t *testing.T) {
 	reader := &tokenProcessor{
 		tokChan: tokChan,
 		ctx:     context.Background(),
+		cancel:  func() { cancelCalled = true },
 		sess:    &tdsSession{logger: optionalLogger{}},
 	}
 
-	err := reader.drainBeforeCancel(func() { cancelCalled = true }, time.Second)
+	reader.discard()
+	<-reader.cleanup.done
+	err := reader.cleanup.err
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("expected parse error, got %v", err)
 	}
