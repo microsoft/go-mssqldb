@@ -667,18 +667,6 @@ func TestWrapTLSError(t *testing.T) {
 			},
 		},
 		{
-			name: "missing TLS 1.2 signature algorithms",
-			err:  fmt.Errorf("tls: missing signature_algorithms from TLS 1.2 peer"),
-			wantContains: []string{
-				"TLS Handshake failed",
-				"obsolete TLS 1.2 configuration",
-				"tlssha1=1",
-				"GODEBUG",
-				"SHA-256",
-				"temporary compatibility",
-			},
-		},
-		{
 			name: "unrecognized sha1 error falls to default",
 			err:  fmt.Errorf("tls: sha1 signature not supported"),
 			wantContains: []string{

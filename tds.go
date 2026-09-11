@@ -1165,12 +1165,6 @@ func wrapTLSError(err error) error {
 			"Reissue the certificate with SHA-256 or better. "+
 			"No GODEBUG setting re-enables SHA-1 certificate verification. "+
 			"For non-production servers, use encrypt=disable", err)
-	case strings.Contains(msgLower, "missing signature_algorithms from tls 1.2 peer"):
-		return fmt.Errorf("TLS Handshake failed: %w. "+
-			"The server uses an obsolete TLS 1.2 configuration without signature algorithms, which RFC 9155 disallows. "+
-			"Update the server TLS configuration and certificate to use SHA-256 or better. "+
-			"For temporary compatibility, add tlssha1=1 to your GODEBUG environment variable, "+
-			"or use encrypt=disable for non-production servers", err)
 	case strings.Contains(msgLower, "cannot read handshake") && strings.Contains(msgLower, "eof"):
 		return fmt.Errorf("TLS Handshake failed: %w. "+
 			"The server may have an incompatible TLS configuration, including obsolete SHA-1 signatures. "+
