@@ -323,6 +323,8 @@ if err := tx.Commit(); err != nil {
 
 3. **NULL vectors and dimensions**: When inserting a NULL vector using `mssql.NullVector{Valid: false}`, the driver sends the value as an `NVARCHAR(1)` NULL so that SQL Server does not enforce any vector dimension matching for that parameter. You typically do not need to declare a specific vector dimension for NULL parameters; dimension matching still applies to non-NULL vectors and to table definitions that use the `VECTOR` type with a fixed dimension.
 
+4. **Element type with JSON fallback**: JSON doesn't contain vector element-type metadata. With `vectortypesupport=off`, `Vector.Scan` decodes arrays with 1 through 1998 dimensions as float32 and larger arrays as float16. A float16 vector with 1998 or fewer dimensions therefore scans as float32. Use `vectortypesupport=v1` when the application must preserve the element type returned by SQL Server.
+
 ## Precision Loss Warnings
 
 When inserting `[]float64` values, they are converted to float32, which may lose precision. You can enable warnings to detect when this occurs:

@@ -195,8 +195,9 @@ func (v Vector) IsNull() bool {
 	return v.Data == nil
 }
 
-// Scan implements the sql.Scanner interface for Vector. JSON input does not carry
-// element metadata, so dimensions above the float32 limit are inferred as float16.
+// Scan implements the sql.Scanner interface for Vector. JSON input doesn't carry
+// element metadata, so dimensions through 1998 decode as float32 and larger
+// dimensions decode as float16.
 func (v *Vector) Scan(src interface{}) error {
 	if src == nil {
 		v.Data = nil
