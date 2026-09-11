@@ -171,7 +171,8 @@ func (tvp TVP) columnTypes() ([]columnStruct, []int, error) {
 		if fieldType.Kind() == reflect.Ptr {
 			fieldType = fieldType.Elem()
 		}
-		if fieldType == reflect.TypeOf(Vector{}) || fieldType == reflect.TypeOf(NullVector{}) {
+		if fieldType == reflect.TypeOf(Vector{}) || fieldType == reflect.TypeOf(NullVector{}) ||
+			fieldType == reflect.TypeOf([]float32{}) || fieldType == reflect.TypeOf([]float64{}) {
 			return nil, nil, fmt.Errorf("mssql: Vector fields are not supported in table-valued parameters")
 		}
 		tvpFieldIndexes = append(tvpFieldIndexes, i)

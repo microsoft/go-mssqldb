@@ -132,8 +132,10 @@ func TestTVPType_columnTypes(t *testing.T) {
 
 func TestTVPTypeRejectsVectorFields(t *testing.T) {
 	for name, value := range map[string]interface{}{
-		"Vector":     []struct{ Vector Vector }{{Vector: Vector{ElementType: VectorElementFloat32, Data: []float32{1}}}},
-		"NullVector": []struct{ Vector *NullVector }{{Vector: &NullVector{Valid: true}}},
+		"Vector":        []struct{ Vector Vector }{{Vector: Vector{ElementType: VectorElementFloat32, Data: []float32{1}}}},
+		"NullVector":    []struct{ Vector *NullVector }{{Vector: &NullVector{Valid: true}}},
+		"float32 slice": []struct{ Vector []float32 }{{Vector: []float32{1}}},
+		"float64 slice": []struct{ Vector []float64 }{{Vector: []float64{1}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			tvp := TVP{TypeName: "VectorTableType", Value: value}
