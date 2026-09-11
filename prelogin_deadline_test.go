@@ -48,7 +48,7 @@ func TestPreloginTimeout(t *testing.T) {
 		}
 	})
 
-	t.Run("zero connection timeout uses context deadline", func(t *testing.T) {
+	t.Run("zero connection timeout relies on context watcher", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 		defer cancel()
 
@@ -56,8 +56,8 @@ func TestPreloginTimeout(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got <= 0 || got > 250*time.Millisecond {
-			t.Fatalf("timeout=%v, want a positive value no greater than %v", got, 250*time.Millisecond)
+		if got != 0 {
+			t.Fatalf("timeout=%v, want 0", got)
 		}
 	})
 
@@ -719,7 +719,7 @@ func TestConnectSuccessfulPreloginAndLogin(t *testing.T) {
 	}
 }
 
-func TestConnectClearsContextDeadlineAfterPrelogin(t *testing.T) {
+func TestConnectZeroTimeoutDoesNotRequireDeadlineReset(t *testing.T) {
 	resolved, serverErr := startLoginAndQueryServer(t)
 	dsn := fmt.Sprintf("sqlserver://%s:%d?protocol=tcp&encrypt=disable&connection+timeout=0&dial+timeout=2",
 		resolved.IP.String(), resolved.Port)
@@ -727,8 +727,7 @@ func TestConnectClearsContextDeadlineAfterPrelogin(t *testing.T) {
 	if err != nil {
 		t.Fatal("NewConnector failed:", err)
 	}
-	deadlineCleared := make(chan struct{}, 1)
-	connector.Dialer = recordZeroDeadlineDialer{deadlineCleared: deadlineCleared}
+	connector.Dialer = rejectZeroDeadlineDialer{}
 	db := sql.OpenDB(connector)
 	defer db.Close()
 
@@ -739,12 +738,6 @@ func TestConnectClearsContextDeadlineAfterPrelogin(t *testing.T) {
 		t.Fatalf("Expected successful connection, got: %v", err)
 	}
 	defer conn.Close()
-
-	select {
-	case <-deadlineCleared:
-	default:
-		t.Fatal("context-derived prelogin deadline was not cleared")
-	}
 
 	<-ctx.Done()
 	if _, err := conn.ExecContext(context.Background(), "select 1"); err != nil {
@@ -888,33 +881,6 @@ type rejectZeroDeadlineConn struct {
 func (c rejectZeroDeadlineConn) SetDeadline(deadline time.Time) error {
 	if deadline.IsZero() {
 		return errors.New("zero deadline is unsupported")
-	}
-	return c.Conn.SetDeadline(deadline)
-}
-
-type recordZeroDeadlineDialer struct {
-	deadlineCleared chan<- struct{}
-}
-
-func (d recordZeroDeadlineDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	conn, err := (&net.Dialer{}).DialContext(ctx, network, address)
-	if err != nil {
-		return nil, err
-	}
-	return recordZeroDeadlineConn{Conn: conn, deadlineCleared: d.deadlineCleared}, nil
-}
-
-type recordZeroDeadlineConn struct {
-	net.Conn
-	deadlineCleared chan<- struct{}
-}
-
-func (c recordZeroDeadlineConn) SetDeadline(deadline time.Time) error {
-	if deadline.IsZero() {
-		select {
-		case c.deadlineCleared <- struct{}{}:
-		default:
-		}
 	}
 	return c.Conn.SetDeadline(deadline)
 }
