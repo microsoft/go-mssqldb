@@ -124,6 +124,24 @@ func (preloginTimeoutError) Temporary() bool {
 	return true
 }
 
+// preloginWriteDeadlineContext simulates a deadline expiring between timeout
+// selection and handling the blocked write's timeout error.
+type preloginWriteDeadlineContext struct {
+	context.Context
+	deadlineCalls int
+}
+
+func (c *preloginWriteDeadlineContext) Deadline() (time.Time, bool) {
+	c.deadlineCalls++
+	if c.deadlineCalls == 1 {
+		return time.Now().Add(time.Minute), true
+	}
+	return time.Now().Add(-time.Second), true
+}
+
+func (c *preloginWriteDeadlineContext) Err() error            { return nil }
+func (c *preloginWriteDeadlineContext) Done() <-chan struct{} { return nil }
+
 func TestPreloginErrorConvertsTimeoutAfterDeadline(t *testing.T) {
 	ctx := pastDeadlineContext{
 		Context: context.Background(),
@@ -789,6 +807,26 @@ func TestPreloginWriteCancellationReturnsContextError(t *testing.T) {
 	}
 }
 
+func TestPreloginWriteTimeoutAfterDeadlineReturnsContextError(t *testing.T) {
+	client, server := net.Pipe()
+	defer server.Close()
+
+	connector, err := NewConnector("sqlserver://127.0.0.1?protocol=tcp&encrypt=disable&connection+timeout=30")
+	if err != nil {
+		t.Fatal("NewConnector failed:", err)
+	}
+	connector.params.DialTimeout = -1
+	connector.Dialer = singleConnDialer{
+		conn: preloginTimeoutWriteConn{Conn: client},
+	}
+
+	ctx := &preloginWriteDeadlineContext{Context: context.Background()}
+	_, err = connector.Connect(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error=%v, want %v", err, context.DeadlineExceeded)
+	}
+}
+
 // TestPreloginZeroConnectionTimeoutRespectsContextDeadline verifies that the
 // context deadline bounds prelogin when no connection timeout is configured.
 func TestPreloginZeroConnectionTimeoutRespectsContextDeadline(t *testing.T) {
@@ -904,6 +942,14 @@ func (c notifyWriteConn) Write(p []byte) (int, error) {
 	default:
 	}
 	return c.Conn.Write(p)
+}
+
+type preloginTimeoutWriteConn struct {
+	net.Conn
+}
+
+func (preloginTimeoutWriteConn) Write([]byte) (int, error) {
+	return 0, preloginTimeoutError{}
 }
 
 func startLoginAndQueryServer(t *testing.T) (*net.TCPAddr, <-chan error) {

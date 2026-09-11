@@ -1326,7 +1326,7 @@ initiate_connection:
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}
-		return nil, err
+		return nil, preloginError(ctx, err)
 	}
 
 	fields, err = readPrelogin(outbuf)
