@@ -257,10 +257,20 @@ type outputs struct {
 	params       map[string]interface{}
 	returnStatus *ReturnStatus
 	msgq         *sqlexp.ReturnMessage
+	messageCtx   context.Context
 }
 
 // IsValid satisfies the driver.Validator interface.
 func (c *Conn) IsValid() bool {
+	if c.sess != nil && c.sess.cleanup != nil {
+		select {
+		case <-c.sess.cleanup.done:
+			if c.sess.cleanup.err != nil {
+				return false
+			}
+		default:
+		}
+	}
 	return c.connectionGood
 }
 
@@ -319,21 +329,22 @@ func (c *Conn) checkServerAbortedTransaction() error {
 }
 
 func (c *Conn) simpleProcessResp(ctx context.Context, isRollback bool) error {
-	reader := startReading(c.sess, ctx, c.outs)
+	reader := startReadingSync(c.sess, ctx, c.outs)
+	defer reader.release()
 	reader.noAttn = isRollback
 	c.clearOuts()
 
 	var resultError error
 	err := reader.iterateResponse()
 	if err != nil {
-		return c.checkBadConn(ctx, err, false)
+		return c.responseError(reader, err)
 	}
 	return resultError
 }
 
 func (c *Conn) Commit() error {
-	if !c.connectionGood {
-		return driver.ErrBadConn
+	if err := c.awaitResponse(c.transactionCtx); err != nil {
+		return err
 	}
 	defer func() { c.inTransaction = false }()
 	if err := c.checkServerAbortedTransaction(); err != nil {
@@ -361,8 +372,8 @@ func (c *Conn) sendCommitRequest() error {
 }
 
 func (c *Conn) Rollback() error {
-	if !c.connectionGood {
-		return driver.ErrBadConn
+	if err := c.awaitResponse(context.Background()); err != nil {
+		return err
 	}
 	defer func() { c.inTransaction = false }()
 	// Server already rolled back (e.g. XACT_ABORT); nothing to send.
@@ -395,8 +406,8 @@ func (c *Conn) Begin() (driver.Tx, error) {
 }
 
 func (c *Conn) begin(ctx context.Context, tdsIsolation isoLevel) (tx driver.Tx, err error) {
-	if !c.connectionGood {
-		return nil, driver.ErrBadConn
+	if err := c.awaitResponse(ctx); err != nil {
+		return nil, err
 	}
 	err = c.sendBeginRequest(ctx, tdsIsolation)
 	if err != nil {
@@ -487,7 +498,21 @@ func (d *Driver) connect(ctx context.Context, c *Connector, params msdsn.Config)
 }
 
 func (c *Conn) Close() error {
+	pending := c.sess.cleanup
+	if pending != nil && pending.cancel != nil {
+		pending.cancel()
+	}
 	err := c.sess.buf.transport.Close()
+	if pending != nil {
+		go func() {
+			<-pending.done
+			if c.sess.readDone != nil {
+				<-c.sess.readDone
+			}
+			c.sess.buf.bufClose()
+		}()
+		return err
+	}
 	if c.sess.readDone == nil {
 		c.sess.buf.bufClose()
 		return err
@@ -786,8 +811,8 @@ func (s *Stmt) Query(args []driver.Value) (driver.Rows, error) {
 }
 
 func (s *Stmt) queryContext(ctx context.Context, args []namedValue) (rows driver.Rows, err error) {
-	if !s.c.connectionGood {
-		return nil, driver.ErrBadConn
+	if err := s.c.awaitResponse(ctx); err != nil {
+		return nil, err
 	}
 	if s.doEncryption() && len(args) > 0 {
 		args, err = s.encryptArgs(ctx, args)
@@ -802,12 +827,11 @@ func (s *Stmt) queryContext(ctx context.Context, args []namedValue) (rows driver
 }
 
 func (s *Stmt) processQueryResponse(ctx context.Context) (res driver.Rows, err error) {
-	ctx, cancel := context.WithCancel(ctx)
 	reader := startReading(s.c.sess, ctx, s.c.outs)
 	s.c.clearOuts()
 	// For apps using a message queue, return right away and let Rowsq do all the work
 	if reader.outs.msgq != nil {
-		res = &Rowsq{stmt: s, reader: reader, cols: nil, cancel: cancel}
+		res = &Rowsq{stmt: s, reader: reader, cols: nil, cancel: reader.cancel}
 		return res, nil
 	}
 	// process metadata
@@ -832,22 +856,10 @@ loop:
 					break loop
 				case doneStruct:
 					if token.isError() {
-						// A statement-scoped server error (e.g. a lock
-						// timeout) does not necessarily abort the rest of
-						// the batch, so the server may still be streaming
-						// additional result sets. Drain them before
-						// returning so the background reader goroutine can
-						// exit and close sess.readDone; otherwise the next
-						// query on this session hangs in
-						// startResponseReader. See issue #407.
 						serverErr := s.c.checkBadConn(ctx, token.getError(), false)
-						// Drain naturally first so statements following the
-						// error retain their historical chance to complete.
-						// If that does not finish promptly,
-						// drainBeforeCancel cancels and sends attention.
-						if drainErr := reader.drainBeforeCancel(cancel, cancelDrainTimeout); drainErr != nil {
-							s.c.connectionGood = false
-						}
+						// Return the SQL error promptly without cancelling
+						// statements still executing in the same batch.
+						reader.discard()
 						return nil, serverErr
 					}
 				case ReturnStatus:
@@ -857,12 +869,10 @@ loop:
 				}
 			}
 		} else {
-			// need to cleanup cancellable context
-			cancel()
-			return nil, s.c.checkBadConn(ctx, err, false)
+			return nil, s.c.responseError(reader, err)
 		}
 	}
-	res = &Rows{stmt: s, reader: reader, cols: cols, cancel: cancel}
+	res = &Rows{stmt: s, reader: reader, cols: cols, cancel: reader.cancel}
 	return
 }
 
@@ -873,8 +883,8 @@ func (s *Stmt) Exec(args []driver.Value) (driver.Result, error) {
 }
 
 func (s *Stmt) exec(ctx context.Context, args []namedValue) (res driver.Result, err error) {
-	if !s.c.connectionGood {
-		return nil, driver.ErrBadConn
+	if err := s.c.awaitResponse(ctx); err != nil {
+		return nil, err
 	}
 	if s.doEncryption() && len(args) > 0 {
 		args, err = s.encryptArgs(ctx, args)
@@ -892,11 +902,12 @@ func (s *Stmt) exec(ctx context.Context, args []namedValue) (res driver.Result, 
 }
 
 func (s *Stmt) processExec(ctx context.Context) (res driver.Result, err error) {
-	reader := startReading(s.c.sess, ctx, s.c.outs)
+	reader := startReadingSync(s.c.sess, ctx, s.c.outs)
+	defer reader.release()
 	s.c.clearOuts()
 	err = reader.iterateResponse()
 	if err != nil {
-		return nil, s.c.checkBadConn(ctx, err, false)
+		return nil, s.c.responseError(reader, err)
 	}
 	return &Result{s.c, reader.rowCount}, nil
 }
@@ -911,6 +922,9 @@ type Rows struct {
 }
 
 func (rc *Rows) Close() error {
+	if rc.reader.cleanup != nil {
+		return nil
+	}
 	// Cancel the context first to prevent blocking indefinitely if
 	// processSingleResponse is waiting on a network read. This is safe
 	// because nextToken's non-blocking first select still delivers any
@@ -939,15 +953,10 @@ func (rc *Rows) Close() error {
 			}
 			continue
 		} else {
-			if err == rc.reader.ctx.Err() {
+			if rc.reader.errorKind == responseErrorNone && err == rc.reader.ctx.Err() {
 				return closeErr
 			} else {
-				// A non-context error here (for example a failed attention
-				// write during cancellation) can mean the transport is broken.
-				// Route it through checkBadConn so a fatal error marks the
-				// connection bad and the pool evicts it instead of reusing a
-				// connection whose transport just failed. See issue #407.
-				return rc.stmt.c.checkBadConn(rc.reader.ctx, err, false)
+				return rc.stmt.c.responseError(rc.reader, err)
 			}
 		}
 	}
@@ -987,6 +996,7 @@ func (rc *Rows) Next(dest []driver.Value) error {
 					return nil
 				case doneStruct:
 					if tokdata.isError() {
+						rc.reader.discard()
 						return rc.stmt.c.checkBadConn(rc.reader.ctx, tokdata.getError(), false)
 					}
 				case ReturnStatus:
@@ -997,7 +1007,7 @@ func (rc *Rows) Next(dest []driver.Value) error {
 			}
 
 		} else {
-			return rc.stmt.c.checkBadConn(rc.reader.ctx, err, false)
+			return rc.stmt.c.responseError(rc.reader, err)
 		}
 	}
 }
@@ -1398,9 +1408,13 @@ type Rowsq struct {
 	cancel      func()
 	requestDone bool
 	inResultSet bool
+	err         error
 }
 
 func (rc *Rowsq) Close() error {
+	if rc.reader.cleanup != nil {
+		return nil
+	}
 	rc.cancel()
 	for {
 		tok, err := rc.reader.nextToken()
@@ -1412,13 +1426,10 @@ func (rc *Rowsq) Close() error {
 				continue
 			}
 		} else {
-			if err == rc.reader.ctx.Err() {
+			if rc.reader.errorKind == responseErrorNone && err == rc.reader.ctx.Err() {
 				return nil
 			} else {
-				// See Rows.Close: route through checkBadConn so a fatal error
-				// (for example a failed attention write) marks the connection
-				// bad and prevents reuse of a broken transport. See issue #407.
-				return rc.stmt.c.checkBadConn(rc.reader.ctx, err, false)
+				return rc.stmt.c.responseError(rc.reader, err)
 			}
 		}
 	}
@@ -1429,20 +1440,13 @@ func (rc *Rowsq) Close() error {
 func (rc *Rowsq) Columns() (res []string) {
 	// r.cols is nil if the first query in a batch is a SELECT or similar query that returns a rowset.
 	// if will be non-nil for subsequent queries where NextResultSet() has populated it
-	if rc.cols == nil {
+	if rc.cols == nil && rc.err == nil {
 	scan:
 		for {
 			tok, err := rc.reader.nextToken()
 			if err != nil {
-				// Columns has no error return, but a non-nil nextToken error
-				// (for example a failed attention write when the query context
-				// expires) can mean the connection is broken. Route it through
-				// checkBadConn so a fatal error marks the connection bad, then
-				// stop looping: otherwise we would spin calling nextToken while
-				// the fallback drain goroutine also consumes the channel. The
-				// subsequent Next/NextResultSet call surfaces driver.ErrBadConn.
-				// See issue #407.
-				rc.stmt.c.checkBadConn(rc.reader.ctx, err, false)
+				// Columns cannot return an error; preserve it for Next.
+				rc.err = rc.stmt.c.responseError(rc.reader, err)
 				break scan
 			}
 			rc.reader.sess.LogF(rc.reader.ctx, msdsn.LogDebug, "Columns() token type:%v", reflect.TypeOf(tok))
@@ -1465,6 +1469,9 @@ func (rc *Rowsq) Columns() (res []string) {
 }
 
 func (rc *Rowsq) Next(dest []driver.Value) error {
+	if rc.err != nil {
+		return rc.err
+	}
 	if !rc.stmt.c.connectionGood {
 		return driver.ErrBadConn
 	}
@@ -1513,7 +1520,7 @@ func (rc *Rowsq) Next(dest []driver.Value) error {
 				}
 			}
 		} else {
-			return rc.stmt.c.checkBadConn(rc.reader.ctx, err, false)
+			return rc.stmt.c.responseError(rc.reader, err)
 		}
 	}
 }
@@ -1527,6 +1534,9 @@ func (rc *Rowsq) HasNextResultSet() bool {
 // Scans to the end of the current statement being processed
 // Note that the caller may not have read all the rows in the prior set
 func (rc *Rowsq) NextResultSet() error {
+	if rc.err != nil {
+		return rc.err
+	}
 	if rc.requestDone {
 		return io.EOF
 	}
@@ -1536,11 +1546,7 @@ scan:
 		rc.reader.sess.LogF(rc.reader.ctx, msdsn.LogDebug, "NextResultSet() token type:%v", reflect.TypeOf(tok))
 
 		if err != nil {
-			// Route through checkBadConn so a fatal error (for example a failed
-			// attention write) marks the connection bad and prevents reuse.
-			// checkBadConn returns context errors unchanged, preserving
-			// clean-cancellation behavior. See issue #407.
-			return rc.stmt.c.checkBadConn(rc.reader.ctx, err, false)
+			return rc.stmt.c.responseError(rc.reader, err)
 		}
 		if tok == nil {
 			return io.EOF

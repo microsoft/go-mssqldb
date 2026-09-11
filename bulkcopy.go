@@ -179,6 +179,9 @@ func (b *Bulk) sendBulkCommand(ctx context.Context) (err error) {
 // AddRow immediately writes the row to the destination table.
 // The arguments are the row values in the order they were specified.
 func (b *Bulk) AddRow(row []interface{}) (err error) {
+	if err = b.cn.awaitResponse(b.ctx); err != nil {
+		return
+	}
 	if !b.headerSent {
 		err = b.sendBulkCommand(b.ctx)
 		if err != nil {
@@ -240,6 +243,9 @@ func (b *Bulk) Done() (rowcount int64, err error) {
 		//no rows had been sent
 		return 0, nil
 	}
+	if err = b.cn.awaitResponse(b.ctx); err != nil {
+		return 0, err
+	}
 	var buf = b.cn.sess.buf
 	buf.WriteByte(byte(tokenDone))
 
@@ -254,10 +260,11 @@ func (b *Bulk) Done() (rowcount int64, err error) {
 
 	buf.FinishPacket()
 
-	reader := startReading(b.cn.sess, b.ctx, outputs{})
+	reader := startReadingSync(b.cn.sess, b.ctx, outputs{})
+	defer reader.release()
 	err = reader.iterateResponse()
 	if err != nil {
-		return 0, b.cn.checkBadConn(b.ctx, err, false)
+		return 0, b.cn.responseError(reader, err)
 	}
 
 	return reader.rowCount, nil

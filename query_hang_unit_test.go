@@ -71,7 +71,7 @@ func outputParameterToken(t *testing.T, value []byte) []byte {
 	return stream.Bytes()
 }
 
-func TestProcessSingleResponse_OutputConversionErrorStopsReader(t *testing.T) {
+func TestProcessSingleResponse_OutputConversionErrorContinuesReader(t *testing.T) {
 	stream := outputParameterToken(t, []byte{typeInt4, 42, 0, 0, 0})
 	stream = appendDoneToken(stream, tokenDone, doneFinal)
 	transport := &countingTransport{reader: bytes.NewReader(wrapReplyPacket(stream))}
@@ -79,7 +79,7 @@ func TestProcessSingleResponse_OutputConversionErrorStopsReader(t *testing.T) {
 		buf:    newTdsBuffer(defaultPacketSize, transport),
 		logger: optionalLogger{},
 	}
-	tokChan := make(chan tokenStruct, 1)
+	tokChan := make(chan tokenStruct, 2)
 	done := make(chan struct{})
 	go func() {
 		processSingleResponse(context.Background(), sess, tokChan, outputs{
@@ -98,8 +98,9 @@ func TestProcessSingleResponse_OutputConversionErrorStopsReader(t *testing.T) {
 	for tok := range tokChan {
 		tokens = append(tokens, tok)
 	}
-	require.Len(t, tokens, 1, "the reader must stop after sending the conversion error")
+	require.Len(t, tokens, 2, "the reader must continue after sending the conversion error")
 	assert.Error(t, tokens[0].(error))
+	assert.IsType(t, doneStruct{}, tokens[1])
 }
 
 func TestProcessQueryResponse_OutputParameterMessageLoop(t *testing.T) {
@@ -169,13 +170,17 @@ func TestProcessQueryResponse_OutputParameterMessageLoop(t *testing.T) {
 				require.IsType(t, sqlexp.MsgNextResultSet{}, readMessage())
 				err = rows.(*Rowsq).NextResultSet()
 				if tc.wantErr {
-					var streamErr StreamError
-					require.ErrorAs(t, err, &streamErr)
+					require.Error(t, err)
 					assert.ErrorContains(t, err, "converting driver.Value type <nil>")
-					assert.False(t, conn.IsValid())
+					require.NoError(t, conn.awaitResponse(context.Background()))
+					assert.True(t, conn.IsValid())
 					_, err = conn.Prepare("SELECT 1")
-					assert.ErrorIs(t, err, driver.ErrBadConn)
+					assert.NoError(t, err)
 					assert.Equal(t, int64(-1), value)
+					// The reader finished before the error was consumed, so
+					// its normal final-DONE notifications are already queued.
+					require.IsType(t, sqlexp.MsgNextResultSet{}, readMessage())
+					require.IsType(t, sqlexp.MsgNextResultSet{}, readMessage())
 				} else {
 					require.NoError(t, err)
 					require.IsType(t, sqlexp.MsgNextResultSet{}, readMessage())
@@ -275,9 +280,7 @@ func TestProcessSingleResponse_MessageCompletion(t *testing.T) {
 // on a full channel send, so sess.readDone was never closed and the next query
 // on the same session hung in startResponseReader.
 //
-// This test crafts such a response and verifies that after processQueryResponse
-// returns the error, the reader goroutine exits (sess.readDone is closed),
-// meaning the session is safe to reuse.
+// The background drain must let the reader exit after the error is returned.
 func TestProcessQueryResponse_ErrorTokenDoesNotLeakReader(t *testing.T) {
 	// Build a token stream:
 	//  1. an error DONE (doneError|doneMore) that processQueryResponse detects
@@ -346,28 +349,33 @@ func TestProcessQueryResponse_ErrorTokenDoesNotLeakReader(t *testing.T) {
 		"a naturally completed response must not send attention and abort the rest of the batch")
 }
 
-func TestSendAttentionWithTimeout_BoundsWrite(t *testing.T) {
-	t.Run("deadline does not wake write", func(t *testing.T) {
-		transport := &deadlineTrackingTransport{
-			deadlineIgnoringTransport: &deadlineIgnoringTransport{closed: make(chan struct{})},
-			deadlineSet:               make(chan struct{}),
-		}
-		start := time.Now()
-		err := sendAttentionWithTimeout(transport, 20*time.Millisecond)
-
-		require.Error(t, err)
-		assert.Less(t, time.Since(start), time.Second,
-			"the attention timeout must not wait for an in-flight write")
-		select {
-		case <-transport.closed:
-		case <-time.After(time.Second):
-			t.Fatal("timed-out attention did not close the transport")
-		}
-		select {
-		case <-transport.deadlineSet:
-			t.Fatal("timed-out attention mutated the write deadline during an in-flight write")
-		default:
-		}
+func TestSendAttention_HonorsTransportLifetime(t *testing.T) {
+	t.Run("deadline ignoring transport", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			transport := &deadlineTrackingTransport{
+				deadlineIgnoringTransport: &deadlineIgnoringTransport{closed: make(chan struct{})},
+				deadlineSet:               make(chan struct{}),
+			}
+			buf := newTdsBuffer(defaultPacketSize, transport)
+			defer buf.bufClose()
+			result := make(chan error, 1)
+			go func() { result <- sendAttention(buf) }()
+			time.Sleep(10 * time.Second)
+			synctest.Wait()
+			assert.Empty(t, result, "do not override a transport without a timeout")
+			select {
+			case <-transport.closed:
+				t.Fatal("attention write closed the transport without a caller request")
+			default:
+			}
+			select {
+			case <-transport.deadlineSet:
+				t.Fatal("attention mutated the write deadline during an in-flight write")
+			default:
+			}
+			require.NoError(t, transport.Close())
+			assert.ErrorIs(t, <-result, net.ErrClosed)
+		})
 	})
 
 	t.Run("connection timeout", func(t *testing.T) {
@@ -375,26 +383,31 @@ func TestSendAttentionWithTimeout_BoundsWrite(t *testing.T) {
 		defer client.Close()
 		defer server.Close()
 
-		transport := newTimeoutConn(client, time.Second)
+		transport := newTimeoutConn(client, 20*time.Millisecond)
+		buf := newTdsBuffer(defaultPacketSize, transport)
+		defer buf.bufClose()
 		start := time.Now()
-		err := sendAttentionWithTimeout(transport, 20*time.Millisecond)
+		err := sendAttention(buf)
 
 		require.Error(t, err)
 		assert.Less(t, time.Since(start), time.Second,
-			"the attention timeout must override a longer connection timeout")
+			"the configured connection timeout must end the attention write")
 	})
 
 	t.Run("TLS transport", func(t *testing.T) {
 		client, server := newTLSPipe(t)
 		defer client.Close()
 		defer server.Close()
+		buf := newTdsBuffer(defaultPacketSize, client)
+		defer buf.bufClose()
+		require.NoError(t, client.SetWriteDeadline(time.Now().Add(20*time.Millisecond)))
 
 		start := time.Now()
-		err := sendAttentionWithTimeout(client, 20*time.Millisecond)
+		err := sendAttention(buf)
 
 		require.Error(t, err)
 		assert.Less(t, time.Since(start), time.Second,
-			"a stalled TLS attention write must return within its timeout")
+			"a TLS attention write must honor its configured transport deadline")
 	})
 }
 
@@ -550,6 +563,7 @@ func TestProcessQueryResponse_DrainFailureEvictsConnection(t *testing.T) {
 
 	assert.Error(t, res.err, "processQueryResponse should return the server error")
 	assert.Nil(t, res.rows, "no rows should be returned on error")
+	require.ErrorIs(t, conn.awaitResponse(context.Background()), driver.ErrBadConn)
 	assert.False(t, conn.connectionGood,
 		"a failed drain must mark the connection bad so the pool evicts it (issue #407)")
 }
@@ -628,7 +642,7 @@ func (t *gatedTransport) Write(p []byte) (int, error) {
 func (*gatedTransport) Close() error { return nil }
 
 // TestNextToken_AttentionWriteFailureDoesNotLeakReader is the regression test
-// for the follow-up to issue #407 in the drain/attention path: when drain
+// for the follow-up to issue #407 in the drain/attention path: when the caller
 // cancels the reader and nextToken cannot send its attention (sendAttention
 // returns an error), the background processSingleResponse goroutine may still be
 // mid-response and about to stream more tokens than the channel can buffer.
@@ -638,12 +652,14 @@ func (*gatedTransport) Close() error { return nil }
 // re-introducing the original hang on the next query.
 //
 // The test drives that exact sequence: an error DONE arrives in a non-final
-// first packet (so processQueryResponse enters the drain path), drain's
-// attention write fails, and the server then streams far more DONE tokens than
+// first packet (so processQueryResponse enters the drain path), the caller
+// cancels, the attention write fails, and the server streams more DONE tokens than
 // the 5-slot channel can hold. The assertion is that the reader goroutine still
 // exits (readDone closes), proving nextToken started a fallback drain of the
 // abandoned channel.
 func TestNextToken_AttentionWriteFailureDoesNotLeakReader(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	// Packet 1: a single error DONE (doneError|doneMore) in a non-final packet,
 	// so the consumer returns on the error while the producer keeps reading.
 	var s1 []byte
@@ -683,7 +699,7 @@ func TestNextToken_AttentionWriteFailureDoesNotLeakReader(t *testing.T) {
 	}
 	resCh := make(chan result, 1)
 	go func() {
-		rows, err := stmt.processQueryResponse(context.Background())
+		rows, err := stmt.processQueryResponse(ctx)
 		resCh <- result{rows, err}
 	}()
 
@@ -696,6 +712,8 @@ func TestNextToken_AttentionWriteFailureDoesNotLeakReader(t *testing.T) {
 
 	assert.Error(t, res.err, "processQueryResponse should return the server error")
 	assert.Nil(t, res.rows, "no rows should be returned on error")
+	cancel()
+	require.ErrorIs(t, conn.awaitResponse(context.Background()), driver.ErrBadConn)
 	assert.False(t, conn.connectionGood,
 		"a failed attention write must mark the connection bad so the pool evicts it")
 
@@ -718,11 +736,8 @@ func TestNextToken_AttentionWriteFailureDoesNotLeakReader(t *testing.T) {
 // (Rows.Next/Close, Rowsq.Next/Close/NextResultSet). When a caller cancels the
 // context and nextToken cannot send its attention, the transport is broken and
 // the connection must not be reused. Those callers surface nextToken's error
-// through checkBadConn, which only evicts for recognized fatal error types.
-// nextToken therefore wraps the failed-attention error in a StreamError so
-// checkBadConn reliably marks the connection bad; an unwrapped "ordinary"
-// transport error would leave connectionGood true and let database/sql reuse a
-// connection whose transport just failed.
+// through responseError, which uses internal error-origin information without
+// changing the original public error.
 func TestNextToken_AttentionWriteFailureMarksConnectionBad(t *testing.T) {
 	transport := &gatedTransport{
 		p1:       bytes.NewReader(nil),
@@ -749,21 +764,20 @@ func TestNextToken_AttentionWriteFailureMarksConnectionBad(t *testing.T) {
 
 	_, err := reader.nextToken()
 	require.Error(t, err, "a failed attention write must return an error")
-	var se StreamError
-	require.ErrorAs(t, err, &se,
-		"a failed attention write must surface a StreamError so callers evict the connection")
+	assert.Same(t, transport.writeErr, err)
+	assert.Equal(t, responseErrorFatal, reader.errorKind)
 
-	// Every nextToken caller routes its error through checkBadConn. Verify that
+	// Every nextToken caller routes its error through responseError. Verify that
 	// path marks the connection bad for this signal.
 	conn := &Conn{
 		sess:           sess,
 		connectionGood: true,
 		connector:      &Connector{params: msdsn.Config{}},
 	}
-	returned := conn.checkBadConn(ctx, err, false)
+	returned := conn.responseError(reader, err)
 	assert.False(t, conn.connectionGood,
-		"checkBadConn must evict the connection after a failed attention write")
-	assert.Equal(t, err, returned, "checkBadConn should return the same error unchanged")
+		"responseError must evict the connection after a failed attention write")
+	assert.Equal(t, err, returned, "responseError should return the same error unchanged")
 
 	// Let the background drain goroutine started by nextToken exit.
 	close(tokChan)
@@ -774,7 +788,7 @@ func TestNextToken_AttentionWriteFailureMarksConnectionBad(t *testing.T) {
 // ignored every non-nil error. When the query context expires while Columns is
 // waiting and the attention write fails, Columns must mark the connection bad
 // and stop looping instead of spinning on nextToken (racing the fallback drain
-// goroutine) and discarding the StreamError. See issue #407.
+// goroutine) and discarding the original error. See issue #407.
 func TestRowsqColumns_AttentionWriteFailureMarksConnectionBad(t *testing.T) {
 	transport := &gatedTransport{
 		p1:       bytes.NewReader(nil),
@@ -818,13 +832,8 @@ func TestRowsqColumns_AttentionWriteFailureMarksConnectionBad(t *testing.T) {
 	close(tokChan)
 }
 
-// TestNextToken_TokenChannelContextErrorIsFatal verifies the core normalization:
-// a context.Canceled/DeadlineExceeded that arrives as a token-channel error
-// (the shape processSingleResponse produces when a row parser or an Always
-// Encrypted key provider forwards the reader context's error) is returned by
-// nextToken wrapped in StreamError, not as the bare context error. This is what
-// lets every caller distinguish it from the clean context error the confirmed-
-// attention path returns and evict the connection. See issue #407.
+// A context-shaped parser failure remains fatal without changing the error
+// value the application receives.
 func TestNextToken_TokenChannelContextErrorIsFatal(t *testing.T) {
 	for _, ctxErr := range []error{context.Canceled, context.DeadlineExceeded} {
 		tokChan := make(chan tokenStruct, 1)
@@ -838,22 +847,13 @@ func TestNextToken_TokenChannelContextErrorIsFatal(t *testing.T) {
 		}
 		tok, err := reader.nextToken()
 		assert.Nil(t, tok)
-		var se StreamError
-		assert.ErrorAs(t, err, &se,
-			"a token-channel context error must be wrapped in StreamError")
-		assert.ErrorIs(t, err, ctxErr,
-			"the wrapped error must still unwrap to the original context error")
+		assert.Equal(t, responseErrorFatal, reader.errorKind)
+		assert.True(t, err == ctxErr, "a token-channel context error must retain its identity")
 	}
 }
 
-// TestNextToken_TokenChannelOrdinaryErrorIsFatal verifies that a token-channel
-// error that is NOT context-shaped — for example an Always Encrypted decryption
-// or key-provider failure returned by parseRow, or a badStreamPanicf stream
-// corruption — is also promoted to StreamError so checkBadConn evicts the
-// connection. processSingleResponse abandons the response and returns whenever it
-// forwards such an error, leaving unread TDS bytes on the wire, so the connection
-// must never be reused regardless of the error's concrete type. errors.Is still
-// unwraps to the original error. See issue #407.
+// Ordinary parser/provider failures also require eviction, independently of
+// their public error type.
 func TestNextToken_TokenChannelOrdinaryErrorIsFatal(t *testing.T) {
 	sentinel := errors.New("always encrypted: failed to decrypt column encryption key")
 	tokChan := make(chan tokenStruct, 1)
@@ -870,45 +870,33 @@ func TestNextToken_TokenChannelOrdinaryErrorIsFatal(t *testing.T) {
 
 	tok, err := reader.nextToken()
 	assert.Nil(t, tok)
-	var se StreamError
-	assert.ErrorAs(t, err, &se,
-		"an ordinary token-channel error must be wrapped in StreamError")
-	assert.ErrorIs(t, err, sentinel,
-		"the wrapped error must still unwrap to the original error")
+	assert.Equal(t, responseErrorFatal, reader.errorKind)
+	assert.Same(t, sentinel, err)
 
-	returned := conn.checkBadConn(context.Background(), err, false)
+	returned := conn.responseError(reader, err)
 	assert.False(t, conn.connectionGood,
 		"an ordinary parse error abandoned mid-stream must evict the connection")
 	assert.ErrorIs(t, returned, sentinel)
 }
 
-// TestWrapTokenChannelError_PreservesTopLevelFatalErrors verifies errors already
-// recognized by checkBadConn keep their concrete types, while an error that
-// merely wraps a StreamError is promoted to a top-level fatal signal.
-func TestWrapTokenChannelError_PreservesTopLevelFatalErrors(t *testing.T) {
+func TestNextToken_PreservesTopLevelFatalErrors(t *testing.T) {
 	inner := errors.New("boom")
 	original := StreamError{InnerError: inner}
-	got := wrapTokenChannelError(original)
-	se, ok := got.(StreamError)
-	require.True(t, ok, "result must be a StreamError")
-	assert.Equal(t, inner, se.InnerError,
-		"an existing StreamError must not be re-wrapped")
-
 	wrapped := errors.Join(errors.New("outer"), original)
-	got = wrapTokenChannelError(wrapped)
-	se, ok = got.(StreamError)
-	require.True(t, ok, "a wrapped StreamError must be promoted to the top level")
-	assert.Equal(t, wrapped, se.InnerError)
-
 	serverErr := ServerError{sqlError: Error{Message: "fatal"}}
-	assert.IsType(t, ServerError{}, wrapTokenChannelError(serverErr),
-		"a direct ServerError must preserve its public concrete type")
-
 	netErr := &net.OpError{Op: "read", Err: inner}
-	assert.Same(t, netErr, wrapTokenChannelError(netErr),
-		"a direct net.Error must preserve its public concrete type")
-
-	assert.Nil(t, wrapTokenChannelError(nil), "nil must pass through unchanged")
+	for _, original := range []error{original, wrapped, serverErr, netErr} {
+		ch := make(chan tokenStruct, 1)
+		ch <- original
+		close(ch)
+		reader := &tokenProcessor{ctx: context.Background(), tokChan: ch}
+		_, got := reader.nextToken()
+		assert.IsType(t, original, got)
+		assert.Equal(t, original, got)
+		conn := &Conn{connectionGood: true}
+		assert.Equal(t, original, conn.responseError(reader, got))
+		assert.False(t, conn.IsValid())
+	}
 }
 
 // TestRowsClose_TokenChannelContextErrorEvictsConnection covers the caller the
@@ -985,8 +973,8 @@ func TestSimpleProcessResp_TokenChannelContextErrorEvictsConnection(t *testing.T
 	err := reader.iterateResponse()
 	require.Error(t, err)
 	// iterateResponse's callers (simpleProcessResp, processExec) route the
-	// error through checkBadConn; the wrapped StreamError makes that evict.
-	returned := conn.checkBadConn(context.Background(), err, false)
+	// error through responseError, which uses its origin to decide on eviction.
+	returned := conn.responseError(reader, err)
 	assert.False(t, conn.connectionGood,
 		"a parse-produced context error must evict the connection in the message loop")
 	assert.Error(t, returned)

@@ -428,6 +428,24 @@ fmt.Printf("bitparam is %d", bitout)
 
 ```
 
+An early query error does not necessarily mean that SQL Server has finished the
+batch. The driver returns the error and consumes the remaining response in the
+background, using the original operation context. The next request on that
+connection, including commit, rollback, or pool reset, waits for this cleanup.
+Cleanup does not introduce another query deadline or cancel SQL merely because
+a statement failed.
+
+An output-assignment error (for example, SQL `NULL` returned into an `int64`
+instead of `sql.NullInt64`) does not itself invalidate the connection. Later
+output parameters are still processed while the response is consumed; do not
+read those variables concurrently with that processing. A transport or protocol
+failure that prevents safe response completion makes the connection unusable.
+
+Applications using `ReturnMessage` must still consume the message loop. When
+output assignment fails or a parser error is recovered, the driver publishes the
+error to row readers before its notification, so a full message queue cannot
+hold back error delivery to a reader that is already waiting for a token.
+
 ## Caveat for local temporary tables
 
 Due to protocol limitations, temporary tables will only be allocated on the connection
