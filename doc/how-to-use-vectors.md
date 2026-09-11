@@ -259,9 +259,9 @@ CREATE TABLE embeddings (
 );
 ```
 
-> **Note:** The element type is determined by the SQL Server column definition (e.g., `VECTOR(3)` for float32, `VECTOR(3, float16)` for float16), not by the Go-side `Vector` struct. With `vectortypesupport=v1`, float32 parameters and results use the native binary vector format. Float16 parameters use JSON, and float16 results use JSON because native float16 results require protocol version 2.
+> **Note:** The element type is determined by the SQL Server column definition (e.g., `VECTOR(3)` for float32, `VECTOR(3, float16)` for float16), not by the Go-side `Vector` struct. With `vectortypesupport=v1`, float32 parameters use the native binary vector format, while float16 parameters use JSON. Native float32 and float16 results preserve the element type from the binary header.
 >
-> **float16 TDS Limitation:** Protocol version 1 does not preserve float16 result metadata. JSON results with 1998 or fewer dimensions scan as float32; larger results scan as float16.
+> **JSON fallback limitation:** JSON results don't contain element-type metadata. JSON arrays with 1 through 1998 dimensions scan as float32, while larger arrays scan as float16.
 
 
 
@@ -323,7 +323,7 @@ if err := tx.Commit(); err != nil {
 
 1. **NULL vectors and dimensions**: When inserting a NULL vector using `mssql.NullVector{Valid: false}`, the driver sends the value as an `NVARCHAR(1)` NULL so that SQL Server does not enforce any vector dimension matching for that parameter. You typically do not need to declare a specific vector dimension for NULL parameters; dimension matching still applies to non-NULL vectors and to table definitions that use the `VECTOR` type with a fixed dimension.
 
-1. **Element type with JSON fallback**: JSON doesn't contain vector element-type metadata. With `vectortypesupport=off`, `Vector.Scan` decodes arrays with 1 through 1998 dimensions as float32 and larger arrays as float16. A float16 vector with 1998 or fewer dimensions therefore scans as float32. Protocol version 1 provides native float32 results only; float16 results require protocol version 2, which this release does not negotiate.
+1. **Element type with JSON fallback**: JSON doesn't contain vector element-type metadata. With `vectortypesupport=off`, `Vector.Scan` decodes arrays with 1 through 1998 dimensions as float32 and larger arrays as float16. A float16 vector with 1998 or fewer dimensions therefore scans as float32. Native float32 and float16 results preserve the element type from the binary header.
 
 1. **Table-valued parameters**: `Vector` and `NullVector` fields aren't supported in table-valued parameters.
 
