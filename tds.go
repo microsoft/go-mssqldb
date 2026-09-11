@@ -1156,8 +1156,8 @@ func wrapTLSError(err error) error {
 		return fmt.Errorf("TLS Handshake failed: %w. "+
 			"The server certificate has a negative serial number and does not comply with RFC 5280. "+
 			"Replace it with a certificate that has a positive serial number. "+
-			"For temporary compatibility, add x509negativeserial=1 to your GODEBUG environment variable, "+
-			"or use encrypt=disable for non-production servers", err)
+			"For temporary local development or CI compatibility only, add x509negativeserial=1 to your GODEBUG environment variable, "+
+			"or use encrypt=disable. Do not use either setting in production", err)
 	case strings.Contains(msgLower, "insecure algorithm") && strings.Contains(msgLower, "sha1"):
 		// x509sha1 was removed in Go 1.24, so no GODEBUG re-enables this one.
 		return fmt.Errorf("TLS Handshake failed: %w. "+

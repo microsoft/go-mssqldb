@@ -662,7 +662,8 @@ func TestWrapTLSError(t *testing.T) {
 				"positive serial number",
 				"x509negativeserial=1",
 				"GODEBUG",
-				"temporary compatibility",
+				"temporary local development or CI compatibility only",
+				"Do not use either setting in production",
 			},
 		},
 		{
