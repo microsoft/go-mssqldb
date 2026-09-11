@@ -1319,6 +1319,9 @@ initiate_connection:
 
 	err = writePrelogin(packPrelogin, outbuf, fields)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, err
 	}
 

@@ -719,6 +719,83 @@ func TestConnectSuccessfulPreloginAndLogin(t *testing.T) {
 	}
 }
 
+func TestConnectClearsContextDeadlineAfterPrelogin(t *testing.T) {
+	resolved, serverErr := startLoginAndQueryServer(t)
+	dsn := fmt.Sprintf("sqlserver://%s:%d?protocol=tcp&encrypt=disable&connection+timeout=0&dial+timeout=2",
+		resolved.IP.String(), resolved.Port)
+	connector, err := NewConnector(dsn)
+	if err != nil {
+		t.Fatal("NewConnector failed:", err)
+	}
+	deadlineCleared := make(chan struct{}, 1)
+	connector.Dialer = recordZeroDeadlineDialer{deadlineCleared: deadlineCleared}
+	db := sql.OpenDB(connector)
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("Expected successful connection, got: %v", err)
+	}
+	defer conn.Close()
+
+	select {
+	case <-deadlineCleared:
+	default:
+		t.Fatal("context-derived prelogin deadline was not cleared")
+	}
+
+	<-ctx.Done()
+	if _, err := conn.ExecContext(context.Background(), "select 1"); err != nil {
+		t.Fatalf("query after prelogin context deadline failed: %v", err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("Mock server error: %v", err)
+	}
+}
+
+func TestPreloginWriteCancellationReturnsContextError(t *testing.T) {
+	client, server := net.Pipe()
+	defer server.Close()
+	writeStarted := make(chan struct{})
+	connector, err := NewConnector("sqlserver://127.0.0.1?protocol=tcp&encrypt=disable&connection+timeout=0&dial+timeout=2")
+	if err != nil {
+		t.Fatal("NewConnector failed:", err)
+	}
+	connector.Dialer = singleConnDialer{
+		conn: notifyWriteConn{
+			Conn:         client,
+			writeStarted: writeStarted,
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	connectDone := make(chan error, 1)
+	go func() {
+		_, err := connector.Connect(ctx)
+		connectDone <- err
+	}()
+
+	select {
+	case <-writeStarted:
+	case err := <-connectDone:
+		t.Fatalf("Connect returned before prelogin write: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("prelogin write did not start")
+	}
+	cancel()
+
+	select {
+	case err := <-connectDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error=%v, want %v", err, context.Canceled)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Connect did not return after context cancellation")
+	}
+}
+
 // TestPreloginZeroConnectionTimeoutRespectsContextDeadline verifies that the
 // context deadline bounds prelogin when no connection timeout is configured.
 func TestPreloginZeroConnectionTimeoutRespectsContextDeadline(t *testing.T) {
@@ -813,4 +890,120 @@ func (c rejectZeroDeadlineConn) SetDeadline(deadline time.Time) error {
 		return errors.New("zero deadline is unsupported")
 	}
 	return c.Conn.SetDeadline(deadline)
+}
+
+type recordZeroDeadlineDialer struct {
+	deadlineCleared chan<- struct{}
+}
+
+func (d recordZeroDeadlineDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	conn, err := (&net.Dialer{}).DialContext(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	return recordZeroDeadlineConn{Conn: conn, deadlineCleared: d.deadlineCleared}, nil
+}
+
+type recordZeroDeadlineConn struct {
+	net.Conn
+	deadlineCleared chan<- struct{}
+}
+
+func (c recordZeroDeadlineConn) SetDeadline(deadline time.Time) error {
+	if deadline.IsZero() {
+		select {
+		case c.deadlineCleared <- struct{}{}:
+		default:
+		}
+	}
+	return c.Conn.SetDeadline(deadline)
+}
+
+type singleConnDialer struct {
+	conn net.Conn
+}
+
+func (d singleConnDialer) DialContext(context.Context, string, string) (net.Conn, error) {
+	return d.conn, nil
+}
+
+type notifyWriteConn struct {
+	net.Conn
+	writeStarted chan<- struct{}
+}
+
+func (c notifyWriteConn) Write(p []byte) (int, error) {
+	select {
+	case c.writeStarted <- struct{}{}:
+	default:
+	}
+	return c.Conn.Write(p)
+}
+
+func startLoginAndQueryServer(t *testing.T) (*net.TCPAddr, <-chan error) {
+	t.Helper()
+	listener, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.IP{127, 0, 0, 1}})
+	if err != nil {
+		t.Fatal("Cannot start listener:", err)
+	}
+	t.Cleanup(func() { listener.Close() })
+
+	serverErr := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		defer conn.Close()
+		buf := newTdsBuffer(defaultPacketSize, conn)
+
+		packetType, err := buf.BeginRead()
+		if err != nil {
+			serverErr <- fmt.Errorf("read PRELOGIN request: %w", err)
+			return
+		}
+		if packetType != packPrelogin {
+			serverErr <- fmt.Errorf("expected PRELOGIN packet, got %d", packetType)
+			return
+		}
+		if err := writePrelogin(packReply, buf, map[uint8][]byte{
+			preloginENCRYPTION: {encryptNotSup},
+		}); err != nil {
+			serverErr <- fmt.Errorf("write PRELOGIN response: %w", err)
+			return
+		}
+
+		packetType, err = buf.BeginRead()
+		if err != nil {
+			serverErr <- fmt.Errorf("read LOGIN request: %w", err)
+			return
+		}
+		if packetType != packLogin7 {
+			serverErr <- fmt.Errorf("expected LOGIN packet, got %d", packetType)
+			return
+		}
+		if err := sendLoginResponse(buf); err != nil {
+			serverErr <- err
+			return
+		}
+
+		packetType, err = buf.BeginRead()
+		if err != nil {
+			serverErr <- fmt.Errorf("read query: %w", err)
+			return
+		}
+		if packetType != packSQLBatch {
+			serverErr <- fmt.Errorf("expected SQL batch, got %d", packetType)
+			return
+		}
+		buf.BeginPacket(packReply, false)
+		buf.WriteByte(byte(tokenDone))
+		binary.Write(buf, binary.LittleEndian, uint16(0))
+		binary.Write(buf, binary.LittleEndian, uint16(0))
+		binary.Write(buf, binary.LittleEndian, uint64(0))
+		serverErr <- buf.FinishPacket()
+	}()
+
+	return listener.Addr().(*net.TCPAddr), serverErr
 }
