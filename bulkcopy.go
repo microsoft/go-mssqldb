@@ -377,18 +377,21 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 		return makeBulkVectorParam(valuer, col)
 	case *Vector:
 		if valuer == nil {
+			res.ti = col.ti
 			res.ti.Size = 0
 			return
 		}
 		return makeBulkVectorParam(*valuer, col)
 	case NullVector:
 		if !valuer.Valid {
+			res.ti = col.ti
 			res.ti.Size = 0
 			return
 		}
 		return makeBulkVectorParam(valuer.Vector, col)
 	case *NullVector:
 		if valuer == nil || !valuer.Valid {
+			res.ti = col.ti
 			res.ti.Size = 0
 			return
 		}

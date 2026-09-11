@@ -265,7 +265,7 @@ func (nv *NullVector) Scan(src interface{}) error {
 		return err
 	}
 
-	nv.Valid = true
+	nv.Valid = !nv.Vector.IsNull()
 	return nil
 }
 
@@ -511,7 +511,11 @@ func (v *Vector) decodeFromJSON(jsonStr string) error {
 		if val == nil {
 			return errors.New("mssql: vector JSON elements must be numbers")
 		}
-		data = append(data, float32(*val))
+		converted := float32(*val)
+		if math.IsInf(float64(converted), 0) {
+			return errors.New("mssql: vector JSON element exceeds float32 range")
+		}
+		data = append(data, converted)
 	}
 	if _, err := decoder.Token(); err != nil {
 		return fmt.Errorf("mssql: failed to parse vector JSON: %w", err)

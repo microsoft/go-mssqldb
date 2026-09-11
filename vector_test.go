@@ -619,6 +619,15 @@ func TestNullVector(t *testing.T) {
 		t.Errorf("Vector length: got %d, want 2", len(nv.Vector.Data))
 	}
 
+	// Scan JSON null
+	err = nv.Scan("null")
+	if err != nil {
+		t.Fatalf("Scan(\"null\") failed: %v", err)
+	}
+	if nv.Valid {
+		t.Error("NullVector should not be valid after scanning JSON null")
+	}
+
 	// Scan nil
 	err = nv.Scan(nil)
 	if err != nil {
@@ -737,8 +746,8 @@ func TestBulkMakeParamNullVector(t *testing.T) {
 	bulk := &Bulk{cn: &Conn{sess: &tdsSession{}}}
 	column := columnStruct{ti: typeInfo{
 		TypeId: typeVectorN,
-		Size:   vectorHeaderSize + 3*VectorElementFloat32.BytesPerElement(),
-		Scale:  byte(VectorElementFloat32),
+		Size:   vectorHeaderSize + 3*VectorElementFloat16.BytesPerElement(),
+		Scale:  byte(VectorElementFloat16),
 	}}
 
 	for name, value := range map[string]interface{}{
@@ -751,7 +760,8 @@ func TestBulkMakeParamNullVector(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if param.ti.TypeId != typeVectorN || param.buffer != nil {
+			if param.ti.TypeId != typeVectorN || param.ti.Scale != column.ti.Scale ||
+				param.ti.Size != 0 || param.buffer != nil {
 				t.Fatalf("unexpected NULL vector parameter: %#v", param)
 			}
 		})
@@ -774,6 +784,13 @@ func TestVectorDecodeInvalidJSON(t *testing.T) {
 	err := v.decodeFromJSON("not json")
 	if err == nil {
 		t.Error("Expected error for malformed JSON")
+	}
+}
+
+func TestVectorDecodeJSONRejectsFloat32Overflow(t *testing.T) {
+	var v Vector
+	if err := v.decodeFromJSON("[1e39]"); err == nil {
+		t.Fatal("decodeFromJSON should reject values outside the float32 range")
 	}
 }
 
