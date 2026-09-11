@@ -588,19 +588,20 @@ func writeShortLenType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.Enco
 // database/sql/driver.Value type. Types such as Vector and NullVector, which implement
 // sql.Scanner, are responsible for decoding this binary representation.
 func readVectorType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) interface{} {
-	var size uint16
+	var size int
 	if c != nil {
-		size = uint16(r.rsize)
+		size = r.rsize - r.rpos
 	} else {
-		size = r.uint16()
+		encodedSize := r.uint16()
+		if encodedSize == 0xffff {
+			return nil
+		}
+		size = int(encodedSize)
 	}
-	if size == 0xffff {
-		return nil
-	}
-	if int(size) > vectorMaxWireSize {
+	if size > vectorMaxWireSize {
 		badStreamPanicf("vector length %d exceeds wire maximum %d", size, vectorMaxWireSize)
 	}
-	if c == nil && int(size) > ti.Size {
+	if c == nil && size > ti.Size {
 		badStreamPanicf("vector length %d exceeds column maximum %d", size, ti.Size)
 	}
 	out := make([]byte, size)

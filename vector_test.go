@@ -1288,6 +1288,22 @@ func TestReadVectorTypeRejectsLengthAboveWireMaximum(t *testing.T) {
 	readVectorType(&ti, buf, nil, msdsn.EncodeParameters{})
 }
 
+func TestReadVectorTypeReadsRemainingEncryptedValue(t *testing.T) {
+	value := []byte{vectorMagic, vectorVersion, byte(VectorElementFloat32), 0, 1, 0, 0, 0, 0, 0, 0, 0}
+	buf := &tdsBuffer{
+		rbuf:  append([]byte{0xaa, 0xbb}, value...),
+		rpos:  2,
+		rsize: len(value) + 2,
+		final: true,
+	}
+	ti := typeInfo{TypeId: typeVectorN, Size: len(value)}
+
+	got := readVectorType(&ti, buf, &cryptoMetadata{}, msdsn.EncodeParameters{})
+	if !bytes.Equal(got.([]byte), value) {
+		t.Fatalf("readVectorType returned %x, want %x", got, value)
+	}
+}
+
 func TestReadVectorPLPTypeRejectsOversizedPayload(t *testing.T) {
 	tests := []struct {
 		name   string
