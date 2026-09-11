@@ -44,7 +44,9 @@ jobs:
         shell: bash
         run: |
           go version
-          export SQLCMDPASSWORD=$(date +%s|sha256sum|base64|head -c 32)
+          # Guarantee all four password character classes regardless of the random prefix.
+          SQLCMDPASSWORD="$(openssl rand -hex 14)aA1!"
+          export SQLCMDPASSWORD
           export SQLCMDUSER=sa
           export SQLUSER=sa
           export SQLPASSWORD=$SQLCMDPASSWORD
@@ -163,7 +165,9 @@ jobs:
       - name: Start SQL Server container
         shell: bash
         run: |
-          export SQLCMDPASSWORD=$(date +%s|sha256sum|base64|head -c 32)
+          # Guarantee all four password character classes regardless of the random prefix.
+          SQLCMDPASSWORD="$(openssl rand -hex 14)aA1!"
+          export SQLCMDPASSWORD
           echo "SQLCMDPASSWORD=$SQLCMDPASSWORD" >> $GITHUB_ENV
           # 2 GB is the documented minimum with no headroom, and SQL 2025 was seen
           # failing to start at it. MSSQL_MEMORY_LIMIT_MB stays under the container
