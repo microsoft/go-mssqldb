@@ -598,6 +598,19 @@ Constrain the provider to an allowed list of key vaults by appending vault host 
  or add a `select ID = convert(bigint, SCOPE_IDENTITY());` to the end of your
  query (ref [SCOPE_IDENTITY](https://docs.microsoft.com/en-us/sql/t-sql/functions/scope-identity-transact-sql)).
  This will ensure you are getting the correct ID and will prevent a network round trip.
+* [RowsAffected](https://golang.org/pkg/database/sql/#Result.RowsAffected) includes
+ every statement that reports a row count, matching
+ [SqlCommand.ExecuteNonQuery](https://learn.microsoft.com/dotnet/api/microsoft.data.sqlclient.sqlcommand.executenonquery).
+ Two cases commonly surprise people:
+  * **Triggers.** When an AFTER trigger fires without `SET NOCOUNT ON`, the rows it
+ affects are counted too. A single-row `UPDATE` on a table whose trigger writes two
+ audit rows returns `3`, not `1`. To exclude them, make `SET NOCOUNT ON` the first
+ statement in the trigger body — this is the documented behavior of SQL Server's
+ [SET NOCOUNT](https://learn.microsoft.com/sql/t-sql/statements/set-nocount-transact-sql),
+ not a driver quirk, and the other SQL Server drivers report the same totals.
+  * **Multi-statement batches.** `Exec("UPDATE ...; UPDATE ...")` returns the sum
+ across the batch, not the final statement's count. Use separate `Exec` calls if you
+ need a per-statement number.
 * [NewConnector](https://godoc.org/github.com/microsoft/go-mssqldb#NewConnector)
     may be used with [OpenDB](https://golang.org/pkg/database/sql/#OpenDB).
 * [Connector.SessionInitSQL](https://godoc.org/github.com/microsoft/go-mssqldb#Connector.SessionInitSQL)
