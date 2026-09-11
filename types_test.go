@@ -603,6 +603,7 @@ func TestReadVarLen_DecimalMetadataSizeAccepted(t *testing.T) {
 		{"DECIMALN precision 28", typeDecimalN, 13, 28},
 		{"NUMERIC precision 29", typeNumeric, 17, 29},
 		{"NUMERICN precision 38", typeNumericN, 17, 38},
+		{"DECIMALN maximum metadata size", typeDecimalN, 17, 18},
 	}
 
 	for _, tc := range cases {
@@ -650,24 +651,42 @@ func TestReadByteLenType_RowSizeExceedsBufferRejected(t *testing.T) {
 	readByteLenTypeWithEncoding(&ti, buf, nil, msdsn.EncodeParameters{})
 }
 
+func TestReadByteLenType_DecimalRowUsesPrecisionWidth(t *testing.T) {
+	row := make([]byte, 10)
+	row[0] = 9
+	row[1] = 1
+
+	buf := newTdsBuffer(512, nil)
+	copy(buf.rbuf[:len(row)], row)
+	buf.rpos = 0
+	buf.rsize = len(row)
+	buf.final = true
+
+	ti := typeInfo{TypeId: typeDecimalN, Size: 17, Prec: 18, Scale: 4, Buffer: make([]byte, 17)}
+	readByteLenTypeWithEncoding(&ti, buf, nil, msdsn.EncodeParameters{})
+
+	assert.Equal(t, len(row), buf.rpos)
+}
+
 func TestReadByteLenType_InvalidFixedWidthRowSizeRejected(t *testing.T) {
 	cases := []struct {
-		name     string
-		typeId   uint8
-		typeSize int
-		rowSize  byte
+		name      string
+		typeId    uint8
+		typeSize  int
+		rowSize   byte
+		precision uint8
 	}{
-		{"DATENTYPE", typeDateN, 3, 1},
-		{"TIMENTYPE", typeTimeN, 5, 4},
-		{"DATETIME2NTYPE", typeDateTime2N, 8, 7},
-		{"DATETIMEOFFSETNTYPE", typeDateTimeOffsetN, 10, 9},
-		{"UNIQUEIDENTIFIER", typeGuid, 16, 15},
-		{"INTNTYPE", typeIntN, 8, 4},
-		{"DECIMALN", typeDecimalN, 5, 2},
-		{"NUMERICN", typeNumericN, 5, 2},
-		{"FLNNTYPE", typeFltN, 8, 4},
-		{"MONEYNTYPE", typeMoneyN, 8, 4},
-		{"DATETIMENTYPE", typeDateTimeN, 8, 4},
+		{"DATENTYPE", typeDateN, 3, 1, 0},
+		{"TIMENTYPE", typeTimeN, 5, 4, 0},
+		{"DATETIME2NTYPE", typeDateTime2N, 8, 7, 0},
+		{"DATETIMEOFFSETNTYPE", typeDateTimeOffsetN, 10, 9, 0},
+		{"UNIQUEIDENTIFIER", typeGuid, 16, 15, 0},
+		{"INTNTYPE", typeIntN, 8, 4, 0},
+		{"DECIMALN", typeDecimalN, 5, 2, 9},
+		{"NUMERICN", typeNumericN, 5, 2, 9},
+		{"FLNNTYPE", typeFltN, 8, 4, 0},
+		{"MONEYNTYPE", typeMoneyN, 8, 4, 0},
+		{"DATETIMENTYPE", typeDateTimeN, 8, 4, 0},
 	}
 
 	for _, tc := range cases {
@@ -681,7 +700,7 @@ func TestReadByteLenType_InvalidFixedWidthRowSizeRejected(t *testing.T) {
 			buf.rsize = len(row)
 			buf.final = true
 
-			ti := typeInfo{TypeId: tc.typeId, Size: tc.typeSize, Buffer: make([]byte, tc.typeSize)}
+			ti := typeInfo{TypeId: tc.typeId, Size: tc.typeSize, Prec: tc.precision, Buffer: make([]byte, tc.typeSize)}
 
 			defer func() {
 				v := recover()
