@@ -9,7 +9,6 @@ import (
 	"io"
 	"regexp"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -651,33 +650,46 @@ func TestStartResponseReaderSerializes(t *testing.T) {
 
 	// Launch second startResponseReader in a goroutine; it should block on
 	// <-sess.readDone until the first reader finishes.
-	var secondStarted atomic.Int32
 	ch2 := make(chan tokenStruct, 10)
 	goroutineStarted := make(chan struct{})
+	secondCallReturned := make(chan struct{})
 	go func() {
 		close(goroutineStarted)
 		sess.startResponseReader(context.Background(), ch2, outputs{})
-		secondStarted.Store(1)
+		close(secondCallReturned)
 	}()
 
 	// Wait for the goroutine to be scheduled and reach startResponseReader.
 	<-goroutineStarted
-	time.Sleep(100 * time.Millisecond)
 
-	// The second goroutine cannot proceed while the first reader is blocked,
-	// so secondStarted must still be 0.
-	if secondStarted.Load() != 0 {
+	// The second reader must not enter Read or return from startResponseReader
+	// while the first reader is blocked.
+	select {
+	case <-readEntered:
+		t.Fatal("second reader entered Read before first completed")
+	case <-secondCallReturned:
 		t.Fatal("second startResponseReader returned before first completed")
+	case <-time.After(100 * time.Millisecond):
 	}
 
 	// Unblock the first reader. processSingleResponse will receive EOF from
 	// BeginRead as an error, send it to ch1, and return, closing readDone.
 	closeUnblock()
 
-	// Second call should now proceed.
+	// The second call should now return and its reader should enter Read.
 	select {
+	case <-secondCallReturned:
 	case <-time.After(5 * time.Second):
 		t.Fatal("second startResponseReader did not return after first completed")
+	}
+	select {
+	case <-readEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second reader never entered Read")
+	}
+	select {
+	case <-time.After(5 * time.Second):
+		t.Fatal("second reader did not finish after entering Read")
 	case <-ch2:
 		// Expected: second reader started and wrote (or closed) ch2.
 	}
