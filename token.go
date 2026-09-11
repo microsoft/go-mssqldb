@@ -1016,10 +1016,12 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 			default:
 				derr = fmt.Errorf("unhandled session error: %v", e)
 			}
+			// Let a waiting Rows consumer receive the error even if
+			// notifications are full; it can then stop message delivery.
+			ch <- derr
 			if outs.msgq != nil {
 				_ = sqlexp.ReturnMessageEnqueue(messageCtx, outs.msgq, sqlexp.MsgError{Error: derr})
 			}
-			ch <- derr
 		}
 		if outs.msgq != nil {
 			// Wake the message loop so NextResultSet can observe completion
@@ -1175,10 +1177,10 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				if ov, has := outs.params[name]; has {
 					err = scanIntoOut(name, nv.Value, ov)
 					if err != nil {
+						ch <- outputParameterError{err}
 						if outs.msgq != nil {
 							_ = sqlexp.ReturnMessageEnqueue(messageCtx, outs.msgq, sqlexp.MsgNextResultSet{})
 						}
-						ch <- outputParameterError{err}
 					}
 				}
 			}
