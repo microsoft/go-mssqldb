@@ -666,11 +666,11 @@ func TestWrapTLSError(t *testing.T) {
 			},
 		},
 		{
-			name: "SHA-1 uppercase",
-			err:  fmt.Errorf("tls: peer certificate uses SHA-1 based signature"),
+			name: "missing TLS 1.2 signature algorithms",
+			err:  fmt.Errorf("tls: missing signature_algorithms from TLS 1.2 peer"),
 			wantContains: []string{
 				"TLS Handshake failed",
-				"SHA-1",
+				"obsolete TLS 1.2 configuration",
 				"tlssha1=1",
 				"GODEBUG",
 				"SHA-256",
@@ -678,21 +678,20 @@ func TestWrapTLSError(t *testing.T) {
 			},
 		},
 		{
-			name: "sha1 lowercase",
+			name: "unrecognized sha1 error falls to default",
 			err:  fmt.Errorf("tls: sha1 signature not supported"),
 			wantContains: []string{
 				"TLS Handshake failed",
-				"tlssha1=1",
-				"GODEBUG",
-				"temporary compatibility",
+				"sha1 signature not supported",
 			},
+			wantNotContains: []string{"GODEBUG", "tlssha1"},
 		},
 		{
-			name: "hostname containing sha1 falls to default",
-			err:  fmt.Errorf("x509: certificate is valid for sha1.example.com, not db.example.com"),
+			name: "hostname containing sha1 and signature falls to default",
+			err:  fmt.Errorf("x509: certificate is valid for sha1-signature.example.com, not db.example.com"),
 			wantContains: []string{
 				"TLS Handshake failed",
-				"sha1.example.com",
+				"sha1-signature.example.com",
 			},
 			wantNotContains: []string{"GODEBUG", "tlssha1"},
 		},
