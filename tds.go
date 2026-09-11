@@ -1182,7 +1182,13 @@ func preloginTimeout(ctx context.Context, connTimeout time.Duration) (time.Durat
 		return 0, context.DeadlineExceeded
 	}
 
-	if connTimeout == 0 || ctxTimeout < connTimeout {
+	// With no connection timeout, the cancellation watcher below bounds
+	// prelogin without installing a deadline that must later be cleared.
+	if connTimeout == 0 {
+		return 0, nil
+	}
+
+	if ctxTimeout < connTimeout {
 		return ctxTimeout, nil
 	}
 
@@ -1262,14 +1268,12 @@ initiate_connection:
 	if err != nil {
 		return nil, err
 	}
-	clearPreloginDeadline := origTimeout == 0 && toconn.timeout > 0
 
 	// Watch ctx.Done() and close the connection to unblock a read on any
 	// cancellation or deadline expiry. This is needed even though
 	// preloginTimeout may reduce toconn.timeout, because ctx can be canceled
-	// after that timeout is computed but before or during a read, and because
-	// without a deadline and with connTimeout == 0 a read could otherwise
-	// block indefinitely.
+	// after that timeout is computed but before or during a read. It also
+	// provides the only bound when connTimeout == 0.
 	cancelDone := make(chan struct{})
 	watcherDone := make(chan struct{})
 	go func() {
@@ -1342,13 +1346,6 @@ initiate_connection:
 	// Restore the original timeout for subsequent reads. Safe because the
 	// watcher goroutine has exited (stopWatcher returned above).
 	toconn.timeout = origTimeout
-	if clearPreloginDeadline {
-		// timeoutConn will not replace the temporary deadline after restoring
-		// a zero connection timeout, so clear the deadline installed above.
-		if err := toconn.SetDeadline(time.Time{}); err != nil {
-			return nil, err
-		}
-	}
 
 	encrypt, err := interpretPreloginResponse(p, fedAuth, fields)
 	if err != nil {
