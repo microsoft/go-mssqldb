@@ -329,7 +329,7 @@ func (c *Conn) checkServerAbortedTransaction() error {
 }
 
 func (c *Conn) simpleProcessResp(ctx context.Context, isRollback bool) error {
-	reader := startReading(c.sess, ctx, c.outs)
+	reader := startReadingSync(c.sess, ctx, c.outs)
 	defer reader.release()
 	reader.noAttn = isRollback
 	c.clearOuts()
@@ -902,7 +902,7 @@ func (s *Stmt) exec(ctx context.Context, args []namedValue) (res driver.Result, 
 }
 
 func (s *Stmt) processExec(ctx context.Context) (res driver.Result, err error) {
-	reader := startReading(s.c.sess, ctx, s.c.outs)
+	reader := startReadingSync(s.c.sess, ctx, s.c.outs)
 	defer reader.release()
 	s.c.clearOuts()
 	err = reader.iterateResponse()

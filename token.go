@@ -1226,6 +1226,19 @@ func (sess *tdsSession) startResponseReader(ctx context.Context, tokChan chan to
 
 func startReading(sess *tdsSession, ctx context.Context, outs outputs) *tokenProcessor {
 	ctx, cancel := context.WithCancel(ctx)
+	return newTokenProcessor(sess, ctx, outs, cancel)
+}
+
+// Synchronous responses need no child context unless output assignment or
+// message delivery can hand the unfinished response to background cleanup.
+func startReadingSync(sess *tdsSession, ctx context.Context, outs outputs) *tokenProcessor {
+	if len(outs.params) != 0 || outs.msgq != nil {
+		return startReading(sess, ctx, outs)
+	}
+	return newTokenProcessor(sess, ctx, outs, nil)
+}
+
+func newTokenProcessor(sess *tdsSession, ctx context.Context, outs outputs, cancel context.CancelFunc) *tokenProcessor {
 	var cancelMessages context.CancelFunc
 	if outs.msgq != nil {
 		// Keep this response's queue even if the caller reuses ReturnMessage

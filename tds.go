@@ -1349,7 +1349,7 @@ initiate_connection:
 	// SSPI and federated authentication scenarios may require multiple
 	// packet exchanges to complete the login sequence.
 	for loginAck := false; !loginAck; {
-		reader := startReading(sess, ctx, outputs{})
+		reader := startReadingSync(sess, ctx, outputs{})
 		defer reader.release()
 		// don't send attention or wait for cancel confirmation during login
 		reader.noAttn = true
