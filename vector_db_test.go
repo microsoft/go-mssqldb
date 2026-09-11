@@ -143,9 +143,7 @@ func mustNewVector(values []float32) Vector {
 	return v
 }
 
-// openWithVectorSupport opens a database connection with vectortypesupport=v1 enabled.
-// This enables native binary vector format when the server supports it (SQL Server 2025+).
-func openWithVectorSupport(t testing.TB) (*sql.DB, *testLogger) {
+func openWithVectorTypeSupport(t testing.TB, vectorTypeSupport msdsn.VectorTypeSupport) (*sql.DB, *testLogger) {
 	tl := testLogger{t: t}
 	SetLogger(&tl)
 	t.Cleanup(func() {
@@ -153,7 +151,7 @@ func openWithVectorSupport(t testing.TB) (*sql.DB, *testLogger) {
 	})
 
 	config := testConnParams(t)
-	config.VectorTypeSupport = msdsn.VectorTypeSupportV1
+	config.VectorTypeSupport = vectorTypeSupport
 	connectionString := config.URL().String()
 
 	connector, err := NewConnector(connectionString)
@@ -162,6 +160,12 @@ func openWithVectorSupport(t testing.TB) (*sql.DB, *testLogger) {
 	}
 	conn := sql.OpenDB(connector)
 	return conn, &tl
+}
+
+// openWithVectorSupport opens a database connection with vectortypesupport=v1 enabled.
+// This enables native binary vector format when the server supports it (SQL Server 2025+).
+func openWithVectorSupport(t testing.TB) (*sql.DB, *testLogger) {
+	return openWithVectorTypeSupport(t, msdsn.VectorTypeSupportV1)
 }
 
 // vectorTestContext holds common test infrastructure for vector database tests.
@@ -176,8 +180,12 @@ type vectorTestContext struct {
 // The table has a single VECTOR column with the specified dimensions.
 // Use nullable=true for columns that should allow NULL values.
 func setupVectorTest(t *testing.T, dims int, nullable bool) *vectorTestContext {
+	return setupVectorTestWithSupport(t, dims, nullable, msdsn.VectorTypeSupportV1)
+}
+
+func setupVectorTestWithSupport(t *testing.T, dims int, nullable bool, vectorTypeSupport msdsn.VectorTypeSupport) *vectorTestContext {
 	t.Helper()
-	conn, _ := openWithVectorSupport(t)
+	conn, _ := openWithVectorTypeSupport(t, vectorTypeSupport)
 	t.Cleanup(func() { conn.Close() })
 	skipIfVectorNotSupported(t, conn)
 
@@ -587,6 +595,37 @@ func TestVectorSliceFloat64Insert(t *testing.T) {
 		}
 	}
 	t.Logf("Successfully round-tripped []float64 -> Vector: %v", got.Data)
+}
+
+func TestVectorJSONFallbackRoundTrip(t *testing.T) {
+	ctx := setupVectorTestWithSupport(t, 3, false, msdsn.VectorTypeSupportOff)
+
+	inputs := []struct {
+		value interface{}
+		want  []float32
+	}{
+		{mustNewVector([]float32{1, 2, 3}), []float32{1, 2, 3}},
+		{[]float32{4, 5, 6}, []float32{4, 5, 6}},
+		{[]float64{7.5, 8.5, 9.5}, []float32{7.5, 8.5, 9.5}},
+	}
+
+	for _, input := range inputs {
+		ctx.insert(input.value)
+	}
+
+	var raw interface{}
+	err := ctx.tx.QueryRow(fmt.Sprintf("SELECT embedding FROM %s WHERE id = 1", ctx.tableName)).Scan(&raw)
+	if err != nil {
+		t.Fatal("Failed to scan JSON fallback value:", err)
+	}
+	if _, ok := raw.(string); !ok {
+		t.Fatalf("Expected JSON fallback string, got %T", raw)
+	}
+
+	for i, input := range inputs {
+		got := ctx.selectVector(i + 1)
+		assertVectorEquals(t, got, Vector{ElementType: VectorElementFloat32, Data: input.want})
+	}
 }
 
 // TestVectorScanToInterface tests that scanning to interface{} returns []byte.
