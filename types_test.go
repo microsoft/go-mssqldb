@@ -575,3 +575,52 @@ func TestReadByteLenType_RowSizeExceedsBufferRejected(t *testing.T) {
 
 	readByteLenTypeWithEncoding(&ti, buf, nil, msdsn.EncodeParameters{})
 }
+
+func TestReadByteLenType_InvalidFixedWidthRowSizeRejected(t *testing.T) {
+	cases := []struct {
+		name     string
+		typeId   uint8
+		typeSize int
+		rowSize  byte
+	}{
+		{"DATENTYPE", typeDateN, 3, 1},
+		{"TIMENTYPE", typeTimeN, 5, 4},
+		{"DATETIME2NTYPE", typeDateTime2N, 8, 7},
+		{"DATETIMEOFFSETNTYPE", typeDateTimeOffsetN, 10, 9},
+		{"UNIQUEIDENTIFIER", typeGuid, 16, 15},
+		{"INTNTYPE", typeIntN, 8, 4},
+		{"FLNNTYPE", typeFltN, 8, 4},
+		{"MONEYNTYPE", typeMoneyN, 8, 4},
+		{"DATETIMENTYPE", typeDateTimeN, 8, 4},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			row := make([]byte, 1+int(tc.rowSize))
+			row[0] = tc.rowSize
+
+			buf := newTdsBuffer(512, nil)
+			copy(buf.rbuf[:len(row)], row)
+			buf.rpos = 0
+			buf.rsize = len(row)
+			buf.final = true
+
+			ti := typeInfo{TypeId: tc.typeId, Size: tc.typeSize, Buffer: make([]byte, tc.typeSize)}
+
+			defer func() {
+				v := recover()
+				if v == nil {
+					t.Fatal("expected invalid fixed-width row size to panic")
+				}
+				se, ok := v.(StreamError)
+				if !ok {
+					t.Fatalf("recovered %T, want StreamError", v)
+				}
+				assert.Contains(t, se.Error(), "invalid row size")
+				assert.Equal(t, 1, buf.rpos)
+			}()
+
+			readByteLenTypeWithEncoding(&ti, buf, nil, msdsn.EncodeParameters{})
+		})
+	}
+}

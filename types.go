@@ -396,6 +396,13 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 	if int(size) > len(ti.Buffer) {
 		badStreamPanic(fmt.Errorf("row size %d exceeds buffer size %d for type id %d", size, len(ti.Buffer), ti.TypeId))
 	}
+	switch ti.TypeId {
+	case typeDateN, typeTimeN, typeDateTime2N, typeDateTimeOffsetN,
+		typeGuid, typeIntN, typeBitN, typeFltN, typeMoneyN, typeDateTimeN:
+		if int(size) != ti.Size {
+			badStreamPanic(fmt.Errorf("invalid row size %d for type id %d with size %d", size, ti.TypeId, ti.Size))
+		}
+	}
 	loc := encoding.GetTimezone()
 	r.ReadFull(ti.Buffer[:size])
 	buf := ti.Buffer[:size]
