@@ -25,7 +25,7 @@ func (c *responseBenchmarkTransport) Write(p []byte) (int, error) {
 	if len(p) == 0 || packetType(p[0]) != want {
 		return 0, fmt.Errorf("benchmark request %d: expected packet type %d", phase, want)
 	}
-	c.Reader.Reset(c.responses[phase])
+	c.Reset(c.responses[phase])
 	c.writes++
 	return len(p), nil
 }
