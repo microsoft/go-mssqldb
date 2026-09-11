@@ -142,6 +142,8 @@ func sendAttentionWithTimeout(transport io.ReadWriteCloser, timeout time.Duratio
 	}
 }
 
+var errCancelConfirmation = errors.New("did not get cancellation confirmation from the server")
+
 type cancelConfirmationResult uint8
 
 const (
@@ -158,15 +160,14 @@ type tokenStruct interface{}
 // drain failure, not a server internal error, and StreamError.Error()
 // surfaces the diagnostic message whereas ServerError.Error() is a fixed string.
 func cancelDrainError(phase string, drainCtx context.Context, tokErr error) error {
-	msg := "did not get cancellation confirmation from the server"
 	cause := tokErr
 	if cause == nil {
 		cause = drainCtx.Err()
 	}
 	if cause != nil {
-		return StreamError{InnerError: fmt.Errorf("%s (%s: %w)", msg, phase, cause)}
+		return StreamError{InnerError: fmt.Errorf("%w (%s: %w)", errCancelConfirmation, phase, cause)}
 	}
-	return StreamError{InnerError: fmt.Errorf("%s (%s)", msg, phase)}
+	return StreamError{InnerError: fmt.Errorf("%w (%s)", errCancelConfirmation, phase)}
 }
 
 type orderStruct struct {

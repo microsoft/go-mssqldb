@@ -11,6 +11,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -1156,12 +1157,52 @@ func getTLSConn(conn *timeoutConn, p msdsn.Config, alpnSeq string) (tlsConn *tls
 	}
 	//Set ALPN Sequence
 	config.NextProtos = []string{alpnSeq}
-	tlsConn = tls.Client(conn.c, config)
+	// Wrap the timeoutConn rather than the raw socket so the handshake and every
+	// subsequent TLS read honour the connection timeout instead of bypassing it.
+	tlsConn = tls.Client(conn, config)
 	err = tlsConn.Handshake()
 	if err != nil {
 		return nil, fmt.Errorf("TLS Handshake failed: %w", err)
 	}
 	return tlsConn, nil
+}
+
+func preloginTimeout(ctx context.Context, connTimeout time.Duration) (time.Duration, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return connTimeout, nil
+	}
+
+	ctxTimeout := time.Until(deadline)
+	if ctxTimeout <= 0 {
+		return 0, context.DeadlineExceeded
+	}
+
+	// With no connection timeout, the cancellation watcher below bounds
+	// prelogin without installing a deadline that must later be cleared.
+	if connTimeout == 0 {
+		return 0, nil
+	}
+
+	if ctxTimeout < connTimeout {
+		return ctxTimeout, nil
+	}
+
+	return connTimeout, nil
+}
+
+func preloginError(ctx context.Context, err error) error {
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+			return context.DeadlineExceeded
+		}
+	}
+	return err
 }
 
 func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Config) (res *tdsSession, err error) {
@@ -1215,6 +1256,42 @@ initiate_connection:
 	toconn = newTimeoutConn(conn, p.ConnTimeout)
 	outbuf := newTdsBuffer(packetSize, toconn)
 
+	// Bound every server read up to and including prelogin by the context.
+	// This has to be installed before the strict-encryption TLS handshake,
+	// which also reads from the server and would otherwise be unbounded.
+	//
+	// We temporarily reduce toconn.timeout rather than using SetReadDeadline
+	// because timeoutConn.Read() calls SetDeadline(now+timeout) on every read,
+	// which would overwrite a SetReadDeadline value.
+	origTimeout := toconn.timeout
+	toconn.timeout, err = preloginTimeout(ctx, origTimeout)
+	if err != nil {
+		return nil, err
+	}
+
+	// Watch ctx.Done() and close the connection to unblock a read on any
+	// cancellation or deadline expiry. This is needed even though
+	// preloginTimeout may reduce toconn.timeout, because ctx can be canceled
+	// after that timeout is computed but before or during a read. It also
+	// provides the only bound when connTimeout == 0.
+	cancelDone := make(chan struct{})
+	watcherDone := make(chan struct{})
+	go func() {
+		defer close(watcherDone)
+		select {
+		case <-ctx.Done():
+			toconn.Close()
+		case <-cancelDone:
+		}
+	}()
+	// Idempotent so the deferred call is a no-op once the handshake has
+	// explicitly stopped the watcher; covers every early return below.
+	stopWatcher := sync.OnceFunc(func() {
+		close(cancelDone)
+		<-watcherDone
+	})
+	defer stopWatcher()
+
 	if p.Encryption == msdsn.EncryptionStrict {
 		tlsConn, err := getTLSConn(toconn, p, "tds/8.0")
 		if err != nil {
@@ -1246,13 +1323,29 @@ initiate_connection:
 
 	err = writePrelogin(packPrelogin, outbuf, fields)
 	if err != nil {
-		return nil, err
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, preloginError(ctx, err)
 	}
 
 	fields, err = readPrelogin(outbuf)
-	if err != nil {
-		return nil, err
+	stopWatcher() // wait for the goroutine to exit before touching toconn
+
+	// If the context was canceled, the watcher goroutine closed the
+	// connection. Return the context error regardless of whether the
+	// read itself succeeded to avoid using a closed conn.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
 	}
+
+	if err != nil {
+		return nil, preloginError(ctx, err)
+	}
+
+	// Restore the original timeout for subsequent reads. Safe because the
+	// watcher goroutine has exited (stopWatcher returned above).
+	toconn.timeout = origTimeout
 
 	encrypt, err := interpretPreloginResponse(p, fedAuth, fields)
 	if err != nil {
@@ -1443,6 +1536,7 @@ initiate_connection:
 		}
 		goto initiate_connection
 	}
+	toconn = nil // success: prevent deferred close
 	return sess, nil
 }
 
