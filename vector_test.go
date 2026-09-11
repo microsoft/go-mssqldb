@@ -738,7 +738,7 @@ func TestVectorDecodeInvalidJSON(t *testing.T) {
 }
 
 func TestVectorDecodeJSONRejectsOversizedArray(t *testing.T) {
-	values := make([]string, vectorMaxDimensionsFloat32+1)
+	values := make([]string, vectorMaxDimensionsFloat16+1)
 	for i := range values {
 		values[i] = "1"
 	}
@@ -748,8 +748,26 @@ func TestVectorDecodeJSONRejectsOversizedArray(t *testing.T) {
 	if err == nil {
 		t.Fatal("decodeFromJSON should reject an oversized vector")
 	}
-	if !strings.Contains(err.Error(), "vector dimensions 1999 exceeds maximum 1998 for FLOAT32") {
+	if !strings.Contains(err.Error(), "vector dimensions 3997 exceeds maximum 3996") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestVectorDecodeJSONInfersFloat16AboveFloat32Limit(t *testing.T) {
+	values := make([]string, vectorMaxDimensionsFloat16)
+	for i := range values {
+		values[i] = "1"
+	}
+
+	var v Vector
+	if err := v.decodeFromJSON("[" + strings.Join(values, ",") + "]"); err != nil {
+		t.Fatalf("decodeFromJSON failed: %v", err)
+	}
+	if v.ElementType != VectorElementFloat16 {
+		t.Fatalf("element type: got %s, want FLOAT16", v.ElementType)
+	}
+	if len(v.Data) != vectorMaxDimensionsFloat16 {
+		t.Fatalf("dimensions: got %d, want %d", len(v.Data), vectorMaxDimensionsFloat16)
 	}
 }
 
@@ -1245,18 +1263,51 @@ func TestReadVectorTypeRejectsLengthAboveColumnMaximum(t *testing.T) {
 	readVectorType(&ti, buf, nil, msdsn.EncodeParameters{})
 }
 
+func TestReadVectorTypeRejectsLengthAboveWireMaximum(t *testing.T) {
+	buf := newTdsBuffer(512, nil)
+	binary.LittleEndian.PutUint16(buf.rbuf[:2], vectorMaxWireSize+1)
+	buf.rpos = 0
+	buf.rsize = 2
+	buf.final = true
+
+	ti := typeInfo{TypeId: typeVectorN, Size: 0xfffe}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("readVectorType should reject a value larger than the VECTOR wire maximum")
+		}
+		err, ok := recovered.(error)
+		if !ok {
+			t.Fatalf("recovered %T, want error", recovered)
+		}
+		if !strings.Contains(err.Error(), "vector length 8001 exceeds wire maximum 8000") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}()
+
+	readVectorType(&ti, buf, nil, msdsn.EncodeParameters{})
+}
+
 func TestReadVectorPLPTypeRejectsOversizedPayload(t *testing.T) {
 	tests := []struct {
 		name   string
 		stream []byte
+		want   string
 	}{
 		{
 			name:   "advertised length",
 			stream: plpStream(vectorMaxWireSize+1, []byte{vectorMagic}),
+			want:   "exceeds maximum 8000",
 		},
 		{
 			name:   "unknown length chunks",
 			stream: plpStream(_UNKNOWN_PLP_LEN, make([]byte, vectorMaxWireSize+1)),
+			want:   "exceeds maximum 8000",
+		},
+		{
+			name:   "advertised length mismatch",
+			stream: plpStream(20, make([]byte, 12)),
+			want:   "vector PLP length 12 does not match advertised length 20",
 		},
 	}
 
@@ -1287,7 +1338,7 @@ func TestReadVectorPLPTypeRejectsOversizedPayload(t *testing.T) {
 				if !ok {
 					t.Fatalf("recovered %T, want error", recovered)
 				}
-				if !strings.Contains(err.Error(), "exceeds maximum 8000") {
+				if !strings.Contains(err.Error(), test.want) {
 					t.Fatalf("unexpected error: %v", err)
 				}
 			}()

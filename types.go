@@ -597,6 +597,9 @@ func readVectorType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msds
 	if size == 0xffff {
 		return nil
 	}
+	if int(size) > vectorMaxWireSize {
+		badStreamPanicf("vector length %d exceeds wire maximum %d", size, vectorMaxWireSize)
+	}
 	if c == nil && int(size) > ti.Size {
 		badStreamPanicf("vector length %d exceeds column maximum %d", size, ti.Size)
 	}
@@ -884,6 +887,9 @@ func readVectorPLPType(_ *typeInfo, r *tdsBuffer, c *cryptoMetadata, _ msdsn.Enc
 	for {
 		chunkSize := r.uint32()
 		if chunkSize == _PLP_TERMINATOR {
+			if size != _UNKNOWN_PLP_LEN && uint64(len(out)) != size {
+				badStreamPanicf("vector PLP length %d does not match advertised length %d", len(out), size)
+			}
 			return out
 		}
 		if uint64(len(out))+uint64(chunkSize) > vectorMaxWireSize {

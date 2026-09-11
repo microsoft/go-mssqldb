@@ -195,7 +195,8 @@ func (v Vector) IsNull() bool {
 	return v.Data == nil
 }
 
-// Scan implements the sql.Scanner interface for Vector.
+// Scan implements the sql.Scanner interface for Vector. JSON input does not carry
+// element metadata, so dimensions above the float32 limit are inferred as float16.
 func (v *Vector) Scan(src interface{}) error {
 	if src == nil {
 		v.Data = nil
@@ -507,9 +508,9 @@ func (v *Vector) decodeFromJSON(jsonStr string) error {
 
 	data := make([]float32, 0)
 	for decoder.More() {
-		if len(data) >= vectorMaxDimensionsFloat32 {
-			return fmt.Errorf("mssql: vector dimensions %d exceeds maximum %d for %s",
-				len(data)+1, vectorMaxDimensionsFloat32, VectorElementFloat32)
+		if len(data) >= vectorMaxDimensionsFloat16 {
+			return fmt.Errorf("mssql: vector dimensions %d exceeds maximum %d",
+				len(data)+1, vectorMaxDimensionsFloat16)
 		}
 		var val *float64
 		if err := decoder.Decode(&val); err != nil {
@@ -533,6 +534,9 @@ func (v *Vector) decodeFromJSON(jsonStr string) error {
 	}
 
 	v.ElementType = VectorElementFloat32
+	if len(data) > vectorMaxDimensionsFloat32 {
+		v.ElementType = VectorElementFloat16
+	}
 	v.Data = data
 	return nil
 }
