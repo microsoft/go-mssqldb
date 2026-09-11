@@ -548,6 +548,80 @@ func TestReadVarLen_ValidFixedWidthSizesAccepted(t *testing.T) {
 	}
 }
 
+func TestReadVarLen_DecimalMetadataSizeValidated(t *testing.T) {
+	cases := []struct {
+		name      string
+		typeId    uint8
+		size      byte
+		precision byte
+		scale     byte
+	}{
+		{"DECIMALN size 2 precision 9", typeDecimalN, 2, 9, 0},
+		{"NUMERICN size 5 precision 10", typeNumericN, 5, 10, 0},
+		{"DECIMAL precision 39", typeDecimal, 17, 39, 0},
+		{"NUMERIC scale exceeds precision", typeNumeric, 5, 9, 10},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			buf := newTdsBuffer(512, nil)
+			copy(buf.rbuf[:3], []byte{tc.size, tc.precision, tc.scale})
+			buf.rpos = 0
+			buf.rsize = 3
+			buf.final = true
+
+			defer func() {
+				v := recover()
+				if v == nil {
+					t.Fatal("expected invalid decimal metadata to panic")
+				}
+				se, ok := v.(StreamError)
+				if !ok {
+					t.Fatalf("recovered %T, want StreamError", v)
+				}
+				assert.Contains(t, se.Error(), "invalid decimal metadata")
+			}()
+
+			ti := typeInfo{TypeId: tc.typeId}
+			readVarLen(&ti, buf, nil, msdsn.EncodeParameters{})
+		})
+	}
+}
+
+func TestReadVarLen_DecimalMetadataSizeAccepted(t *testing.T) {
+	cases := []struct {
+		name      string
+		typeId    uint8
+		size      byte
+		precision byte
+	}{
+		{"DECIMAL precision 1", typeDecimal, 5, 1},
+		{"DECIMALN precision 9", typeDecimalN, 5, 9},
+		{"NUMERIC precision 10", typeNumeric, 9, 10},
+		{"NUMERICN precision 19", typeNumericN, 9, 19},
+		{"DECIMAL precision 20", typeDecimal, 13, 20},
+		{"DECIMALN precision 28", typeDecimalN, 13, 28},
+		{"NUMERIC precision 29", typeNumeric, 17, 29},
+		{"NUMERICN precision 38", typeNumericN, 17, 38},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			buf := newTdsBuffer(512, nil)
+			copy(buf.rbuf[:3], []byte{tc.size, tc.precision, 0})
+			buf.rpos = 0
+			buf.rsize = 3
+			buf.final = true
+
+			ti := typeInfo{TypeId: tc.typeId}
+			readVarLen(&ti, buf, nil, msdsn.EncodeParameters{})
+
+			assert.Equal(t, int(tc.size), ti.Size)
+			assert.Equal(t, tc.precision, ti.Prec)
+		})
+	}
+}
+
 func TestReadByteLenType_RowSizeExceedsBufferRejected(t *testing.T) {
 	row := make([]byte, 18)
 	row[0] = 17
@@ -589,6 +663,8 @@ func TestReadByteLenType_InvalidFixedWidthRowSizeRejected(t *testing.T) {
 		{"DATETIMEOFFSETNTYPE", typeDateTimeOffsetN, 10, 9},
 		{"UNIQUEIDENTIFIER", typeGuid, 16, 15},
 		{"INTNTYPE", typeIntN, 8, 4},
+		{"DECIMALN", typeDecimalN, 5, 2},
+		{"NUMERICN", typeNumericN, 5, 2},
 		{"FLNNTYPE", typeFltN, 8, 4},
 		{"MONEYNTYPE", typeMoneyN, 8, 4},
 		{"DATETIMENTYPE", typeDateTimeN, 8, 4},

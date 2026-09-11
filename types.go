@@ -398,7 +398,8 @@ func readByteLenTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 	}
 	switch ti.TypeId {
 	case typeDateN, typeTimeN, typeDateTime2N, typeDateTimeOffsetN,
-		typeGuid, typeIntN, typeBitN, typeFltN, typeMoneyN, typeDateTimeN:
+		typeGuid, typeIntN, typeDecimal, typeNumeric, typeBitN,
+		typeDecimalN, typeNumericN, typeFltN, typeMoneyN, typeDateTimeN:
 		if int(size) != ti.Size {
 			badStreamPanic(fmt.Errorf("invalid row size %d for type id %d with size %d", size, ti.TypeId, ti.Size))
 		}
@@ -838,6 +839,23 @@ func validFixedWidthSize(typeId uint8, size int) bool {
 	return true
 }
 
+func decimalSizeForPrecision(precision uint8) int {
+	if precision < 1 || precision > 38 {
+		return 0
+	}
+	switch {
+	case precision <= 9:
+		return 5
+	case precision <= 19:
+		return 9
+	case precision <= 28:
+		return 13
+	case precision <= 38:
+		return 17
+	}
+	return 0
+}
+
 func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.EncodeParameters) {
 	switch ti.TypeId {
 	case typeDateN:
@@ -881,6 +899,9 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		case typeDecimal, typeNumeric, typeDecimalN, typeNumericN:
 			ti.Prec = r.byte()
 			ti.Scale = r.byte()
+			if expectedSize := decimalSizeForPrecision(ti.Prec); expectedSize == 0 || ti.Size != expectedSize || ti.Scale > ti.Prec {
+				badStreamPanic(fmt.Errorf("invalid decimal metadata size %d, precision %d, scale %d", ti.Size, ti.Prec, ti.Scale))
+			}
 		}
 		ti.Reader = readByteLenTypeWithEncoding
 	case typeXml:
