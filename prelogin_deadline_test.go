@@ -114,6 +114,37 @@ func (c pastDeadlineContext) Deadline() (time.Time, bool) { return c.dl, true }
 func (c pastDeadlineContext) Err() error                  { return nil }
 func (c pastDeadlineContext) Done() <-chan struct{}       { return nil }
 
+type preloginTimeoutError struct{}
+
+var _ net.Error = preloginTimeoutError{}
+
+func (preloginTimeoutError) Error() string { return "i/o timeout" }
+func (preloginTimeoutError) Timeout() bool { return true }
+func (preloginTimeoutError) Temporary() bool {
+	return true
+}
+
+func TestPreloginErrorConvertsTimeoutAfterDeadline(t *testing.T) {
+	ctx := pastDeadlineContext{
+		Context: context.Background(),
+		dl:      time.Now().Add(-time.Second),
+	}
+
+	if err := preloginError(ctx, preloginTimeoutError{}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error=%v, want %v", err, context.DeadlineExceeded)
+	}
+}
+
+func TestPreloginErrorPreservesTimeoutBeforeDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	timeoutErr := preloginTimeoutError{}
+
+	if err := preloginError(ctx, timeoutErr); !errors.Is(err, timeoutErr) {
+		t.Fatalf("error=%v, want %v", err, timeoutErr)
+	}
+}
+
 // TestPreloginRespectsContextDeadline verifies that readPrelogin honors the
 // context deadline rather than hanging for the full ConnTimeout when the
 // server never responds.
@@ -666,10 +697,12 @@ func TestConnectSuccessfulPreloginAndLogin(t *testing.T) {
 
 	dsn := fmt.Sprintf("sqlserver://sa:unused@%s:%d?protocol=tcp&encrypt=disable&connection+timeout=5&dial+timeout=2",
 		resolved.IP.String(), resolved.Port)
-	db, err := sql.Open("sqlserver", dsn)
+	connector, err := NewConnector(dsn)
 	if err != nil {
-		t.Fatal("sql.Open failed:", err)
+		t.Fatal("NewConnector failed:", err)
 	}
+	connector.Dialer = rejectZeroDeadlineDialer{}
+	db := sql.OpenDB(connector)
 	defer db.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -686,11 +719,9 @@ func TestConnectSuccessfulPreloginAndLogin(t *testing.T) {
 	}
 }
 
-// TestPreloginDeadlineAndSocketTimeoutRace exercises the path where the
-// connection timeout and context deadline fire at nearly the same instant.
-// Using identical values for both maximizes the chance of exercising the
-// net.Error-to-DeadlineExceeded conversion path in connect().
-func TestPreloginDeadlineAndSocketTimeoutRace(t *testing.T) {
+// TestPreloginZeroConnectionTimeoutRespectsContextDeadline verifies that the
+// context deadline bounds prelogin when no connection timeout is configured.
+func TestPreloginZeroConnectionTimeoutRespectsContextDeadline(t *testing.T) {
 	addr := &net.TCPAddr{IP: net.IP{127, 0, 0, 1}}
 	listener, err := net.ListenTCP("tcp", addr)
 	if err != nil {
@@ -715,8 +746,6 @@ func TestPreloginDeadlineAndSocketTimeoutRace(t *testing.T) {
 		}
 	}()
 
-	// Use the same value for both timeouts so the socket timeout and context
-	// deadline fire at approximately the same instant.
 	const timeout = 300 * time.Millisecond
 	dsn := fmt.Sprintf("sqlserver://sa:unused@%s:%d?connection+timeout=0&dial+timeout=2&protocol=tcp&encrypt=disable",
 		resolved.IP.String(), resolved.Port)
@@ -760,11 +789,28 @@ func TestPreloginDeadlineAndSocketTimeoutRace(t *testing.T) {
 		t.Errorf("Connection took %v, expected ~%v", elapsed, timeout)
 	}
 
-	// Either error is acceptable; both prove the timeout was respected.
 	if !errors.Is(err, context.DeadlineExceeded) {
-		var ne net.Error
-		if !errors.As(err, &ne) || !ne.Timeout() {
-			t.Errorf("expected DeadlineExceeded or net timeout, got: %v", err)
-		}
+		t.Errorf("expected DeadlineExceeded, got: %v", err)
 	}
+}
+
+type rejectZeroDeadlineDialer struct{}
+
+func (rejectZeroDeadlineDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	conn, err := (&net.Dialer{}).DialContext(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	return rejectZeroDeadlineConn{Conn: conn}, nil
+}
+
+type rejectZeroDeadlineConn struct {
+	net.Conn
+}
+
+func (c rejectZeroDeadlineConn) SetDeadline(deadline time.Time) error {
+	if deadline.IsZero() {
+		return errors.New("zero deadline is unsupported")
+	}
+	return c.Conn.SetDeadline(deadline)
 }

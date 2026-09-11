@@ -1189,6 +1189,16 @@ func preloginTimeout(ctx context.Context, connTimeout time.Duration) (time.Durat
 	return connTimeout, nil
 }
 
+func preloginError(ctx context.Context, err error) error {
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+			return context.DeadlineExceeded
+		}
+	}
+	return err
+}
+
 func connect(ctx context.Context, c *Connector, logger ContextLogger, p msdsn.Config) (res *tdsSession, err error) {
 	var cbt *integratedauth.ChannelBindings
 	isTransportEncrypted := false
@@ -1252,6 +1262,7 @@ initiate_connection:
 	if err != nil {
 		return nil, err
 	}
+	clearPreloginDeadline := origTimeout == 0 && toconn.timeout > 0
 
 	// Watch ctx.Done() and close the connection to unblock a read on any
 	// cancellation or deadline expiry. This is needed even though
@@ -1321,30 +1332,19 @@ initiate_connection:
 		return nil, ctxErr
 	}
 
-	// The socket timeout from preloginTimeout and the context deadline
-	// can fire at nearly the same instant. If the read timed out and
-	// the context deadline has since passed (even though ctx.Err() had
-	// not yet propagated above), return the context error instead of
-	// a raw "i/o timeout". Only override when the error is actually a
-	// timeout to avoid masking unrelated failures (EOF, connection reset).
 	if err != nil {
-		var ne net.Error
-		if errors.As(err, &ne) && ne.Timeout() {
-			if dl, ok := ctx.Deadline(); ok && !time.Now().Before(dl) {
-				return nil, context.DeadlineExceeded
-			}
-		}
-		return nil, err
+		return nil, preloginError(ctx, err)
 	}
 
 	// Restore the original timeout for subsequent reads. Safe because the
 	// watcher goroutine has exited (stopWatcher returned above).
 	toconn.timeout = origTimeout
-	// timeoutConn only calls SetDeadline when timeout > 0, so with a zero
-	// ConnTimeout the absolute deadline left by the prelogin reads would
-	// persist and expire under later operations that never asked for one.
-	if err := toconn.SetDeadline(time.Time{}); err != nil {
-		return nil, err
+	if clearPreloginDeadline {
+		// timeoutConn will not replace the temporary deadline after restoring
+		// a zero connection timeout, so clear the deadline installed above.
+		if err := toconn.SetDeadline(time.Time{}); err != nil {
+			return nil, err
+		}
 	}
 
 	encrypt, err := interpretPreloginResponse(p, fedAuth, fields)
