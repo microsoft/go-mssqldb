@@ -84,14 +84,23 @@ func (j *JSON) Scan(value interface{}) error {
 	}
 	switch v := value.(type) {
 	case string:
-		*j = make(JSON, len(v))
-		copy(*j, v)
+		if len(v) == 0 {
+			*j = JSON{}
+		} else {
+			*j = append((*j)[:0], v...)
+		}
 	case []byte:
-		*j = make(JSON, len(v))
-		copy(*j, v)
+		if len(v) == 0 {
+			*j = JSON{}
+		} else {
+			*j = append((*j)[:0], v...)
+		}
 	case json.RawMessage:
-		*j = make(JSON, len(v))
-		copy(*j, v)
+		if len(v) == 0 {
+			*j = JSON{}
+		} else {
+			*j = append((*j)[:0], v...)
+		}
 	default:
 		return fmt.Errorf("unsupported Scan, storing driver.Value type %T into type *JSON", value)
 	}

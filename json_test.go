@@ -1816,13 +1816,16 @@ func TestJSONOutputParameterViaNvarchar(t *testing.T) {
 
 func TestJSONScan(t *testing.T) {
 	t.Run("scan from string", func(t *testing.T) {
-		var j JSON
+		j := make(JSON, 0, 64)
 		err := j.Scan(`{"key":"value"}`)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !bytes.Equal(j, JSON(`{"key":"value"}`)) {
 			t.Errorf("got %s", string(j))
+		}
+		if cap(j) != 64 {
+			t.Errorf("capacity = %d, want 64", cap(j))
 		}
 	})
 	t.Run("scan from []byte", func(t *testing.T) {
