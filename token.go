@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -117,6 +118,32 @@ const (
 // the connection is marked bad via checkBadConn.
 const cancelDrainTimeout = 5 * time.Second
 
+func sendAttentionWithTimeout(transport io.ReadWriteCloser, timeout time.Duration) error {
+	packet := make([]byte, headerSize)
+	packet[0] = byte(packAttention)
+	packet[1] = 1
+	binary.BigEndian.PutUint16(packet[2:4], uint16(headerSize))
+	packet[6] = 1
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := transport.Write(packet)
+		result <- err
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case err := <-result:
+		return err
+	case <-timer.C:
+		go transport.Close()
+		return fmt.Errorf("attention write timed out after %s", timeout)
+	}
+}
+
+var errCancelConfirmation = errors.New("did not get cancellation confirmation from the server")
+
 type cancelConfirmationResult uint8
 
 const (
@@ -133,15 +160,14 @@ type tokenStruct interface{}
 // drain failure, not a server internal error, and StreamError.Error()
 // surfaces the diagnostic message whereas ServerError.Error() is a fixed string.
 func cancelDrainError(phase string, drainCtx context.Context, tokErr error) error {
-	msg := "did not get cancellation confirmation from the server"
 	cause := tokErr
 	if cause == nil {
 		cause = drainCtx.Err()
 	}
 	if cause != nil {
-		return StreamError{InnerError: fmt.Errorf("%s (%s: %w)", msg, phase, cause)}
+		return StreamError{InnerError: fmt.Errorf("%w (%s: %w)", errCancelConfirmation, phase, cause)}
 	}
-	return StreamError{InnerError: fmt.Errorf("%s (%s)", msg, phase)}
+	return StreamError{InnerError: fmt.Errorf("%w (%s)", errCancelConfirmation, phase)}
 }
 
 type orderStruct struct {

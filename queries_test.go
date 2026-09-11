@@ -2323,11 +2323,20 @@ func isAcceptableTimeoutErr(err error) bool {
 	if ne := (net.Error)(nil); errors.As(err, &ne) && ne.Timeout() {
 		return true
 	}
-	if sqlErr := (Error{}); errors.As(err, &sqlErr) &&
-		(sqlErr.Number == 3980 || sqlErr.Message == "did not get cancellation confirmation from the server") {
+	if errors.Is(err, errCancelConfirmation) {
+		return true
+	}
+	if sqlErr := (Error{}); errors.As(err, &sqlErr) && sqlErr.Number == 3980 {
 		return true
 	}
 	return false
+}
+
+func TestIsAcceptableTimeoutErrAcceptsCancelConfirmationFailure(t *testing.T) {
+	err := cancelDrainError("current response", context.Background(), nil)
+	if !isAcceptableTimeoutErr(err) {
+		t.Fatalf("cancel confirmation failure should be accepted: %v", err)
+	}
 }
 
 func TestQueryTimeout(t *testing.T) {
