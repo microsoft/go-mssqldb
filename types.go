@@ -848,11 +848,6 @@ func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.E
 		return decodeNChar(bytesToDecode)
 	case typeUdt:
 		return decodeUdt(*ti, bytesToDecode)
-	case typeVectorN:
-		// Vector type in PLP format - return raw bytes.
-		// Types such as Vector and NullVector, which implement sql.Scanner,
-		// are responsible for decoding this binary representation.
-		return bytesToDecode
 	}
 	panic("shouldn't get here")
 }
