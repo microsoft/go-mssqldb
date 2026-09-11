@@ -209,11 +209,16 @@ func normalizeToken(tok tokenStruct) string {
 // processSingleResponse installs its own recover(), so a malformed stream
 // surfaces as an error token here rather than crashing the harness.
 func drainSingleResponse(stream []byte, chunk int, collect bool) (tokens []string, dbState string, sawError bool, framed bool) {
+	return drainSingleResponseWithEncryption(stream, chunk, collect, false)
+}
+
+func drainSingleResponseWithEncryption(stream []byte, chunk int, collect, alwaysEncrypted bool) (tokens []string, dbState string, sawError bool, framed bool) {
 	packets, ok := frameReplyPackets(stream, chunk)
 	if !ok {
 		return nil, "", false, false
 	}
 	sess := newFuzzSession(packets)
+	sess.alwaysEncrypted = alwaysEncrypted
 	defer sess.buf.bufClose()
 
 	ch := make(chan tokenStruct, 5)
@@ -594,6 +599,15 @@ func FuzzProcessSingleResponse(f *testing.F) {
 		13, 0, 0, 0, // dataOffset
 	}, uint16(0))
 
+	// CEK metadata is parsed only when Always Encrypted was negotiated.
+	f.Add([]byte{byte(tokenColMetadata), 0, 0, 0xff, 0xff}, uint16(0))
+	bogusCekTable := append([]byte{0xff, 0xff}, cekEntryStream(255, "store", "path", "RSA_OAEP")...)
+	f.Add(colMetadataWithCekTable(bogusCekTable, 0), uint16(0))
+	validCekTable := append([]byte{1, 0}, cekEntryStream(2, "store", "path", "RSA_OAEP")...)
+	encryptedMetadata := append(colMetadataWithCekTable(validCekTable, 0), doneToken(tokenDone, 0)...)
+	f.Add(encryptedMetadata, uint16(0))
+	f.Add(encryptedMetadata, uint16(3))
+
 	f.Fuzz(func(t *testing.T, stream []byte, frag uint16) {
 		// Bound input size to keep framing and allocations reasonable. A TDS
 		// packet length is a uint16, and the read buffer is 32 KiB, so very
@@ -611,5 +625,6 @@ func FuzzProcessSingleResponse(f *testing.F) {
 		// are intentionally unused beyond confirming completion, so collect is
 		// false to avoid per-token allocations in the hot fuzzing path.
 		_, _, _, _ = drainSingleResponse(stream, chunk, false)
+		_, _, _, _ = drainSingleResponseWithEncryption(stream, chunk, false, true)
 	})
 }

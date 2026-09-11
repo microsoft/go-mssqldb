@@ -804,9 +804,10 @@ func readCekTable(r *tdsBuffer) *cekTable {
 	var cekTable *cekTable = nil
 
 	if tableSize != 0 {
-		mCekTable := newCekTable(tableSize)
+		// Allocate entries only after parsing them, not from the wire count.
+		mCekTable := newCekTable(0)
 		for i := uint16(0); i < tableSize; i++ {
-			mCekTable.entries[i] = readCekTableEntry(r)
+			mCekTable.entries = append(mCekTable.entries, readCekTableEntry(r))
 		}
 		cekTable = &mCekTable
 	}
@@ -814,38 +815,43 @@ func readCekTable(r *tdsBuffer) *cekTable {
 	return cekTable
 }
 
+// SQL Server permits two encrypted values per CEK during master-key rotation.
+// https://learn.microsoft.com/sql/t-sql/statements/alter-column-encryption-key-transact-sql
+const _MAX_CEK_VALUES = 2
+
 func readCekTableEntry(r *tdsBuffer) cekTableEntry {
 	databaseId := r.int32()
 	cekID := r.int32()
 	cekVersion := r.int32()
 	var cekMdVersion = make([]byte, 8)
-	_, err := r.Read(cekMdVersion)
-	if err != nil {
-		badStreamPanicf("unable to read cekMdVersion")
+	r.ReadFull(cekMdVersion)
+
+	cekValueCount := int(r.byte())
+	if cekValueCount > _MAX_CEK_VALUES {
+		badStreamPanic(fmt.Errorf("CEK value count %d exceeds maximum %d", cekValueCount, _MAX_CEK_VALUES))
 	}
 
-	cekValueCount := uint(r.byte())
 	// not using ucs22str because we already know the data is utf16
 	enc := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM)
 	utf16dec := enc.NewDecoder()
 	cekValues := make([]encryptionKeyInfo, cekValueCount)
 
-	for i := uint(0); i < cekValueCount; i++ {
+	for i := 0; i < cekValueCount; i++ {
 		encryptedCekLength := r.uint16()
 		encryptedCek := make([]byte, encryptedCekLength)
 		r.ReadFull(encryptedCek)
 
-		keyStoreLength := r.byte()
+		keyStoreLength := int(r.byte())
 		keyStoreNameUtf16 := make([]byte, keyStoreLength*2)
 		r.ReadFull(keyStoreNameUtf16)
 		keyStoreName, _ := utf16dec.Bytes(keyStoreNameUtf16)
 
-		keyPathLength := r.uint16()
+		keyPathLength := int(r.uint16())
 		keyPathUtf16 := make([]byte, keyPathLength*2)
 		r.ReadFull(keyPathUtf16)
 		keyPath, _ := utf16dec.Bytes(keyPathUtf16)
 
-		algLength := r.byte()
+		algLength := int(r.byte())
 		algNameUtf16 := make([]byte, algLength*2)
 		r.ReadFull(algNameUtf16)
 		algName, _ := utf16dec.Bytes(algNameUtf16)
@@ -867,7 +873,7 @@ func readCekTableEntry(r *tdsBuffer) cekTableEntry {
 		keyId:      int(cekID),
 		keyVersion: int(cekVersion),
 		mdVersion:  cekMdVersion,
-		valueCount: int(cekValueCount),
+		valueCount: cekValueCount,
 		cekValues:  cekValues,
 	}
 }
