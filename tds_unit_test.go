@@ -855,7 +855,9 @@ func TestConnectNonStrictTLSHandshakeError(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected TLS handshake to fail")
 	}
-	if !strings.Contains(err.Error(), "TLS Handshake failed") {
+	if !strings.Contains(err.Error(), "TLS Handshake failed") ||
+		!strings.Contains(err.Error(), "tlssha1=1") ||
+		!strings.Contains(err.Error(), "GODEBUG") {
 		t.Fatalf("expected wrapTLSError output, got: %v", err)
 	}
 }
