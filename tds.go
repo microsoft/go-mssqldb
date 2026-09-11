@@ -1504,7 +1504,7 @@ func (s *tdsSession) processFeatureExtAck(ack featureExtAck) {
 				}
 			}
 		case featExtJSONSUPPORT:
-			if version, ok := v.(byte); ok && version >= jsonSupportVersion {
+			if version, ok := v.(byte); ok && version == jsonSupportVersion {
 				s.jsonSupported = true
 			}
 		}
