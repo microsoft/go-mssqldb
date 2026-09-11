@@ -240,8 +240,15 @@ func (v Vector) Value() (driver.Value, error) {
 	if v.Data == nil {
 		return nil, nil
 	}
+	if !v.ElementType.IsValid() {
+		return nil, fmt.Errorf("mssql: unsupported vector element type %d", v.ElementType)
+	}
 	if len(v.Data) == 0 {
 		return nil, errors.New("mssql: vector dimensions must be at least 1")
+	}
+	if len(v.Data) > v.ElementType.MaxDimensions() {
+		return nil, fmt.Errorf("mssql: vector dimensions %d exceeds maximum %d for %s",
+			len(v.Data), v.ElementType.MaxDimensions(), v.ElementType)
 	}
 	for _, val := range v.Data {
 		if math.IsNaN(float64(val)) || math.IsInf(float64(val), 0) {
@@ -525,6 +532,9 @@ func (v *Vector) decodeFromJSON(jsonStr string) error {
 			return errors.New("mssql: failed to parse vector JSON: unexpected trailing data")
 		}
 		return fmt.Errorf("mssql: failed to parse vector JSON: %w", err)
+	}
+	if len(data) == 0 {
+		return errors.New("mssql: vector dimensions must be at least 1")
 	}
 
 	v.ElementType = VectorElementFloat32

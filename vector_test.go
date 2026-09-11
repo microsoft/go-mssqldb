@@ -433,6 +433,45 @@ func TestVectorValueInfRejected(t *testing.T) {
 	}
 }
 
+func TestVectorValueRejectsInvalidDirectLiteral(t *testing.T) {
+	tests := []struct {
+		name   string
+		vector Vector
+		want   string
+	}{
+		{
+			name:   "unsupported element type",
+			vector: Vector{ElementType: VectorElementType(2), Data: []float32{1}},
+			want:   "unsupported vector element type 2",
+		},
+		{
+			name: "float32 dimensions",
+			vector: Vector{
+				ElementType: VectorElementFloat32,
+				Data:        make([]float32, vectorMaxDimensionsFloat32+1),
+			},
+			want: "vector dimensions 1999 exceeds maximum 1998 for FLOAT32",
+		},
+		{
+			name: "float16 dimensions",
+			vector: Vector{
+				ElementType: VectorElementFloat16,
+				Data:        make([]float32, vectorMaxDimensionsFloat16+1),
+			},
+			want: "vector dimensions 3997 exceeds maximum 3996 for FLOAT16",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := test.vector.Value()
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Value() error = %v; want error containing %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestVectorScan(t *testing.T) {
 	original := Vector{ElementType: VectorElementFloat32, Data: []float32{1.0, 2.0, 3.0}}
 	encoded, _ := original.encodeToBytes()
@@ -721,6 +760,50 @@ func TestBulkMakeParamVector(t *testing.T) {
 	assert.Equal(t, vector, decoded)
 }
 
+func TestBulkMakeParamVectorSlices(t *testing.T) {
+	bulk := &Bulk{cn: &Conn{sess: &tdsSession{}}}
+	column := columnStruct{ti: typeInfo{
+		TypeId: typeVectorN,
+		Size:   vectorHeaderSize + 3*VectorElementFloat32.BytesPerElement(),
+		Scale:  byte(VectorElementFloat32),
+	}}
+
+	for name, value := range map[string]interface{}{
+		"float32": []float32{1, 2, 3},
+		"float64": []float64{1, 2, 3},
+	} {
+		t.Run(name, func(t *testing.T) {
+			param, err := bulk.makeParam(value, column)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded Vector
+			if err := decoded.decodeFromBytes(param.buffer); err != nil {
+				t.Fatal(err)
+			}
+			assert.Equal(t, []float32{1, 2, 3}, decoded.Data)
+		})
+	}
+}
+
+func TestBulkMakeParamVectorJSONFallback(t *testing.T) {
+	bulk := &Bulk{cn: &Conn{sess: &tdsSession{}}}
+	column := columnStruct{ti: typeInfo{TypeId: typeNVarChar, Size: 4000}}
+	vector := Vector{ElementType: VectorElementFloat16, Data: []float32{1, 2, 3}}
+
+	param, err := bulk.makeParam(vector, column)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ucs22str(param.buffer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "[1, 2, 3]" {
+		t.Fatalf("bulk JSON vector = %q; want %q", got, "[1, 2, 3]")
+	}
+}
+
 func TestBulkMakeParamVectorValidation(t *testing.T) {
 	bulk := &Bulk{cn: &Conn{sess: &tdsSession{}}}
 	column := columnStruct{ti: typeInfo{
@@ -784,6 +867,15 @@ func TestVectorDecodeInvalidJSON(t *testing.T) {
 	err := v.decodeFromJSON("not json")
 	if err == nil {
 		t.Error("Expected error for malformed JSON")
+	}
+}
+
+func TestVectorDecodeJSONRejectsWhitespaceOnlyEmptyArray(t *testing.T) {
+	for _, input := range []string{"[ ]", "[\n]"} {
+		var v Vector
+		if err := v.decodeFromJSON(input); err == nil {
+			t.Fatalf("decodeFromJSON(%q) should reject an empty vector", input)
+		}
 	}
 }
 

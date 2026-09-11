@@ -540,6 +540,29 @@ func TestVectorBulkCopy(t *testing.T) {
 	}
 }
 
+func TestVectorBulkCopyJSONFallback(t *testing.T) {
+	ctx := setupVectorTestWithSupport(t, 3, false, msdsn.VectorTypeSupportOff)
+
+	stmt, err := ctx.tx.Prepare(CopyIn(ctx.tableName, BulkOptions{}, "embedding"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stmt.Close()
+
+	if _, err := stmt.Exec([]float32{1, 2, 3}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stmt.Exec(); err != nil {
+		t.Fatal(err)
+	}
+
+	got := ctx.selectVector(1)
+	assertVectorEquals(t, got, Vector{
+		ElementType: VectorElementFloat32,
+		Data:        []float32{1, 2, 3},
+	})
+}
+
 // TestVectorSliceFloat32Insert tests inserting []float32 directly without wrapping in Vector.
 // This provides better framework compatibility (e.g., GORM) per shueybubbles' feedback.
 func TestVectorSliceFloat32Insert(t *testing.T) {

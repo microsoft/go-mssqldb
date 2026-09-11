@@ -373,29 +373,41 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 		return b.makeParam(valuer.Decimal, col)
 	case Money[shopspring.NullDecimal]:
 		return b.makeParam(valuer.Decimal, col)
+	case []float32:
+		vector, e := NewVector(valuer)
+		if e != nil {
+			return res, e
+		}
+		return b.makeBulkVectorParam(vector, col)
+	case []float64:
+		vector, e := NewVectorFromFloat64(valuer)
+		if e != nil {
+			return res, e
+		}
+		return b.makeBulkVectorParam(vector, col)
 	case Vector:
-		return makeBulkVectorParam(valuer, col)
+		return b.makeBulkVectorParam(valuer, col)
 	case *Vector:
 		if valuer == nil {
 			res.ti = col.ti
 			res.ti.Size = 0
 			return
 		}
-		return makeBulkVectorParam(*valuer, col)
+		return b.makeBulkVectorParam(*valuer, col)
 	case NullVector:
 		if !valuer.Valid {
 			res.ti = col.ti
 			res.ti.Size = 0
 			return
 		}
-		return makeBulkVectorParam(valuer.Vector, col)
+		return b.makeBulkVectorParam(valuer.Vector, col)
 	case *NullVector:
 		if valuer == nil || !valuer.Valid {
 			res.ti = col.ti
 			res.ti.Size = 0
 			return
 		}
-		return makeBulkVectorParam(valuer.Vector, col)
+		return b.makeBulkVectorParam(valuer.Vector, col)
 	case driver.Valuer:
 		var e error
 		val, e = driver.DefaultParameterConverter.ConvertValue(valuer)
@@ -730,10 +742,14 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 
 }
 
-func makeBulkVectorParam(vector Vector, col columnStruct) (res param, err error) {
+func (b *Bulk) makeBulkVectorParam(vector Vector, col columnStruct) (res param, err error) {
 	res.ti = col.ti
 	if col.ti.TypeId != typeVectorN {
-		return res, fmt.Errorf("mssql: cannot use Vector for column type %x", col.ti.TypeId)
+		value, valueErr := vector.Value()
+		if valueErr != nil {
+			return res, valueErr
+		}
+		return b.makeParam(value, col)
 	}
 	if vector.Data == nil {
 		res.ti.Size = 0

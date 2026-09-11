@@ -47,6 +47,7 @@ func TestInvalidConnectionString(t *testing.T) {
 		"sqlserver://host?key=value1&key=value2", // duplicate keys
 		"sqlserver://host?TrustServerCertificate=true&trustservercertificate=false", // case-insensitive duplicate keys
 	}
+
 	for _, connStr := range connStrings {
 		_, err := Parse(connStr)
 		if !assert.Error(t, err, "Connection expected to fail for connection string %s but it didn't", connStr) {
@@ -55,6 +56,11 @@ func TestInvalidConnectionString(t *testing.T) {
 			t.Logf("Connection failed for %s as expected with error %v", connStr, err)
 		}
 	}
+}
+
+func TestInvalidVectorTypeSupportListsAcceptedValues(t *testing.T) {
+	_, err := Parse("vectortypesupport=v2")
+	require.EqualError(t, err, "invalid vectortypesupport 'v2': must be 'off', '0', 'v1', or '1'")
 }
 
 func TestCredentialNotLeakedInError(t *testing.T) {

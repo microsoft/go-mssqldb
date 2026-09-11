@@ -284,7 +284,7 @@ For tables with many vectors, create a vector index to speed up similarity searc
 
 ```sql
 CREATE VECTOR INDEX idx_embedding ON documents(embedding)
-WITH (DISTANCE_METRIC = 'COSINE', QUANTIZER = 'FLAT')
+WITH (METRIC = 'COSINE', TYPE = 'DISKANN')
 ```
 
 ### 3. Use Transactions for Batch Operations
@@ -319,11 +319,13 @@ if err := tx.Commit(); err != nil {
 
 1. **Maximum dimensions**: Vectors are limited to 1998 dimensions for float32 and 3996 dimensions for float16.
 
-2. **Always Encrypted**: The Vector data type is not supported with Always Encrypted. This is a SQL Server limitation. See [Always Encrypted limitations](https://learn.microsoft.com/sql/relational-databases/security/encryption/always-encrypted-database-engine#limitations).
+1. **Always Encrypted**: The Vector data type is not supported with Always Encrypted. This is a SQL Server limitation. See [Always Encrypted limitations](https://learn.microsoft.com/sql/relational-databases/security/encryption/always-encrypted-database-engine#limitations).
 
-3. **NULL vectors and dimensions**: When inserting a NULL vector using `mssql.NullVector{Valid: false}`, the driver sends the value as an `NVARCHAR(1)` NULL so that SQL Server does not enforce any vector dimension matching for that parameter. You typically do not need to declare a specific vector dimension for NULL parameters; dimension matching still applies to non-NULL vectors and to table definitions that use the `VECTOR` type with a fixed dimension.
+1. **NULL vectors and dimensions**: When inserting a NULL vector using `mssql.NullVector{Valid: false}`, the driver sends the value as an `NVARCHAR(1)` NULL so that SQL Server does not enforce any vector dimension matching for that parameter. You typically do not need to declare a specific vector dimension for NULL parameters; dimension matching still applies to non-NULL vectors and to table definitions that use the `VECTOR` type with a fixed dimension.
 
-4. **Element type with JSON fallback**: JSON doesn't contain vector element-type metadata. With `vectortypesupport=off`, `Vector.Scan` decodes arrays with 1 through 1998 dimensions as float32 and larger arrays as float16. A float16 vector with 1998 or fewer dimensions therefore scans as float32. Protocol version 1 provides native float32 results only; float16 results require protocol version 2, which this release does not negotiate.
+1. **Element type with JSON fallback**: JSON doesn't contain vector element-type metadata. With `vectortypesupport=off`, `Vector.Scan` decodes arrays with 1 through 1998 dimensions as float32 and larger arrays as float16. A float16 vector with 1998 or fewer dimensions therefore scans as float32. Protocol version 1 provides native float32 results only; float16 results require protocol version 2, which this release does not negotiate.
+
+1. **Table-valued parameters**: `Vector` and `NullVector` fields aren't supported in table-valued parameters.
 
 ## Precision Loss Warnings
 
@@ -347,8 +349,7 @@ For performance, only the first precision loss per vector is reported.
 
 ## Requirements
 
-- SQL Server 2025 or later
-- go-mssqldb driver version 1.9.7 or later
+- SQL Server 2025 and later versions
 
 ## Connection String Configuration
 
