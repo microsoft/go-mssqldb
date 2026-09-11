@@ -1042,6 +1042,11 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 			}
 			ch <- derr
 		}
+		if outs.msgq != nil {
+			// Wake the message loop so NextResultSet can observe completion
+			// or the terminal error before the token channel is closed.
+			_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNextResultSet{})
+		}
 		close(ch)
 	}()
 	colsReceived := false
@@ -1111,12 +1116,6 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 			}
 			colsReceived = false
 			if done.Status&doneMore == 0 {
-				// Rows marks the request as done when seeing this done token. We queue another result set message
-				// so the app calls NextResultSet again which will return false.
-				if outs.msgq != nil {
-					sess.LogF(ctx, msdsn.LogDebug, "queueing MsgNextResultSet after tokenDoneInProc with doneMore=0")
-					_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNextResultSet{})
-				}
 				return
 			}
 		case tokenDone, tokenDoneProc:
@@ -1128,10 +1127,6 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 			sess.LogF(ctx, msdsn.LogDebug, "got DONE or DONEPROC status=%d", done.Status)
 			if done.Status&doneSrvError != 0 {
 				ch <- ServerError{done.getError()}
-				if outs.msgq != nil {
-					sess.LogF(ctx, msdsn.LogDebug, "queueing MsgNextResultSet after tokenDone with doneSrvError")
-					_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNextResultSet{})
-				}
 				return
 			}
 			if done.Status&doneCount != 0 {
@@ -1151,12 +1146,6 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNextResultSet{})
 			}
 			if done.Status&doneMore == 0 {
-				// Rows marks the request as done when seeing this done token. We queue another result set message
-				// so the app calls NextResultSet again which will return false.
-				if outs.msgq != nil {
-					sess.LogF(ctx, msdsn.LogDebug, "queueing MsgNextResultSet after tokenDone or tokenDoneProc with doneMore=0")
-					_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNextResultSet{})
-				}
 				return
 			}
 		case tokenColMetadata:

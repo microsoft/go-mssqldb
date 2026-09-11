@@ -9,15 +9,19 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"database/sql"
 	"database/sql/driver"
 	"encoding/binary"
 	"errors"
+	"io"
 	"math/big"
 	"net"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
+	"github.com/golang-sql/sqlexp"
 	"github.com/microsoft/go-mssqldb/msdsn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,7 +58,8 @@ func wrapReplyPacketStatus(tokenStream []byte, status byte) []byte {
 	return packet
 }
 
-func TestProcessSingleResponse_OutputConversionErrorStopsReader(t *testing.T) {
+func outputParameterToken(t *testing.T, value []byte) []byte {
+	t.Helper()
 	var stream bytes.Buffer
 	stream.WriteByte(byte(tokenReturnValue))
 	require.NoError(t, binary.Write(&stream, binary.LittleEndian, uint16(0)))
@@ -62,11 +67,14 @@ func TestProcessSingleResponse_OutputConversionErrorStopsReader(t *testing.T) {
 	stream.WriteByte(0)
 	require.NoError(t, binary.Write(&stream, binary.LittleEndian, uint32(0)))
 	require.NoError(t, binary.Write(&stream, binary.LittleEndian, uint16(0)))
-	stream.WriteByte(typeInt4)
-	require.NoError(t, binary.Write(&stream, binary.LittleEndian, int32(42)))
-	stream.Write(appendDoneToken(nil, tokenDone, doneFinal))
+	stream.Write(value)
+	return stream.Bytes()
+}
 
-	transport := &countingTransport{reader: bytes.NewReader(wrapReplyPacket(stream.Bytes()))}
+func TestProcessSingleResponse_OutputConversionErrorStopsReader(t *testing.T) {
+	stream := outputParameterToken(t, []byte{typeInt4, 42, 0, 0, 0})
+	stream = appendDoneToken(stream, tokenDone, doneFinal)
+	transport := &countingTransport{reader: bytes.NewReader(wrapReplyPacket(stream))}
 	sess := &tdsSession{
 		buf:    newTdsBuffer(defaultPacketSize, transport),
 		logger: optionalLogger{},
@@ -92,6 +100,169 @@ func TestProcessSingleResponse_OutputConversionErrorStopsReader(t *testing.T) {
 	}
 	require.Len(t, tokens, 1, "the reader must stop after sending the conversion error")
 	assert.Error(t, tokens[0].(error))
+}
+
+func TestProcessQueryResponse_OutputParameterMessageLoop(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		value    []byte
+		nullable bool
+		wantErr  bool
+	}{
+		{name: "NULL into int64", value: []byte{typeIntN, 8, 0}, wantErr: true},
+		{name: "value into int64", value: []byte{typeIntN, 8, 8, 42, 0, 0, 0, 0, 0, 0, 0}},
+		{name: "NULL into nullable int64", value: []byte{typeIntN, 8, 0}, nullable: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				stream := outputParameterToken(t, tc.value)
+				stream = appendDoneToken(stream, tokenDoneProc, doneFinal)
+				transport := &countingTransport{reader: bytes.NewReader(wrapReplyPacket(stream))}
+				sess := &tdsSession{buf: newTdsBuffer(defaultPacketSize, transport)}
+				retmsg := &sqlexp.ReturnMessage{}
+				sqlexp.ReturnMessageInit(retmsg)
+				value := int64(-1)
+				nullable := sql.NullInt64{Int64: -1, Valid: true}
+				var dest interface{} = &value
+				if tc.nullable {
+					dest = &nullable
+				}
+				conn := &Conn{
+					sess:           sess,
+					connectionGood: true,
+					outs: outputs{
+						params: map[string]interface{}{"p": dest},
+						msgq:   retmsg,
+					},
+				}
+				rows, err := (&Stmt{c: conn}).processQueryResponse(context.Background())
+				require.NoError(t, err)
+				require.IsType(t, &Rowsq{}, rows)
+				defer func() {
+					closeErr := rows.Close()
+					if !t.Failed() {
+						assert.NoError(t, closeErr)
+					}
+					synctest.Wait()
+					sess.buf.bufClose()
+				}()
+				synctest.Wait()
+				select {
+				case <-sess.readDone:
+				default:
+					t.Fatal("output parameter response reader did not finish")
+				}
+
+				readMessage := func() sqlexp.RawMessage {
+					result := make(chan sqlexp.RawMessage, 1)
+					go func() { result <- retmsg.Message(context.Background()) }()
+					synctest.Wait()
+					if len(result) == 0 {
+						// Release the waiter only after detecting the missing notification.
+						require.NoError(t, sqlexp.ReturnMessageEnqueue(context.Background(), retmsg, msgSentinel{}))
+						synctest.Wait()
+						t.Fatal("response reader exited without notifying the message loop")
+					}
+					return <-result
+				}
+
+				require.IsType(t, sqlexp.MsgNextResultSet{}, readMessage())
+				err = rows.(*Rowsq).NextResultSet()
+				if tc.wantErr {
+					var streamErr StreamError
+					require.ErrorAs(t, err, &streamErr)
+					assert.ErrorContains(t, err, "converting driver.Value type <nil>")
+					assert.False(t, conn.IsValid())
+					_, err = conn.Prepare("SELECT 1")
+					assert.ErrorIs(t, err, driver.ErrBadConn)
+					assert.Equal(t, int64(-1), value)
+				} else {
+					require.NoError(t, err)
+					require.IsType(t, sqlexp.MsgNextResultSet{}, readMessage())
+					assert.ErrorIs(t, rows.(*Rowsq).NextResultSet(), io.EOF)
+					assert.True(t, conn.IsValid())
+					if tc.nullable {
+						assert.Equal(t, sql.NullInt64{}, nullable)
+					} else {
+						assert.Equal(t, int64(42), value)
+					}
+				}
+				require.NoError(t, sqlexp.ReturnMessageEnqueue(context.Background(), retmsg, msgSentinel{}))
+				assert.IsType(t, msgSentinel{}, readMessage(), "no extra completion or error messages")
+			})
+		})
+	}
+}
+
+func TestProcessSingleResponse_MessageCompletion(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		packet   []byte
+		wantErr  bool
+		messages []sqlexp.RawMessage
+	}{
+		{
+			name:     "DONE",
+			packet:   wrapReplyPacket(appendDoneToken(nil, tokenDone, doneFinal)),
+			messages: []sqlexp.RawMessage{sqlexp.MsgNextResultSet{}, sqlexp.MsgNextResultSet{}},
+		},
+		{
+			name:     "DONEPROC",
+			packet:   wrapReplyPacket(appendDoneToken(nil, tokenDoneProc, doneFinal)),
+			messages: []sqlexp.RawMessage{sqlexp.MsgNextResultSet{}, sqlexp.MsgNextResultSet{}},
+		},
+		{
+			name:     "DONEINPROC",
+			packet:   wrapReplyPacket(appendDoneToken(nil, tokenDoneInProc, doneFinal)),
+			messages: []sqlexp.RawMessage{sqlexp.MsgNextResultSet{}, sqlexp.MsgNextResultSet{}},
+		},
+		{
+			name:     "server error",
+			packet:   wrapReplyPacket(appendDoneToken(nil, tokenDone, doneSrvError)),
+			wantErr:  true,
+			messages: []sqlexp.RawMessage{sqlexp.MsgNextResultSet{}},
+		},
+		{
+			name:     "read error",
+			wantErr:  true,
+			messages: []sqlexp.RawMessage{sqlexp.MsgNextResultSet{}},
+		},
+		{
+			name:     "parser panic",
+			packet:   wrapReplyPacket([]byte{0xff}),
+			wantErr:  true,
+			messages: []sqlexp.RawMessage{sqlexp.MsgError{}, sqlexp.MsgNextResultSet{}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			transport := &countingTransport{reader: bytes.NewReader(tc.packet)}
+			sess := &tdsSession{buf: newTdsBuffer(defaultPacketSize, transport)}
+			defer sess.buf.bufClose()
+			retmsg := &sqlexp.ReturnMessage{}
+			sqlexp.ReturnMessageInit(retmsg)
+			tokens := make(chan tokenStruct, 1)
+			processSingleResponse(context.Background(), sess, tokens, outputs{msgq: retmsg})
+			tok := <-tokens
+			_, isError := tok.(error)
+			assert.Equal(t, tc.wantErr, isError)
+			_, more := <-tokens
+			require.False(t, more, "the token channel must close after the terminal token")
+
+			require.NoError(t, sqlexp.ReturnMessageEnqueue(context.Background(), retmsg, msgSentinel{}))
+			var messages []sqlexp.RawMessage
+			for {
+				msg := retmsg.Message(context.Background())
+				if _, ok := msg.(msgSentinel); ok {
+					break
+				}
+				messages = append(messages, msg)
+			}
+			require.Len(t, messages, len(tc.messages))
+			for i, want := range tc.messages {
+				assert.IsType(t, want, messages[i])
+			}
+		})
+	}
 }
 
 // TestProcessQueryResponse_ErrorTokenDoesNotLeakReader reproduces issue #407.
