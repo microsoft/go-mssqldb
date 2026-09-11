@@ -547,3 +547,31 @@ func TestReadVarLen_ValidFixedWidthSizesAccepted(t *testing.T) {
 		})
 	}
 }
+
+func TestReadByteLenType_RowSizeExceedsBufferRejected(t *testing.T) {
+	row := make([]byte, 18)
+	row[0] = 17
+
+	buf := newTdsBuffer(512, nil)
+	copy(buf.rbuf[:len(row)], row)
+	buf.rpos = 0
+	buf.rsize = len(row)
+	buf.final = true
+
+	ti := typeInfo{TypeId: typeGuid, Size: 16, Buffer: make([]byte, 16)}
+
+	defer func() {
+		v := recover()
+		if v == nil {
+			t.Fatal("expected oversized row to panic")
+		}
+		se, ok := v.(StreamError)
+		if !ok {
+			t.Fatalf("recovered %T, want StreamError", v)
+		}
+		assert.Contains(t, se.Error(), "row size 17 exceeds buffer size 16")
+		assert.Equal(t, 1, buf.rpos)
+	}()
+
+	readByteLenTypeWithEncoding(&ti, buf, nil, msdsn.EncodeParameters{})
+}
