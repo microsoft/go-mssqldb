@@ -271,7 +271,9 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodeParam
 	case typeVectorN:
 		// Vector type (SQL Server 2025+)
 		// Format: maxLength (USHORT) + scaleByte (BYTE for element type)
-		if ti.Size > 8000 || ti.Size == 0 || out {
+		// VECTOR has no MAX form, so output parameters keep the fixed-length
+		// framing rather than being forced onto the PLP path like varbinary(max).
+		if ti.Size > vectorMaxWireSize || ti.Size == 0 {
 			if err = binary.Write(w, binary.LittleEndian, uint16(0xffff)); err != nil {
 				return
 			}

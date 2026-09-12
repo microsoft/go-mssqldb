@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1383,6 +1384,42 @@ func TestVectorTypeFunctions(t *testing.T) {
 		}
 		if prec != 0 || scale != 0 {
 			t.Errorf("Expected prec=0, scale=0, got prec=%d, scale=%d", prec, scale)
+		}
+	})
+}
+
+func TestWriteVarLenVectorOutputParameterUsesFixedLength(t *testing.T) {
+	t.Run("output parameter", func(t *testing.T) {
+		ti := typeInfo{TypeId: typeVectorN, Size: 20, Scale: byte(VectorElementFloat32)}
+		buf := new(bytes.Buffer)
+
+		if err := writeVarLen(buf, &ti, true, msdsn.EncodeParameters{}); err != nil {
+			t.Fatalf("writeVarLen: %v", err)
+		}
+
+		want := []byte{20, 0, byte(VectorElementFloat32)}
+		if !bytes.Equal(buf.Bytes(), want) {
+			t.Fatalf("metadata %x, want %x", buf.Bytes(), want)
+		}
+		if reflect.ValueOf(ti.Writer).Pointer() != reflect.ValueOf(writeVectorType).Pointer() {
+			t.Fatal("output parameter must use writeVectorType, not the PLP writer")
+		}
+	})
+
+	t.Run("unknown length falls back to PLP", func(t *testing.T) {
+		ti := typeInfo{TypeId: typeVectorN, Size: 0, Scale: byte(VectorElementFloat16)}
+		buf := new(bytes.Buffer)
+
+		if err := writeVarLen(buf, &ti, false, msdsn.EncodeParameters{}); err != nil {
+			t.Fatalf("writeVarLen: %v", err)
+		}
+
+		want := []byte{0xff, 0xff, byte(VectorElementFloat16)}
+		if !bytes.Equal(buf.Bytes(), want) {
+			t.Fatalf("metadata %x, want %x", buf.Bytes(), want)
+		}
+		if reflect.ValueOf(ti.Writer).Pointer() != reflect.ValueOf(writePLPType).Pointer() {
+			t.Fatal("unknown length must use writePLPType")
 		}
 	})
 }
