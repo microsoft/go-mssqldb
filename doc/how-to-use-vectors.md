@@ -259,7 +259,7 @@ CREATE TABLE embeddings (
 );
 ```
 
-> **Note:** The element type is determined by the SQL Server column definition (e.g., `VECTOR(3)` for float32, `VECTOR(3, float16)` for float16), not by the Go-side `Vector` struct. With `vectortypesupport=v1`, float32 parameters use the native binary vector format, while float16 parameters use JSON. Native float32 and float16 results preserve the element type from the binary header.
+> **Note:** The element type is determined by the SQL Server column definition (e.g., `VECTOR(3)` for float32, `VECTOR(3, float16)` for float16), not by the Go-side `Vector` struct. With `vectortypesupport=v1`, float32 parameters use the native binary vector format, while float16 parameters use JSON. When a result arrives in the native binary vector format, the driver reads the element type from the binary header, so float32 and float16 are both preserved. When a result arrives as JSON, the element type is inferred instead, as described below.
 >
 > **JSON fallback limitation:** JSON results don't contain element-type metadata. JSON arrays with 1 through 1998 dimensions scan as float32, while larger arrays scan as float16.
 
