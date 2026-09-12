@@ -38,6 +38,19 @@ const (
 	EncryptionStrict   = 4
 )
 
+// VectorTypeSupport controls how vector data types are handled.
+// This matches the JDBC/ODBC vectorTypeSupport connection property.
+type VectorTypeSupport int
+
+const (
+	// VectorTypeSupportOff disables native vector type support.
+	// Vector data will be returned as JSON strings for backward compatibility.
+	VectorTypeSupportOff VectorTypeSupport = 0
+	// VectorTypeSupportV1 enables native vector type support (SQL Server 2025+).
+	// This uses the optimized binary TDS protocol for vector data.
+	VectorTypeSupportV1 VectorTypeSupport = 1
+)
+
 const (
 	LogErrors      Log = 1
 	LogMessages    Log = 2
@@ -89,6 +102,7 @@ const (
 	NoTraceID              = "notraceid"
 	GuidConversion         = "guid conversion"
 	Timezone               = "timezone"
+	VectorTypeSupportParam = "vectortypesupport"
 	EpaEnabled             = "epa enabled"
 )
 
@@ -169,6 +183,16 @@ type Config struct {
 	Encoding EncodeParameters
 	// EPA mode determines how the Channel Bindings are calculated.
 	EpaEnabled bool
+}
+
+// VectorTypeSupport returns the configured native vector protocol version.
+func (p Config) VectorTypeSupport() VectorTypeSupport {
+	switch strings.ToLower(p.Parameters[VectorTypeSupportParam]) {
+	case "v1", "1":
+		return VectorTypeSupportV1
+	default:
+		return VectorTypeSupportOff
+	}
 }
 
 func readDERFile(filename string) ([]byte, error) {
@@ -652,6 +676,17 @@ func Parse(dsn string) (Config, error) {
 		p.Encoding.GuidConversion = false
 	}
 
+	// Parse vectorTypeSupport: off, v1 (default: off for backward compatibility)
+	// Matches JDBC/ODBC vectorTypeSupport connection property
+	if vectorSupport, ok := params[VectorTypeSupportParam]; ok {
+		switch strings.ToLower(vectorSupport) {
+		case "off", "0":
+		case "v1", "1":
+		default:
+			return p, fmt.Errorf("invalid vectortypesupport '%s': must be 'off', '0', 'v1', or '1'", vectorSupport)
+		}
+	}
+
 	p.EpaEnabled = false
 	epaString, ok := params[EpaEnabled]
 	if !ok {
@@ -752,6 +787,13 @@ func (p Config) URL() *url.URL {
 	}
 	if p.FailOverPartnerSPN != "" {
 		q.Add(FailoverPartnerSpn, p.FailOverPartnerSPN)
+	}
+
+	if p.VectorTypeSupport() != VectorTypeSupportOff {
+		switch p.VectorTypeSupport() {
+		case VectorTypeSupportV1:
+			q.Add(VectorTypeSupportParam, "v1")
+		}
 	}
 
 	if len(q) > 0 {
