@@ -225,7 +225,9 @@ jobs:
           # marker) AND >15% magnitude.
           # Exclude TdsBuffer_Write_Large: ~120ns operation with multi-flush path
           # shows 30-46% swings between sequential CI runs due to cache sensitivity.
-          REGRESSED=$(grep -v '~' bench_diff.txt | grep -v 'TdsBuffer_Write_Large' | grep -E '^\S+\s+.+\s+\+[0-9]+\.[0-9]+%' | awk -F'+' '{split($2,a,"%"); if (a[1]+0 >= 15) print}')
+          # The final grep exits 1 when there are no regressions; under `set -eo
+          # pipefail` that would fail the step on a clean run, so swallow it.
+          REGRESSED=$(grep -v '~' bench_diff.txt | grep -v 'TdsBuffer_Write_Large' | grep -E '^\S+\s+.+\s+\+[0-9]+\.[0-9]+%' | awk -F'+' '{split($2,a,"%"); if (a[1]+0 >= 15) print}' || true)
           if [ -n "$REGRESSED" ]; then
             echo "$REGRESSED"
             echo "::error::Statistically significant regression detected (>15%, p<0.01)"
