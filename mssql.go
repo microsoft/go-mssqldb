@@ -748,7 +748,15 @@ func (s *Stmt) makeRPCParams(args []namedValue, isProc bool) ([]param, []string,
 			params[i+offset].ti.Size = 0
 		}
 
-		decls[i] = fmt.Sprintf("%s %s%s", name, makeDecl(tiDecl), output)
+		decl, err := makeDecl(tiDecl)
+		if err != nil {
+			parameter := name
+			if parameter == "" {
+				parameter = fmt.Sprintf("ordinal %d", val.Ordinal)
+			}
+			return nil, nil, fmt.Errorf("cannot create declaration for parameter %s: %w", parameter, err)
+		}
+		decls[i] = fmt.Sprintf("%s %s%s", name, decl, output)
 
 	}
 	return params, decls, nil

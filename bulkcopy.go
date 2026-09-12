@@ -111,7 +111,11 @@ func (b *Bulk) sendBulkCommand(ctx context.Context) (err error) {
 		if i != 0 {
 			col_defs.WriteString(", ")
 		}
-		col_defs.WriteString(q.ID(col.ColName) + " " + makeDecl(col.ti))
+		decl, err := makeDecl(col.ti)
+		if err != nil {
+			return fmt.Errorf("cannot create declaration for column %s: %w", col.ColName, err)
+		}
+		col_defs.WriteString(q.ID(col.ColName) + " " + decl)
 	}
 
 	//options
