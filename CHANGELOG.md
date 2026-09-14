@@ -1,4 +1,11 @@
 # Changelog
+## [1.11.1](https://github.com/microsoft/go-mssqldb/compare/v1.11.0...v1.11.1) (2026-09-11)
+
+
+### Bug Fixes
+
+* preserve strict encryption in DSN URLs ([#452](https://github.com/microsoft/go-mssqldb/issues/452)) ([ae21d6a](https://github.com/microsoft/go-mssqldb/commit/ae21d6a9a7b0d88e22a0ddb957ad792205c4cfdc))
+
 ## [1.11.0](https://github.com/microsoft/go-mssqldb/compare/v1.10.0...v1.11.0) (2026-08-23)
 
 
