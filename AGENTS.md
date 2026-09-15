@@ -131,9 +131,17 @@ _, err := db.ExecContext(ctx, "sp_MyProc",
 import mssql "github.com/microsoft/go-mssqldb"
 
 var rs mssql.ReturnStatus
-_, err := db.ExecContext(ctx, "sp_MyProc", &rs)
+if _, err := db.ExecContext(ctx, "sp_MyProc", &rs); err != nil {
+    fmt.Printf("Exec failed: %v\n", err)
+    return
+}
 fmt.Printf("Return status: %d\n", rs)
 ```
+
+Wait for execution to finish or consume all query result sets to obtain the
+final return status. If response processing stops at an early error, the last
+status received before that error is retained (zero if none was received).
+Background cleanup does not update the return-status variable.
 
 ## Bulk Copy Operations
 

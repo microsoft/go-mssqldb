@@ -2,6 +2,7 @@ package mssql
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -88,7 +89,7 @@ func TestQueryErrorCompletesRemainingBatch(t *testing.T) {
 SET NOCOUNT ON;
 INSERT INTO #issue407_batch VALUES (1);
 RAISERROR('issue407', 16, 1);
-WAITFOR DELAY '00:00:00.200';
+WAITFOR DELAY '00:00:10';
 INSERT INTO #issue407_batch VALUES (2);`
 	rows, err := tx.Query(batch)
 	if rows != nil {
@@ -104,6 +105,56 @@ INSERT INTO #issue407_batch VALUES (2);`
 	}
 	if count != 2 {
 		t.Fatalf("statements after the error did not complete: got %d rows, want 2", count)
+	}
+}
+
+func TestOutputConversionErrorPreservesTransaction(t *testing.T) {
+	checkConnStr(t)
+	db, _ := open(t)
+	defer db.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "CREATE TABLE #issue407_output (value int NOT NULL)"); err != nil {
+		t.Fatal(err)
+	}
+	var first, later int64
+	_, err = tx.ExecContext(ctx, "SET @first = NULL; SET @later = 42;",
+		sql.Named("first", sql.Out{Dest: &first}),
+		sql.Named("later", sql.Out{Dest: &later}),
+	)
+	if err == nil {
+		t.Fatal("expected NULL-to-int64 output conversion error")
+	}
+	var streamErr StreamError
+	if errors.As(err, &streamErr) {
+		t.Fatalf("a local output conversion must not be reported as an invalid TDS stream: %v", err)
+	}
+	// The next operation waits for the previous response, including its outputs.
+	if _, err := tx.ExecContext(ctx, "INSERT INTO #issue407_output VALUES (42)"); err != nil {
+		t.Fatal(err)
+	}
+	if later != 42 {
+		t.Fatalf("later output parameter was not processed: got %d, want 42", later)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM #issue407_output").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("transaction was not committed: got %d rows, want 1", count)
 	}
 }
 

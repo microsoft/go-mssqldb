@@ -77,5 +77,5 @@ before_test:
   - pip install codecov
 
 test_script:
-  - go test -coverprofile=coverage.txt -covermode=atomic %TAGS%
+  - go test -coverprofile=coverage.txt -covermode=atomic %TAGS% . .\internal\gopkg.in\natefinch\npipe.v2
   - codecov -f coverage.txt

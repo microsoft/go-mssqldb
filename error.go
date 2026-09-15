@@ -80,9 +80,7 @@ func (e StreamError) Error() string {
 	return "Invalid TDS stream: " + e.InnerError.Error()
 }
 
-// Unwrap exposes the wrapped error so errors.Is/errors.As can inspect the
-// underlying cause (for example a context.Canceled forwarded as a token-channel
-// error) even though StreamError signals a fatal, non-reusable TDS stream.
+// Unwrap exposes the underlying protocol error to errors.Is and errors.As.
 func (e StreamError) Unwrap() error {
 	return e.InnerError
 }

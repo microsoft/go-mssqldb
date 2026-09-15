@@ -428,6 +428,34 @@ fmt.Printf("bitparam is %d", bitout)
 
 ```
 
+An early query error does not necessarily mean that SQL Server has finished the
+batch. The driver returns the error and consumes the remaining response in the
+background, using the original operation context. The next request on that
+connection, including commit, rollback, or pool reset, waits for this cleanup.
+Cleanup does not introduce another query deadline or cancel SQL merely because
+a statement failed.
+
+An output-assignment error (for example, SQL `NULL` returned into an `int64`
+instead of `sql.NullInt64`) does not itself invalidate the connection. Later
+output parameters are still processed while the response is consumed; do not
+read those variables concurrently with that processing. A transport or protocol
+failure that prevents safe response completion makes the connection unusable.
+
+`ReturnStatus` is different: after an early error stops response consumption, it
+retains the last status received before the error, or zero if none was received.
+Background cleanup consumes later return-status tokens without changing the
+caller's status variable.
+
+Applications using `ReturnMessage` must still consume the message loop. When
+output assignment fails or a parser error is recovered, the driver publishes the
+error to row readers before its notification, so a full message queue cannot
+hold back error delivery to a reader that is already waiting for a token.
+
+Check `Rows.Err()` after row iteration and after `NextResultSet` returns false.
+Exit the message loop on an error rather than waiting for another message:
+cleanup may cancel further message delivery once the error has been returned
+through the rows API.
+
 ## Caveat for local temporary tables
 
 Due to protocol limitations, temporary tables will only be allocated on the connection
@@ -470,23 +498,46 @@ _, err := conn.ExecContext(ctx, "insert into #mytemp (x) values (@p1)", 1)
 ## Return Status
 
 To get the procedure return status, pass into the parameters a
-`*mssql.ReturnStatus`. For example:
+`*mssql.ReturnStatus`. Wait for `ExecContext` to finish or consume all query result
+sets to obtain the final status. If response processing stops at an early error,
+only the last status received before that error is retained (zero if none was
+received); background cleanup does not update the status variable.
+
+With `ExecContext`:
 
 ```go
 
 var rs mssql.ReturnStatus
-_, err := db.ExecContext(ctx, "theproc", &rs)
+if _, err := db.ExecContext(ctx, "theproc", &rs); err != nil {
+	log.Printf("exec failed: %v", err)
+	return
+}
 log.Printf("status=%d", rs)
 
 ```
 
-or
+With `QueryContext`, consume all rows and result sets and check `Rows.Err`
+before reading the status:
 
 ```go
 var rs mssql.ReturnStatus
-_, err := db.QueryContext(ctx, "theproc", &rs)
-for rows.Next() {
-	err = rows.Scan(&val)
+rows, err := db.QueryContext(ctx, "theproc", &rs)
+if err != nil {
+	log.Printf("query failed: %v", err)
+	return
+}
+defer rows.Close()
+for {
+	for rows.Next() {
+		// Scan row values here if needed.
+	}
+	if !rows.NextResultSet() {
+		break
+	}
+}
+if err := rows.Err(); err != nil {
+	log.Printf("reading results failed: %v", err)
+	return
 }
 log.Printf("status=%d", rs)
 

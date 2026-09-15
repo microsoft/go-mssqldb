@@ -69,8 +69,8 @@ const (
 var _ net.Conn = (*PipeConn)(nil)
 var _ net.Listener = (*PipeListener)(nil)
 
-// ErrClosed is the error returned by PipeListener.Accept when Close is called
-// on the PipeListener.
+// ErrClosed is returned by PipeListener.Accept after the listener is closed,
+// and by I/O on a closed PipeConn.
 var ErrClosed = PipeError{"Pipe has been closed.", false}
 
 // PipeError is an error related to a call to a pipe
@@ -403,12 +403,27 @@ func (l *PipeListener) Addr() net.Addr { return l.addr }
 
 // PipeConn is the implementation of the net.Conn interface for named pipe connections.
 type PipeConn struct {
+	mu        sync.Mutex
+	ioDone    *sync.Cond
+	active    int
+	closed    bool
+	closeOnce sync.Once
+	closeErr  error
+
 	handle syscall.Handle
 	addr   PipeAddr
 
-	// these aren't actually used yet
 	readDeadline  *time.Time
 	writeDeadline *time.Time
+}
+
+func (c *PipeConn) finishIO() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.active--
+	if c.active == 0 && c.ioDone != nil {
+		c.ioDone.Broadcast()
+	}
 }
 
 type iodata struct {
@@ -436,6 +451,9 @@ func (c *PipeConn) completeRequest(data iodata, deadline *time.Time, overlapped 
 		case data = <-done:
 		case <-timer:
 			syscall.CancelIoEx(c.handle, overlapped)
+			// Cancellation is asynchronous. Keep the buffer, event, and
+			// pipe handle alive until Windows reports completion.
+			<-done
 			data = iodata{0, timeout(c.addr.String())}
 		}
 	}
@@ -452,31 +470,71 @@ func (c *PipeConn) completeRequest(data iodata, deadline *time.Time, overlapped 
 func (c *PipeConn) Read(b []byte) (int, error) {
 	// Use ReadFile() rather than Read() because the latter
 	// contains a workaround that eats ERROR_BROKEN_PIPE.
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return 0, ErrClosed
+	}
 	overlapped, err := newOverlapped()
 	if err != nil {
+		c.mu.Unlock()
 		return 0, err
 	}
 	defer syscall.CloseHandle(overlapped.HEvent)
+	c.active++
 	var n uint32
 	err = syscall.ReadFile(c.handle, b, &n, overlapped)
-	return c.completeRequest(iodata{n, err}, c.readDeadline, overlapped)
+	deadline := c.readDeadline
+	c.mu.Unlock()
+	defer c.finishIO()
+	return c.completeRequest(iodata{n, err}, deadline, overlapped)
 }
 
 // Write implements the net.Conn Write method.
 func (c *PipeConn) Write(b []byte) (int, error) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return 0, ErrClosed
+	}
 	overlapped, err := newOverlapped()
 	if err != nil {
+		c.mu.Unlock()
 		return 0, err
 	}
 	defer syscall.CloseHandle(overlapped.HEvent)
+	c.active++
 	var n uint32
 	err = syscall.WriteFile(c.handle, b, &n, overlapped)
-	return c.completeRequest(iodata{n, err}, c.writeDeadline, overlapped)
+	deadline := c.writeDeadline
+	c.mu.Unlock()
+	defer c.finishIO()
+	return c.completeRequest(iodata{n, err}, deadline, overlapped)
 }
 
-// Close closes the connection.
+// Close rejects new I/O and cancels outstanding requests before releasing the
+// handle. Windows may immediately reuse a released handle for another pipe.
 func (c *PipeConn) Close() error {
-	return syscall.CloseHandle(c.handle)
+	c.closeOnce.Do(func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.closed = true
+		if c.active != 0 {
+			c.closeErr = syscall.CancelIoEx(c.handle, nil)
+			if c.closeErr == syscall.ERROR_NOT_FOUND {
+				c.closeErr = nil
+			}
+			c.ioDone = sync.NewCond(&c.mu)
+			for c.active != 0 {
+				c.ioDone.Wait()
+			}
+		}
+		err := syscall.CloseHandle(c.handle)
+		if c.closeErr == nil {
+			c.closeErr = err
+		}
+	})
+	return c.closeErr
 }
 
 // LocalAddr returns the local network address.
@@ -492,15 +550,20 @@ func (c *PipeConn) RemoteAddr() net.Addr {
 
 // SetDeadline implements the net.Conn SetDeadline method.
 // Note that timeouts are only supported on Windows Vista/Server 2008 and above
+// Deadline setters only update local metadata, including after Close.
 func (c *PipeConn) SetDeadline(t time.Time) error {
-	c.SetReadDeadline(t)
-	c.SetWriteDeadline(t)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.readDeadline = &t
+	c.writeDeadline = &t
 	return nil
 }
 
 // SetReadDeadline implements the net.Conn SetReadDeadline method.
 // Note that timeouts are only supported on Windows Vista/Server 2008 and above
 func (c *PipeConn) SetReadDeadline(t time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.readDeadline = &t
 	return nil
 }
@@ -508,6 +571,8 @@ func (c *PipeConn) SetReadDeadline(t time.Time) error {
 // SetWriteDeadline implements the net.Conn SetWriteDeadline method.
 // Note that timeouts are only supported on Windows Vista/Server 2008 and above
 func (c *PipeConn) SetWriteDeadline(t time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.writeDeadline = &t
 	return nil
 }

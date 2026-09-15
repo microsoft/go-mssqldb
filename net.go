@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// onceCloseConn shares transport closure between timeout cleanup and pool eviction.
+// onceCloseConn shares transport closure across connection wrappers.
 type onceCloseConn struct {
 	net.Conn
 	once     sync.Once

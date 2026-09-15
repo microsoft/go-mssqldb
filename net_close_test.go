@@ -74,7 +74,7 @@ func TestTimeoutConn_CloseOnce(t *testing.T) {
 	}
 }
 
-func TestSendAttentionWithTimeout_ClosesTransportOnce(t *testing.T) {
+func TestConnClose_ClosesStalledAttentionOnce(t *testing.T) {
 	for _, closeErr := range []error{nil, errors.New("transport close failed")} {
 		name := "success"
 		if closeErr != nil {
@@ -96,16 +96,21 @@ func TestSendAttentionWithTimeout_ClosesTransportOnce(t *testing.T) {
 				}
 				transport := newTimeoutConn(raw, 0)
 				bufferReturned := false
-				conn := &Conn{sess: &tdsSession{buf: &tdsBuffer{
-					transport: transport,
-					bufClose:  func() { bufferReturned = true },
-				}}}
-
-				// The peer never reads, and Close cannot finish until released.
-				err := sendAttentionWithTimeout(transport, time.Second)
-				require.ErrorContains(t, err, "attention write timed out")
+				buf := newTdsBuffer(defaultPacketSize, transport)
+				returnBuffer := buf.bufClose
+				buf.bufClose = func() { bufferReturned = true; returnBuffer() }
+				writeDone := make(chan struct{})
+				conn := &Conn{sess: &tdsSession{
+					buf:     buf,
+					cleanup: &responseCleanup{done: writeDone},
+				}}
+				go func() {
+					_ = sendAttention(buf)
+					close(writeDone)
+				}()
+				time.Sleep(10 * time.Second)
 				synctest.Wait()
-				require.EqualValues(t, 1, raw.closeCalls.Load())
+				require.Zero(t, raw.closeCalls.Load(), "no implicit timeout should close the transport")
 				assert.False(t, bufferReturned)
 
 				result := make(chan error, 1)
@@ -116,7 +121,7 @@ func TestSendAttentionWithTimeout_ClosesTransportOnce(t *testing.T) {
 				assert.ErrorIs(t, <-result, closeErr)
 				assert.True(t, bufferReturned)
 				assert.EqualValues(t, 1, raw.closeCalls.Load(),
-					"timeout cleanup and pool eviction must share one close")
+					"explicit close must close the transport only once")
 				assert.ErrorIs(t, transport.Close(), closeErr)
 				assert.EqualValues(t, 1, raw.closeCalls.Load(),
 					"later closes must not retry the raw transport close")
