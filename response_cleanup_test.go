@@ -5,8 +5,12 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/binary"
 	"errors"
+	"io"
 	"net"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -447,4 +451,90 @@ func TestResponseCleanup_SQLPoolReuseWaits(t *testing.T) {
 		assert.EqualValues(t, 2, transport.writes.Load())
 		assert.True(t, c.IsValid())
 	})
+}
+
+func TestResponseCleanup_RollbackKeepsTransactionOwnership(t *testing.T) {
+	for _, cancelTransaction := range []bool{false, true} {
+		name := "uncanceled long tail"
+		if cancelTransaction {
+			name = "automatic rollback after cancellation"
+		}
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				begin := binary.LittleEndian.AppendUint64([]byte{envTypBeginTran, 8}, 1)
+				begin = append(begin, 0)
+				rollback := binary.LittleEndian.AppendUint64([]byte{envTypRollbackTran, 0, 8}, 1)
+				prefix := append(responseBenchmarkReply(begin), compatReply(compatDone(doneError|doneMore), false)...)
+				tail := &statusOwnershipGate{
+					Reader:  bytes.NewReader(compatReply(compatDone(doneFinal), true)),
+					entered: make(chan struct{}), resume: make(chan struct{}),
+				}
+				release := sync.OnceFunc(func() { close(tail.resume) })
+				var rollbackSent atomic.Bool
+				transport := &compatTransport{
+					Reader: io.MultiReader(bytes.NewReader(prefix), tail, bytes.NewReader(responseBenchmarkReply(rollback))),
+					onWrite: func(packet []byte) (int, error) {
+						if packetType(packet[0]) == packTransMgrReq {
+							offset := 8 + int(binary.LittleEndian.Uint32(packet[8:12]))
+							rollbackSent.Store(binary.LittleEndian.Uint16(packet[offset:offset+2]) == tmRollbackXact)
+						}
+						return len(packet), nil
+					},
+				}
+				c := compatConn(transport)
+				db := sql.OpenDB(compatConnector{conn: c})
+				db.SetMaxOpenConns(1)
+				txCtx, cancel := context.WithCancel(context.Background())
+				defer func() {
+					release()
+					cancel()
+					synctest.Wait()
+					db.Close()
+				}()
+				tx, err := db.BeginTx(txCtx, nil)
+				require.NoError(t, err)
+				rows, err := tx.Query("batch")
+				require.Nil(t, rows)
+				require.IsType(t, Error{}, err)
+				synctest.Wait()
+				select {
+				case <-tail.entered:
+				default:
+					t.Fatal("the earlier response did not reach its controlled tail")
+				}
+				if cancelTransaction {
+					cancel()
+				}
+				start := time.Now()
+				time.Sleep(10 * time.Second)
+				synctest.Wait()
+				require.GreaterOrEqual(t, time.Since(start), 10*time.Second)
+				require.Equal(t, 1, db.Stats().InUse)
+				require.Zero(t, db.Stats().Idle, "an unfinished transaction must not return to the pool")
+				require.True(t, c.IsValid())
+				require.True(t, c.inTransaction)
+				require.EqualValues(t, 1, c.sess.tranid)
+				require.False(t, rollbackSent.Load())
+				require.EqualValues(t, 2, transport.writes.Load(), "neither an error nor waiting may send ATTENTION")
+				require.Zero(t, transport.closes.Load())
+				release()
+				synctest.Wait()
+				if !cancelTransaction {
+					require.NoError(t, tx.Rollback())
+				}
+				synctest.Wait()
+				require.True(t, rollbackSent.Load(), "cancellation must not skip the actual rollback")
+				require.False(t, c.inTransaction)
+				require.Zero(t, c.sess.tranid)
+				require.Zero(t, db.Stats().InUse)
+				conn, err := db.Conn(context.Background())
+				require.NoError(t, err)
+				require.NoError(t, conn.Raw(func(raw interface{}) error {
+					require.Same(t, c, raw)
+					return nil
+				}))
+				require.NoError(t, conn.Close())
+			})
+		})
+	}
 }

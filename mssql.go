@@ -380,6 +380,9 @@ func (c *Conn) sendCommitRequest() error {
 }
 
 func (c *Conn) Rollback() error {
+	// database/sql can call Rollback after the transaction context is canceled.
+	// That must not skip the rollback request and return an open transaction to
+	// the pool; pending cleanup keeps the earlier operation's context.
 	if err := c.awaitResponse(context.Background()); err != nil {
 		return err
 	}
