@@ -25,8 +25,16 @@ import (
 
 // ReturnStatus may be used to return the return value from a proc.
 //
+// To obtain the final status, wait for Exec to finish or consume all query
+// result sets. If response processing stops at an early error, the value is the
+// last status received before that error, or zero if none was received.
+// Background response cleanup does not change it.
+//
 //	var rs mssql.ReturnStatus
-//	_, err := db.Exec("theproc", &rs)
+//	if _, err := db.Exec("theproc", &rs); err != nil {
+//		log.Printf("exec failed: %v", err)
+//		return
+//	}
 //	log.Printf("return status = %d", rs)
 type ReturnStatus int32
 

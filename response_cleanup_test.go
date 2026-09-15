@@ -356,9 +356,9 @@ func TestResponseCleanup_FinishedReaderDoesNotRestart(t *testing.T) {
 	}
 }
 
-func TestResponseCleanup_AssignsReturnStatus(t *testing.T) {
+func TestResponseCleanup_LeavesReturnStatusWithCaller(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		var status ReturnStatus
+		status := ReturnStatus(11)
 		ch := make(chan tokenStruct, 2)
 		ch <- ReturnStatus(17)
 		ch <- doneStruct{}
@@ -368,9 +368,12 @@ func TestResponseCleanup_AssignsReturnStatus(t *testing.T) {
 			outs: outputs{returnStatus: &status},
 		}
 		reader.discard()
+		pending := reader.cleanup
+		reader.discard()
+		assert.Same(t, pending, reader.cleanup)
 		<-reader.cleanup.done
 		assert.NoError(t, reader.cleanup.err)
-		assert.Equal(t, ReturnStatus(17), status)
+		assert.Equal(t, ReturnStatus(11), status)
 	})
 }
 

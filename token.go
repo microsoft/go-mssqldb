@@ -1303,6 +1303,7 @@ func (t *tokenProcessor) iterateResponse() error {
 // drain consumes the rest of a response under its original operation context.
 // Only caller cancellation sends ATTENTION. Assignment errors do not prevent
 // decoding later tokens; parser and transport errors make cleanup unsuccessful.
+// ReturnStatus belongs to the caller again and must not be changed by cleanup.
 func (t *tokenProcessor) drain() error {
 	t.cancelConfirmed = false
 	defer func() { t.cancelConfirmed = false }()
@@ -1320,9 +1321,6 @@ func (t *tokenProcessor) drain() error {
 		}
 		if tok == nil {
 			return nil
-		}
-		if status, ok := tok.(ReturnStatus); ok && t.outs.returnStatus != nil {
-			*t.outs.returnStatus = status
 		}
 	}
 }
