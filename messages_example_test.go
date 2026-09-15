@@ -41,8 +41,10 @@ func ExampleRows_usingmessages() {
 	ctx := context.Background()
 	rows, err := db.QueryContext(ctx, msgQuery, retmsg)
 	if err != nil {
-		log.Fatalf("QueryContext failed: %v", err)
+		log.Printf("QueryContext failed: %v", err)
+		return
 	}
+	defer rows.Close()
 	active := true
 	for active {
 		msg := retmsg.Message(ctx)
@@ -56,13 +58,16 @@ func ExampleRows_usingmessages() {
 				if inresult {
 					cols, err := rows.Columns()
 					if err != nil {
-						log.Fatalf("Columns failed: %v", err)
+						log.Printf("Columns failed: %v", err)
+						return
 					}
 					fmt.Println(cols)
 					var d interface{}
-					if err = rows.Scan(&d); err == nil {
-						fmt.Println(d)
+					if err = rows.Scan(&d); err != nil {
+						log.Printf("Scan failed: %v", err)
+						return
 					}
+					fmt.Println(d)
 				}
 			}
 		case sqlexp.MsgNextResultSet:
@@ -71,6 +76,10 @@ func ExampleRows_usingmessages() {
 			fmt.Println("Error:", m.Error)
 		case sqlexp.MsgRowsAffected:
 			fmt.Println("Rows affected:", m.Count)
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("Reading results failed: %v", err)
+			return
 		}
 	}
 }

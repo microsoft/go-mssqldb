@@ -451,6 +451,11 @@ output assignment fails or a parser error is recovered, the driver publishes the
 error to row readers before its notification, so a full message queue cannot
 hold back error delivery to a reader that is already waiting for a token.
 
+Check `Rows.Err()` after row iteration and after `NextResultSet` returns false.
+Exit the message loop on an error rather than waiting for another message:
+cleanup may cancel further message delivery once the error has been returned
+through the rows API.
+
 ## Caveat for local temporary tables
 
 Due to protocol limitations, temporary tables will only be allocated on the connection
