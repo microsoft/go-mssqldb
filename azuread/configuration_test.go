@@ -518,3 +518,142 @@ func TestAzurePipelinesEnvironmentVariables(t *testing.T) {
 		})
 	}
 }
+
+// TestFedAuthSurvivesConfigURLRoundTrip checks that a federated connection
+// string still selects the same workflow after msdsn.Config.URL() has rebuilt
+// it. None of these settings has a field on msdsn.Config; this package reads
+// them out of Config.Parameters, so a serializer that dropped them would leave
+// validateParameters with no fedauth value and quietly fall back to SQL
+// authentication. See microsoft/go-mssqldb#455.
+// TestFedAuthSecretsDoNotSurviveConfigURLRoundTrip pins the other half of the
+// trade msdsn.Config.URL() makes. systemtoken, clientassertion and
+// userassertion are credentials azuread reads out of Config.Parameters, and
+// url.URL.Redacted() masks only the userinfo password, so the serializer drops
+// them rather than publishing them in the string Go offers as the safe one to
+// log. What happens next is this package's doing, and it differs by workflow:
+// on-behalf-of has no other source for its assertion and fails naming it, while
+// Azure Pipelines falls back to SYSTEM_ACCESSTOKEN and, where that is set,
+// carries on with the ambient token in place of the one the connection string
+// named. Both are asserted here so that the difference is visible.
+//
+// It is also here so that anyone who "fixes" the loss by copying Parameters
+// wholesale has to delete a test that says why not.
+func TestFedAuthSecretsDoNotSurviveConfigURLRoundTrip(t *testing.T) {
+	const (
+		pipelines = "server=someserver.database.windows.net;fedauth=ActiveDirectoryAzurePipelines;" +
+			"user id=service-principal-id@tenant-id;serviceconnectionid=connection-id;systemtoken=token-from-the-dsn"
+		onBehalfOf = "server=someserver.database.windows.net;fedauth=ActiveDirectoryOnBehalfOf;" +
+			"user id=service-principal-id@tenant-id;password=somesecret;userassertion=user-token"
+	)
+
+	t.Run("on behalf of fails naming the assertion", func(t *testing.T) {
+		before, err := parse(onBehalfOf)
+		if err != nil {
+			t.Fatalf("parsing: %v", err)
+		}
+		if before.userAssertion != "user-token" {
+			t.Fatalf("userassertion was not parsed: %q", before.userAssertion)
+		}
+
+		_, err = parse(before.mssqlConfig.URL().String())
+		if err == nil {
+			t.Fatal("the round trip should not quietly authenticate another way once userassertion is gone")
+		}
+		if !strings.Contains(err.Error(), "userassertion") {
+			t.Errorf("the error should name what went missing, got %q", err.Error())
+		}
+	})
+
+	t.Run("azure pipelines fails naming the token when the environment has none", func(t *testing.T) {
+		t.Setenv("SYSTEM_ACCESSTOKEN", "")
+		before, err := parse(pipelines)
+		if err != nil {
+			t.Fatalf("parsing: %v", err)
+		}
+		if before.systemAccessToken != "token-from-the-dsn" {
+			t.Fatalf("systemtoken was not parsed: %q", before.systemAccessToken)
+		}
+
+		_, err = parse(before.mssqlConfig.URL().String())
+		if err == nil {
+			t.Fatal("the round trip should not quietly authenticate another way once systemtoken is gone")
+		}
+		if !strings.Contains(err.Error(), "systemtoken") {
+			t.Errorf("the error should name what went missing, got %q", err.Error())
+		}
+	})
+
+	t.Run("azure pipelines carries on with the ambient token when the environment has one", func(t *testing.T) {
+		// The consumer's own fallback, and the same thing it does for any
+		// connection string that never named a token. It is asserted rather
+		// than avoided: a round trip that swaps the configured token for the
+		// environment's is a substitution, not a failure, and it should be
+		// visible here that this is what happens.
+		t.Setenv("SYSTEM_ACCESSTOKEN", "token-from-the-environment")
+		before, err := parse(pipelines)
+		if err != nil {
+			t.Fatalf("parsing: %v", err)
+		}
+		if before.systemAccessToken != "token-from-the-dsn" {
+			t.Fatalf("the connection string's token should win while it is there: %q", before.systemAccessToken)
+		}
+
+		after, err := parse(before.mssqlConfig.URL().String())
+		if err != nil {
+			t.Fatalf("reparsing: %v", err)
+		}
+		if after.systemAccessToken != "token-from-the-environment" {
+			t.Errorf("after the round trip the ambient token is what is left, got %q", after.systemAccessToken)
+		}
+	})
+}
+
+func TestFedAuthSurvivesConfigURLRoundTrip(t *testing.T) {
+	tests := []struct {
+		name string
+		dsn  string
+	}{
+		{
+			name: "service principal with a client certificate",
+			dsn: `sqlserver://service-principal-id%40tenant-id:somesecret@someserver.database.windows.net?` +
+				`fedauth=ActiveDirectoryApplication&clientcertpath=/user/cert/cert.pfx&applicationclientid=someguid`,
+		},
+		{
+			name: "managed identity with a client id",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryMSI;user id=someguid",
+		},
+		{
+			name: "default credential chain",
+			dsn:  "server=someserver.database.windows.net;fedauth=ActiveDirectoryDefault;applicationclientid=someguid",
+		},
+		{
+			name: "password workflow",
+			dsn: "server=someserver.database.windows.net;fedauth=ActiveDirectoryPassword;" +
+				"user id=azure-ad-user;password=azure-ad-password;applicationclientid=someguid",
+		},
+	}
+
+	for _, tst := range tests {
+		t.Run(tst.name, func(t *testing.T) {
+			before, err := parse(tst.dsn)
+			if err != nil {
+				t.Fatalf("parse(%q) failed: %v", tst.dsn, err)
+			}
+
+			rebuilt := before.mssqlConfig.URL().String()
+			after, err := parse(rebuilt)
+			if err != nil {
+				t.Fatalf("parse(%q) after round trip failed: %v", rebuilt, err)
+			}
+
+			// mssqlConfig carries a per-Config ActivityID and the retained
+			// parameter map, neither of which has to match; the federated
+			// workflow this package derives from them does.
+			before.mssqlConfig = msdsn.Config{}
+			after.mssqlConfig = msdsn.Config{}
+			if !reflect.DeepEqual(before, after) {
+				t.Errorf("federated configuration changed across a URL round trip:\nbefore: %+v\nafter:  %+v", before, after)
+			}
+		})
+	}
+}
