@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"io"
 	"testing"
+
+	"github.com/microsoft/go-mssqldb/msdsn"
 )
 
 // preloginTransport serves a fixed byte stream as the server side of a TDS
@@ -38,6 +40,8 @@ func FuzzReadPrelogin(f *testing.F) {
 		{preloginTERMINATOR},
 		// encryption option followed by terminator
 		{preloginENCRYPTION, 0, 6, 0, 1, preloginTERMINATOR, encryptNotSup},
+		// zero-length encryption option followed by terminator and padding
+		{preloginENCRYPTION, 0, 6, 0, 0, preloginTERMINATOR, 0},
 		// version, encryption, instopt, threadid, mars
 		{
 			0, 0, 26, 0, 6,
@@ -85,5 +89,6 @@ func FuzzReadPrelogin(f *testing.F) {
 				t.Fatalf("prelogin option %d returned %d bytes from a %d byte response", token, len(value), len(body))
 			}
 		}
+		_, _ = interpretPreloginResponse(msdsn.Config{}, &featureExtFedAuth{FedAuthLibrary: FedAuthLibraryReserved}, fields)
 	})
 }
