@@ -939,8 +939,10 @@ var carriedVerbatim = map[string]bool{
 //
 // trustservercertificate: a verifying value follows the rule, but a trusting
 // one is written only when the connection string asked for it, so that
-// serializing a Config can never be the thing that turns verification off. See
-// the comment on its emission.
+// serializing a Config can never be the thing that turns verification off. A
+// Config with no tls.Config, the field at its zero value and no parameter has
+// no view on trust and gets nothing written, so it reparses to the parser's
+// default as it always has. See the comment on its emission.
 //
 // hostnameincertificate: written from HostInCertificateProvided, not from
 // ServerName differing from Host. A ServerName set straight onto the tls.Config
@@ -1097,7 +1099,17 @@ func (p Config) URL() *url.URL {
 		trustedWhenReparsed := !encryptEmitted
 		trusted := p.trustsAnyCertificate()
 		_, trustSupplied := p.Parameters[TrustServerCertificate]
-		if trusted != trustedWhenReparsed && (!trusted || trustSupplied) {
+		// A Config with no tls.Config, the field at its zero value and no
+		// parameter behind it has no view on trust at all. Parse never produces
+		// that shape, since it builds a tls.Config whenever encryption is on, so
+		// it only comes from a Config built by hand, and for those the zero value
+		// has always meant the parser's default rather than a choice. Writing
+		// trustservercertificate=false for it turned this driver's own
+		// integration harness, which builds its Config that way from HOST and
+		// DATABASE and round-trips it through here, into one that verified a
+		// self-signed server. Say nothing and let the reader apply its default.
+		hasView := p.TLSConfig != nil || p.TrustServerCertificate || trustSupplied
+		if hasView && trusted != trustedWhenReparsed && (!trusted || trustSupplied) {
 			q.Add(TrustServerCertificate, strconv.FormatBool(trusted))
 		}
 	}
