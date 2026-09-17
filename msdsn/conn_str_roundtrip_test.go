@@ -621,7 +621,9 @@ func TestConfigURLOmitsUnrepresentableValues(t *testing.T) {
 // TestConfigURLWithNilParameters covers a Config built as a struct literal,
 // which has no Parameters map to consult. Its fields are what such a Config
 // would connect with, so they are what the URL has to describe: reparsing must
-// not quietly apply the parser's defaults over the top of them.
+// not quietly apply the parser's defaults over the top of them. The one field
+// that is left to the parser's default is TrustServerCertificate, and only
+// while the Config holds no view on TLS at all; see the end of the test.
 func TestConfigURLWithNilParameters(t *testing.T) {
 	config := Config{Host: "host.example.com", Port: 1433, Database: "db"}
 	require.Nil(t, config.Parameters, "Parameters")
@@ -640,11 +642,16 @@ func TestConfigURLWithNilParameters(t *testing.T) {
 	assert.Equal(t, config.KeepAlive, reparsed.KeepAlive, "KeepAlive")
 	assert.Equal(t, config.AppName, reparsed.AppName, "AppName")
 	assert.Equal(t, config.Workstation, reparsed.Workstation, "Workstation")
-	// The security-relevant one: a Config that does not trust the server
-	// certificate must not come back trusting it.
-	assert.False(t, reparsed.TrustServerCertificate, "TrustServerCertificate")
+	// TLS is the exception. This Config has no tls.Config, the field at its
+	// zero value and no parameter, which is no view on trust rather than a
+	// choice to verify, so the URL says nothing and the reader applies the
+	// parser's default for a DSN that names no encrypt. See
+	// TestConfigURLLeavesAZeroValueTLSChoiceToTheReader for why: the driver's
+	// own integration harness builds its Config this way.
+	assert.NotContains(t, u.Query(), TrustServerCertificate, "trustservercertificate")
+	assert.True(t, reparsed.TrustServerCertificate, "TrustServerCertificate")
 	require.NotNil(t, reparsed.TLSConfig, "TLSConfig")
-	assert.False(t, reparsed.TLSConfig.InsecureSkipVerify, "InsecureSkipVerify")
+	assert.True(t, reparsed.TLSConfig.InsecureSkipVerify, "InsecureSkipVerify")
 }
 
 // TestConfigURLIsIdempotent checks that serializing a reparsed Config produces
@@ -1686,6 +1693,56 @@ func TestConfigURLCannotTellACommonNameCallbackApart(t *testing.T) {
 	require.NotNil(t, reparsed.TLSConfig, "TLSConfig after")
 	assert.NotNil(t, reparsed.TLSConfig.VerifyConnection,
 		"the check that comes back is SetupTLS's, rebuilt from the file, not the caller's")
+}
+
+// TestConfigURLLeavesAZeroValueTLSChoiceToTheReader covers a Config built by
+// hand with no view on TLS at all: no tls.Config, TrustServerCertificate at its
+// zero value, and no parameter behind it. Parse never produces that shape, since
+// it builds a tls.Config whenever encryption is on, so nothing a connection
+// string said is being lost, and for such a Config the zero value has always
+// meant the parser's default rather than a choice.
+//
+// The Config here is the one this driver's own integration harness builds from
+// HOST and DATABASE (GetConnParams in tds_test.go) before round-tripping it
+// through URL(). Writing trustservercertificate=false for it made every
+// AppVeyor job fail with "certificate signed by unknown authority", because the
+// SQL Server there presents a self-signed certificate and the reparsed DSN
+// verified it. A Config that does hold a view, a tls.Config here, still has that
+// view written.
+func TestConfigURLLeavesAZeroValueTLSChoiceToTheReader(t *testing.T) {
+	harness := Config{
+		Host:       "localhost",
+		Instance:   "SQL2025",
+		Database:   "test",
+		User:       "sa",
+		Password:   "p",
+		LogFlags:   127,
+		Parameters: map[string]string{},
+		Encoding:   EncodeParameters{Timezone: time.UTC},
+	}
+
+	u := harness.URL()
+	assert.NotContains(t, u.Query(), TrustServerCertificate, "nothing to say, so nothing is written")
+	assert.NotContains(t, u.Query(), Encrypt, "encrypt")
+
+	reparsed, err := Parse(u.String())
+	require.NoError(t, err, "reparsing %q", u.String())
+	assert.True(t, reparsed.TrustServerCertificate, "the parser's default for a DSN that names no encrypt, as on main")
+	require.NotNil(t, reparsed.TLSConfig, "TLSConfig after")
+	assert.True(t, reparsed.TLSConfig.InsecureSkipVerify, "InsecureSkipVerify after")
+
+	t.Run("a tls.Config is a view and is written", func(t *testing.T) {
+		withView := harness
+		withView.TLSConfig = &tls.Config{}
+
+		u := withView.URL()
+		assert.Equal(t, "false", u.Query().Get(TrustServerCertificate), "a verifying tls.Config travels")
+
+		reparsed, err := Parse(u.String())
+		require.NoError(t, err, "reparsing %q", u.String())
+		require.NotNil(t, reparsed.TLSConfig, "TLSConfig after")
+		assert.False(t, reparsed.TLSConfig.InsecureSkipVerify, "InsecureSkipVerify after")
+	})
 }
 
 // TestConfigURLDoesNotInventATrustingParameter covers the clause that keeps a
