@@ -755,6 +755,13 @@ func (p Config) retainedCertificateParameterApplies(name string) bool {
 		// for is a chain to system roots - the pin path sets no RootCAs - so the
 		// URL would accept every certificate a public CA has issued for the host
 		// in place of the single certificate named here.
+		//
+		// What a non-nil callback cannot say is whose it is. A caller who swapped
+		// their own in over the pin and left the parameter behind is
+		// indistinguishable from the pin, because Go function values cannot be
+		// compared; the file travels and reparsing rebuilds the pin from it. That
+		// is the limit URL() records for every callback, and dropping the
+		// parameter instead would land on system roots, the wider answer.
 		return p.TLSConfig.VerifyPeerCertificate != nil
 	}
 

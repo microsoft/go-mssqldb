@@ -1643,6 +1643,40 @@ func TestConfigURLDropsACertificateItNoLongerNames(t *testing.T) {
 	}
 }
 
+// TestConfigURLCannotTellAPinCallbackApart records the same limit for the pin
+// that TestConfigURLCannotTellACommonNameCallbackApart records for certificate.
+// A caller who replaces the VerifyPeerCertificate setupTLSServerCertificateOnly
+// installed, and leaves Parameters alone, has a Config that checks whatever
+// their callback checks. Go function values cannot be compared, so URL() cannot
+// tell that callback from the pin, the file behind it travels, and reparsing
+// rebuilds the pin from the file, which is a different check from the caller's.
+// Dropping the parameter whenever a callback is present would fall back to
+// system roots instead, which accepts every public-CA certificate for the host,
+// so the file is the narrower of the two answers available. The sweep's
+// callback edit is marked opaque for this reason; this is the case it waives.
+func TestConfigURLCannotTellAPinCallbackApart(t *testing.T) {
+	pinFile, der := newSelfSignedCert(t)
+
+	config, err := Parse("server=host.example.com;encrypt=true;servercertificate=" + pinFile)
+	require.NoError(t, err, "parsing")
+	require.NotNil(t, config.TLSConfig.VerifyPeerCertificate, "SetupTLS installed the pin")
+
+	config.TLSConfig.VerifyPeerCertificate = func([][]byte, [][]*x509.Certificate) error {
+		return errors.New("the caller rejects it")
+	}
+
+	u := config.URL()
+	assert.Contains(t, u.Query(), ServerCertificate, "documented limit: the file travels under the caller's callback")
+
+	reparsed, err := Parse(u.String())
+	require.NoError(t, err, "reparsing %q", u.String())
+	require.NotNil(t, reparsed.TLSConfig, "TLSConfig after")
+	rebuilt := reparsed.TLSConfig.VerifyPeerCertificate
+	require.NotNil(t, rebuilt, "the pin came back")
+	assert.NoError(t, rebuilt([][]byte{der}, nil),
+		"and it is SetupTLS's pin rebuilt from the file, not the caller's callback")
+}
+
 // TestConfigURLKeepsAPinBesideAPoolTheHandshakeIgnores covers a
 // servercertificate pin on a tls.Config the caller has also left a root pool on.
 // setupTLSServerCertificateOnly turns InsecureSkipVerify on so that the pin
