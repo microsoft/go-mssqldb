@@ -92,6 +92,45 @@ const (
 	EpaEnabled             = "epa enabled"
 )
 
+// Defaults Parse applies when a connection string does not name the setting.
+// URL() compares against the same values, so that it emits a parameter exactly
+// when reparsing without it would produce something else.
+const (
+	defaultAppName   = "go-mssqldb"
+	defaultKeepAlive = 30 * time.Second
+
+	// The TDS packet size range Parse clamps to.
+	minPacketSize = 512
+	maxPacketSize = 32767
+)
+
+// defaultWorkstation is the workstation id Parse uses when the connection string
+// does not carry one. It is the local host name, so it is not stable between
+// machines; that is why a Config whose Workstation still matches it does not
+// serialize the setting.
+func defaultWorkstation() string {
+	name, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return name
+}
+
+// epaEnabledFromEnvironment reports whether MSSQL_USE_EPA turns Extended
+// Protection on in this process, and whether it says anything a reader could
+// act on. Parse consults it only when the connection string does not carry an
+// epa enabled parameter, which is why a serialized URL that leaves the
+// parameter out does not mean a fixed value - and why a value Parse would
+// reject is not a default to compare against either.
+func epaEnabledFromEnvironment() (enabled bool, usable bool) {
+	value := os.Getenv("MSSQL_USE_EPA")
+	if value == "" {
+		return false, true
+	}
+	enabled, err := strconv.ParseBool(value)
+	return enabled, err == nil
+}
+
 type EncodeParameters struct {
 	// Properly convert GUIDs, using correct byte endianness
 	GuidConversion bool
@@ -455,10 +494,10 @@ func Parse(dsn string) (Config, error) {
 		// a higher packet size, the server will respond with an ENVCHANGE request to
 		// alter the packet size to 16383 bytes.
 		p.PacketSize = uint16(psize)
-		if p.PacketSize < 512 {
-			p.PacketSize = 512
-		} else if p.PacketSize > 32767 {
-			p.PacketSize = 32767
+		if p.PacketSize < minPacketSize {
+			p.PacketSize = minPacketSize
+		} else if p.PacketSize > maxPacketSize {
+			p.PacketSize = maxPacketSize
 		}
 	}
 
@@ -477,7 +516,7 @@ func Parse(dsn string) (Config, error) {
 
 	// default keep alive should be 30 seconds according to spec:
 	// https://msdn.microsoft.com/library/dd341108.aspx
-	p.KeepAlive = 30 * time.Second
+	p.KeepAlive = defaultKeepAlive
 	if keepAlive, ok := params[KeepAlive]; ok {
 		timeout, err := strconv.ParseUint(keepAlive, 10, 64)
 		if err != nil {
@@ -496,15 +535,12 @@ func Parse(dsn string) (Config, error) {
 	if ok {
 		p.Workstation = workstation
 	} else {
-		workstation, err := os.Hostname()
-		if err == nil {
-			p.Workstation = workstation
-		}
+		p.Workstation = defaultWorkstation()
 	}
 
 	appname, ok := params[AppName]
 	if !ok {
-		appname = "go-mssqldb"
+		appname = defaultAppName
 	}
 	p.AppName = appname
 
@@ -668,8 +704,323 @@ func Parse(dsn string) (Config, error) {
 	return p, nil
 }
 
-// convert connectionParams to url style connection string
-// used mostly for testing
+// retainedCertificateParameterApplies reports whether a certificate parameter
+// Parse retained still names something this Config enforces.
+//
+// It answers one question: is the parameter still a true statement about what
+// the connection does with the certificate? Not whether it is the whole truth.
+// A caller can add a check no connection string can spell, and the parameter is
+// then incomplete rather than wrong; dropping it for that costs more than it
+// saves, because nothing else in the grammar names a pin or a private CA and a
+// URL without the parameter verifies against system roots - which accepts every
+// certificate a public CA has issued for the host. Trading an incomplete truth
+// for that is a wider connection, not a safer one.
+//
+// What does make it false is the anchor changing underneath it: a caller who
+// cleared TLSConfig has dropped back to what getTLSConn builds, and one who
+// swapped the root pool has left the file describing certificates the connection
+// no longer trusts. Writing it then would hand whoever reads the URL an anchor
+// this Config does not use, with nothing to give it away.
+//
+// It applies to certificate and servercertificate only. Every other name
+// carriedVerbatim holds - fedauth, authenticator, the krb5- settings - has
+// nothing to do with TLS, and dropping one of those because the tls.Config
+// changed would silently pick a different authentication method.
+//
+// With encryption disabled no certificate is exchanged, so nothing here is in
+// play and the retained text is kept as the only record the settings have.
+func (p Config) retainedCertificateParameterApplies(name string) bool {
+	if name != Certificate && name != ServerCertificate {
+		return true
+	}
+	if p.Encryption == EncryptionDisabled {
+		return true
+	}
+	if p.TLSConfig == nil {
+		return false
+	}
+
+	if name == ServerCertificate {
+		// crypto/tls calls VerifyPeerCertificate on every handshake, after any
+		// chain check and whether or not verification is on, so while one is
+		// there the file still names a certificate the connection compares
+		// against. Nothing else on the config takes that away: a pool is read
+		// only where a chain is built, a VerifyConnection is a second check
+		// rather than a replacement, and verification turned back on adds the
+		// chain rather than removing the pin.
+		//
+		// Requiring the rest of the shape setupTLSServerCertificateOnly builds
+		// would drop the pin in each of those cases, and this parameter is the
+		// only thing in the grammar that can name one. What it would be traded
+		// for is a chain to system roots - the pin path sets no RootCAs - so the
+		// URL would accept every certificate a public CA has issued for the host
+		// in place of the single certificate named here.
+		//
+		// What a non-nil callback cannot say is whose it is. A caller who swapped
+		// their own in over the pin and left the parameter behind is
+		// indistinguishable from the pin, because Go function values cannot be
+		// compared; the file travels and reparsing rebuilds the pin from it. That
+		// is the limit URL() records for every callback, and dropping the
+		// parameter instead would land on system roots, the wider answer.
+		return p.TLSConfig.VerifyPeerCertificate != nil
+	}
+
+	// Unlike a pin, a root pool is read only where a chain is built against it:
+	// with InsecureSkipVerify on, crypto/tls builds none, so the file names
+	// nothing the connection enforces.
+	//
+	// The exception is the common name path. SetupTLS forks on the name it
+	// checks against: a colon in it, with verification still on, routes the file
+	// through setupTLSCommonName, which builds its callback out of that same
+	// file and turns verification off so that the callback can do the checking.
+	// There the file names the check even though no chain is built. A callback
+	// the caller swapped in over that shape is indistinguishable from the one
+	// SetupTLS built, because Go function values cannot be compared; that limit
+	// is recorded on URL().
+	if p.TLSConfig.VerifyConnection != nil &&
+		p.TLSConfig.InsecureSkipVerify &&
+		strings.Contains(p.TLSConfig.ServerName, ":") {
+		return true
+	}
+	if p.TLSConfig.InsecureSkipVerify || p.TLSConfig.RootCAs == nil {
+		return false
+	}
+	// A non-nil pool is not enough: a caller can swap in their own, and the file
+	// name says nothing about what is in it. Read the file back and compare, so
+	// that the parameter travels only while it still describes the roots in use.
+	// This is the question a callback of the caller's own used to answer instead:
+	// an extra check beside the pool is not a reason to stop believing the pool,
+	// and the pool is what this file can still name.
+	//
+	// A file that cannot be read, or that holds nothing a pool will take, is
+	// treated as no longer describing them. That is the honest direction rather
+	// than the safe one; see the note on URL().
+	pemBytes, err := readCertificate(p.Parameters[Certificate])
+	if err != nil {
+		return false
+	}
+	fromFile := x509.NewCertPool()
+	if !fromFile.AppendCertsFromPEM(pemBytes) {
+		return false
+	}
+	return p.TLSConfig.RootCAs.Equal(fromFile)
+}
+
+// trustsAnyCertificate reports whether this Config would accept whatever
+// certificate the server presents. It mirrors what the connection actually
+// does, because that is the only thing URL() may weaken.
+//
+// A nil TLSConfig is not "no opinion": getTLSConn replaces it with
+// SetupTLS("", "", false, ...), so such a Config verifies. A verification
+// callback counts as verification even alongside InsecureSkipVerify, which is
+// the combination SetupTLS itself uses for a servercertificate pin and for a
+// certificate whose common name contains a colon - and the combination a caller
+// uses to install their own check. URL() cannot serialize a callback, so a
+// Config carrying one must not be described as trusting: reparsing will verify
+// against system roots instead, which may fail the handshake but will not
+// accept anything.
+//
+// The field is read as well, though getTLSConn never reads it, and only as a
+// veto: a Config is described as trusting only if the tls.Config trusts and the
+// field agrees. A field set to false by hand over a trusting tls.Config is a
+// request to verify that the connection itself would ignore, and honouring it
+// here can only narrow what the reparsed Config accepts. The field can never
+// grant trust on its own, because the tls.Config is what the handshake uses.
+func (p Config) trustsAnyCertificate() bool {
+	if p.Encryption == EncryptionDisabled {
+		// No TLS is negotiated, so no certificate is seen either way.
+		return p.TrustServerCertificate
+	}
+	return p.TrustServerCertificate &&
+		p.TLSConfig != nil &&
+		p.TLSConfig.InsecureSkipVerify &&
+		p.TLSConfig.VerifyPeerCertificate == nil &&
+		p.TLSConfig.VerifyConnection == nil
+}
+
+// tlsMinParameter renders a MinVersion the way tlsmin spells one. Zero is the
+// tls package default and has no spelling. TLS 1.0 to 1.3 are written by name.
+// A version above the highest name is written as its protocol number - 0x0305
+// and so on - which tlsVersionFromNumber reads back, so that such a floor
+// round-trips: on today's crypto/tls it is a Config no handshake can satisfy,
+// and dropping it or rounding it down to a name would both come back as a
+// Config that connects. A version below TLS 1.0 has no name and no number
+// either, and is dropped; the default that comes back is stricter, not looser.
+func tlsMinParameter(minVersion uint16) string {
+	if name := tlsVersionToString(minVersion); name != "" {
+		return name
+	}
+	if minVersion > highestNamedTLSVersion {
+		return fmt.Sprintf("0x%04x", minVersion)
+	}
+	return ""
+}
+
+// tlsVersionFromNumber reads the spelling tlsMinParameter writes for a version
+// above the highest one tlsmin has a name for: 0x followed by exactly four hex
+// digits. It is the only spelling added to tlsmin, and it is that narrow on
+// purpose. Below the bound a number is not read, because it would give a string
+// that meant nothing before - and so the TLS 1.2 default - a meaning, and a
+// looser one: crypto/tls keeps TLS 1.0 and 1.1 out only while MinVersion is
+// zero, so 0x0300 read as a floor would let them back in on upgrade. Anything
+// that is not exactly this spelling, or that names a version at or below the
+// bound, reads as zero, which is what an unknown tlsmin has always meant.
+func tlsVersionFromNumber(s string) uint16 {
+	const prefix = "0x"
+	if len(s) != len(prefix)+4 || !strings.HasPrefix(s, prefix) {
+		return 0
+	}
+	v, err := strconv.ParseUint(s[len(prefix):], 16, 16)
+	if err != nil || v <= highestNamedTLSVersion {
+		return 0
+	}
+	return uint16(v)
+}
+
+// wholeSeconds renders a duration the way the connection string grammar spells
+// one: a whole number of seconds, not negative. Parse reads these fields with
+// strconv.ParseUint, so a negative or sub-second value has no spelling there and
+// is reported as unrepresentable rather than rounded into a different setting.
+func wholeSeconds(d time.Duration) (string, bool) {
+	if d < 0 || d%time.Second != 0 {
+		return "", false
+	}
+	return strconv.FormatInt(int64(d/time.Second), 10), true
+}
+
+// carriedVerbatim lists the parameters URL() has no Config field for but must
+// still carry, so that a rebuilt connection string reaches the same certificate
+// trust and selects the same authentication workflow. Most are read out of
+// Config.Parameters by azuread and integratedauth rather than by this package.
+//
+// It is a list rather than a copy of everything Parse retained, because URL()
+// cannot tell whether a parameter it does not recognise holds a secret.
+// azuread reads systemtoken, clientassertion and userassertion out of the same
+// map, and url.URL.Redacted() masks only the userinfo password, so copying
+// every retained parameter would put those credentials into the string Go
+// offers as the safe one to log. A parameter this list has not been told about
+// is dropped instead, which loses a setting rather than publishing a secret.
+// change password is left out for the same reason, and because a password
+// change is a login-time operation that replaying a serialized DSN should not
+// reissue.
+var carriedVerbatim = map[string]bool{
+	Certificate:       true,
+	ServerCertificate: true,
+
+	// azuread/configuration.go
+	"additionallyallowedtenants": true,
+	"applicationclientid":        true,
+	"clientcertpath":             true,
+	"disableinstancediscovery":   true,
+	"fedauth":                    true,
+	"resource id":                true,
+	"sendcertificatechain":       true,
+	"serviceconnectionid":        true,
+	"tokenfilepath":              true,
+
+	// integratedauth/auth.go and integratedauth/krb5/krb5.go
+	"authenticator":           true,
+	"krb5-configfile":         true,
+	"krb5-credcachefile":      true,
+	"krb5-dnslookupkdc":       true,
+	"krb5-keytabfile":         true,
+	"krb5-realm":              true,
+	"krb5-udppreferencelimit": true,
+}
+
+// URL converts a Config back into a sqlserver:// connection string.
+//
+// A setting that has a field on Config is written from that field, whenever the
+// field disagrees with the value reparsing the URL without it would produce. An
+// edit to a Config therefore survives the round trip whether or not the
+// connection string named the setting, and a setting left at its default adds
+// nothing to the URL. Where the field holds something the connection string
+// grammar cannot spell - a negative or sub-second timeout, a packet size
+// outside the TDS range, read-only intent with no database - the parameter is
+// dropped, because Parse would otherwise reject the URL or read back a
+// different setting. disableretry predates the rule and is still written
+// unconditionally; dial timeout is written for every value the grammar can
+// spell, which is the same thing except for the negative and sub-second ones the
+// rule drops.
+//
+// Five settings do not follow that rule, each for its own reason.
+//
+// encrypt: EncryptionOff is both the zero value and the result of an explicit
+// encrypt=false or encrypt=optional, so writing it for every Config that never
+// set encryption would turn a default into a choice. It is written only when
+// the connection string supplied it, which costs nothing because EncryptionOff
+// is also what a URL without the parameter reparses to.
+//
+// trustservercertificate: a verifying value follows the rule, but a trusting
+// one is written only when the connection string asked for it, so that
+// serializing a Config can never be the thing that turns verification off. A
+// Config with no tls.Config, the field at its zero value and no parameter has
+// no view on trust and gets nothing written, so it reparses to the parser's
+// default as it always has. See the comment on its emission.
+//
+// hostnameincertificate: written from HostInCertificateProvided, not from
+// ServerName differing from Host. A ServerName set straight onto the tls.Config
+// does not travel unless HostInCertificateProvided is set as well.
+//
+// workstation id and epa enabled: their defaults are ambient rather than
+// constant - the local host name and MSSQL_USE_EPA - so the parameter's
+// presence counts as evidence alongside the field. For epa enabled that means a
+// value the environment supplied is left for the reading environment to supply
+// again; only an explicit choice, or one a caller set that the environment
+// disagrees with, travels.
+//
+// change password has a field and is still never written, because the field
+// holds a credential. See carriedVerbatim.
+//
+// A setting that has no field is carried only if carriedVerbatim names it. That
+// covers certificate and servercertificate, which name a file, and the
+// authentication settings azuread and integratedauth read out of Parameters for
+// themselves. A parameter this method has not been told about is dropped rather
+// than copied, because it cannot tell whether one holds a secret.
+//
+// One Config is written so that Parse refuses it: a servercertificate pin
+// with ordinary verification left on, which accepts only a certificate that
+// passes both the chain check and the byte comparison. No connection string
+// produces that, and either half on its own accepts certificates the Config
+// rejects, so the URL names both and parseTLS rejects the pair. See the
+// hostnameincertificate emission.
+//
+// Server, port, user id and password travel in the URL's host and userinfo
+// rather than its query. Anything held only in a programmatic tls.Config has no
+// connection string spelling and does not survive: a verification callback, a
+// cipher suite list, a MaxVersion. A Config restricted by one of those reparses
+// as one that is not. A callback beside a pin or a pool leaves the pin or the
+// pool in place, since the parameter is still true about what the connection
+// checks; a callback a caller installs in place of the one SetupTLS built,
+// leaving the rest of the tls.Config as SetupTLS left it, is indistinguishable
+// from the original, because Go function values cannot be compared, and the
+// parameter behind it travels. A MinVersion above the highest version tlsmin
+// names is written as its protocol number, which Parse reads back, so such a
+// floor round-trips; see tlsMinParameter for the bound and why it is there.
+//
+// Two things about certificate and servercertificate follow from their naming a
+// file rather than holding one, and neither has an answer inside the grammar.
+//
+// A root pool with no file behind it cannot be written at all. Where a caller
+// has replaced RootCAs with one they built, the URL says nothing and the reader
+// chains to system roots, which is honest - it states nothing untrue about this
+// Config - but not safe: the system pool accepts more than a private one, so the
+// round trip can end up accepting a certificate this Config would reject. The
+// alternative, writing the file name anyway, describes a trust anchor the
+// connection has stopped using, which a reader has no way to notice.
+//
+// And a DSN is a reference, not a snapshot: Parse reads the file again, so what
+// comes back is whatever the file holds then. A servercertificate pin therefore
+// follows the file rather than the bytes captured when this Config was built.
+//
+// URL() reads the certificate file itself for the same reason, on every call, so
+// a file that is locked, unreadable or on a network share that is briefly away
+// takes the same path as one whose roots no longer match: the parameter is
+// dropped and the reader chains to system roots. There is no error to return
+// from here to say so.
+//
+// The output also depends on this process: it reads os.Hostname() and
+// MSSQL_USE_EPA to decide what counts as a default.
 func (p Config) URL() *url.URL {
 	q := url.Values{}
 	if p.Database != "" {
@@ -715,7 +1066,12 @@ func (p Config) URL() *url.URL {
 	if p.Instance != "" {
 		res.Path = p.Instance
 	}
-	q.Add(DialTimeout, strconv.FormatFloat(float64(p.DialTimeout.Seconds()), 'f', 0, 64))
+	// DialTimeout is documented as negative to disable, and Parse reads it with
+	// strconv.ParseUint, so a negative or sub-second value has no spelling here
+	// either.
+	if seconds, ok := wholeSeconds(p.DialTimeout); ok {
+		q.Add(DialTimeout, seconds)
+	}
 
 	switch p.Encryption {
 	case EncryptionDisabled:
@@ -724,11 +1080,123 @@ func (p Config) URL() *url.URL {
 		q.Add(Encrypt, "true")
 	case EncryptionStrict:
 		q.Add(Encrypt, "strict")
+	case EncryptionOff:
+		// EncryptionOff is both the zero value and the result of an explicit
+		// encrypt=false or encrypt=optional. Emitting it for every Config that
+		// never set encryption would turn a default into a choice, so it is
+		// written only when the connection string supplied it. The half of that
+		// distinction that matters for security is carried by
+		// trustservercertificate below, which does not depend on the parameter
+		// having been supplied.
+		if _, ok := p.Parameters[Encrypt]; ok {
+			q.Add(Encrypt, "false")
+		}
 	}
-	// Only include TrustServerCertificate if it was explicitly set in the original connection string
-	if _, ok := p.Parameters[TrustServerCertificate]; ok {
-		q.Add(TrustServerCertificate, strconv.FormatBool(p.TrustServerCertificate))
+	// parseTLS starts from a trusting default when a connection string carries no
+	// encrypt parameter and from a verifying one otherwise.
+	//
+	// What gets compared against that is trustsAnyCertificate below, which is
+	// the runtime's own notion rather than the field's: Config.TrustServerCertificate
+	// is not read at connect time, getTLSConn is, so serializing the field is
+	// the only way setting it can reach a connection at all.
+	//
+	// A verifying value is written whenever it differs from what reparsing
+	// would produce, so that turning verification on survives. A trusting one
+	// is written only when the connection string asked for it, so that
+	// serializing a Config can never be the thing that turns verification off.
+	//
+	// Strict encryption is left out: parseTLS forces the value to false there
+	// whatever the parameter said, so writing one would advertise a trust
+	// setting this driver ignores and another client might not.
+	if p.Encryption != EncryptionStrict {
+		_, encryptEmitted := q[Encrypt]
+		trustedWhenReparsed := !encryptEmitted
+		trusted := p.trustsAnyCertificate()
+		_, trustSupplied := p.Parameters[TrustServerCertificate]
+		// A Config with no tls.Config, the field at its zero value and no
+		// parameter behind it has no view on trust at all. Parse never produces
+		// that shape, since it builds a tls.Config whenever encryption is on, so
+		// it only comes from a Config built by hand, and for those the zero value
+		// has always meant the parser's default rather than a choice. Writing
+		// trustservercertificate=false for it turned this driver's own
+		// integration harness, which builds its Config that way from HOST and
+		// DATABASE and round-trips it through here, into one that verified a
+		// self-signed server. Say nothing and let the reader apply its default.
+		hasView := p.TLSConfig != nil || p.TrustServerCertificate || trustSupplied
+		if hasView && trusted != trustedWhenReparsed && (!trusted || trustSupplied) {
+			q.Add(TrustServerCertificate, strconv.FormatBool(trusted))
+		}
 	}
+	// certificate and servercertificate name a file rather than anything the
+	// built tls.Config retains, so carriedVerbatim writes them instead.
+	if p.TLSConfig != nil {
+		// A zero MinVersion means the tls package default, which is what an
+		// absent tlsmin produces, so a non-zero value is itself the evidence
+		// that a floor was asked for.
+		if tlsMin := tlsMinParameter(p.TLSConfig.MinVersion); tlsMin != "" {
+			q.Add(TLSMin, tlsMin)
+		}
+		// ServerName falls back to the host when no name was supplied, so
+		// HostInCertificateProvided is what tells a supplied name from that
+		// fallback; an explicitly empty value counts as supplied.
+		//
+		// A ServerName that simply differs from Host is deliberately not taken
+		// as evidence. The two also diverge when the caller moves Host and
+		// leaves the tls.Config alone - failoverPartnerParams in the root
+		// package does exactly that - and writing the old name there would pin
+		// the certificate of a server we are no longer connecting to. It would
+		// also set HostInCertificateProvided on the way back in, which is the
+		// flag connect() reads to decide whether to retarget ServerName after a
+		// routing redirect. A ServerName set straight onto the tls.Config is
+		// therefore in the same bucket as a verification callback: set
+		// HostInCertificateProvided as well if it should travel.
+		//
+		// A servercertificate pin that is written is the exception: parseTLS
+		// rejects the two together, and the pin compares raw bytes rather than
+		// checking a name, so there is nothing for a certificate name to say. It
+		// has to be a pin that is actually written, not one the connection
+		// string once named: a caller who removed the pin and chose a name has
+		// a config that checks that name, and the stale parameter says nothing
+		// about it.
+		//
+		// A pin beside ordinary verification is the one case that is written
+		// so that Parse refuses it. crypto/tls runs the chain and host name
+		// checks first and the pin after, so such a config accepts only a
+		// certificate that passes both, and no connection string produces that:
+		// the pin path turns verification off. Writing the pin alone would
+		// accept a certificate the chain rejects, such as the self-signed one a
+		// pin usually names; dropping the pin would accept every certificate a
+		// public CA has issued for the host. Each half is a true statement
+		// about this Config, so both are written and parseTLS rejects the pair,
+		// which is the only answer that accepts nothing the Config would not.
+		pinWritten := p.Parameters[ServerCertificate] != "" &&
+			p.retainedCertificateParameterApplies(ServerCertificate)
+		switch {
+		case pinWritten && !p.TLSConfig.InsecureSkipVerify:
+			name := p.TLSConfig.ServerName
+			if name == "" {
+				// crypto/tls refuses to verify against an empty name, so this
+				// Config could not have connected; the host is what is left
+				// to write, and Parse refuses the pair whatever the name is.
+				name = p.Host
+			}
+			q.Add(HostNameInCertificate, name)
+		case pinWritten:
+		case p.HostInCertificateProvided:
+			q.Add(HostNameInCertificate, p.TLSConfig.ServerName)
+		}
+	} else if p.Encryption == EncryptionDisabled {
+		// No TLS is negotiated, so there is no tls.Config to read these out of
+		// and the parsed text is the only record they have.
+		if tlsMin, ok := p.Parameters[TLSMin]; ok {
+			q.Add(TLSMin, tlsMin)
+		}
+		if hostInCertificate, ok := p.Parameters[HostNameInCertificate]; ok {
+			q.Add(HostNameInCertificate, hostInCertificate)
+		}
+	}
+	// Otherwise the caller cleared the tls.Config and these no longer describe
+	// it; see retainedCertificateParameterApplies.
 	if p.ColumnEncryption {
 		q.Add("columnencryption", "true")
 	}
@@ -752,6 +1220,90 @@ func (p Config) URL() *url.URL {
 	}
 	if p.FailOverPartnerSPN != "" {
 		q.Add(FailoverPartnerSpn, p.FailOverPartnerSPN)
+	}
+
+	// Login and connection settings, each written when the field disagrees with
+	// the value reparsing this URL without it would produce. That is what makes
+	// an edit to a Config win whether or not the connection string named the
+	// setting, and it keeps a setting left at its default out of the URL.
+	if p.ReadOnlyIntent && p.Database != "" {
+		// Parse rejects ReadOnly without a database, so emitting it without one
+		// would build a URL this package cannot read back.
+		q.Add(ApplicationIntent, "ReadOnly")
+	}
+	if p.NoTraceID {
+		q.Add(NoTraceID, "true")
+	}
+	if !p.MultiSubnetFailover {
+		q.Add(MultiSubnetFailover, "false")
+	}
+	// epa enabled is the one setting whose absence does not mean a fixed value:
+	// Parse falls back to MSSQL_USE_EPA. A connection string that never named it
+	// was already asking whichever process reads it, so the round trip keeps
+	// asking rather than freezing this process's answer into the URL. What has
+	// to survive is the explicit choice - the thing the issue reports as lost -
+	// and a value a caller set that this process's environment disagrees with,
+	// which is why the comparison is against the environment rather than
+	// against false. A value a caller set that happens to match the
+	// environment is indistinguishable from the ambient default and is left to
+	// the reader as well.
+	_, epaSupplied := p.Parameters[EpaEnabled]
+	epaAmbient, epaAmbientUsable := epaEnabledFromEnvironment()
+	if epaSupplied || !epaAmbientUsable || p.EpaEnabled != epaAmbient {
+		q.Add(EpaEnabled, strconv.FormatBool(p.EpaEnabled))
+	}
+	// Zero is the sentinel for the driver's own default rather than a size, so
+	// it stays out. Anything else is written as the size the connection would
+	// actually use: both Parse and the login path clamp to the TDS range, so
+	// writing the raw value would come back as the clamped one anyway, and
+	// dropping it would come back as the default instead.
+	switch {
+	case p.PacketSize == 0:
+	case p.PacketSize < minPacketSize:
+		q.Add(PacketSize, strconv.FormatUint(minPacketSize, 10))
+	case p.PacketSize > maxPacketSize:
+		q.Add(PacketSize, strconv.FormatUint(maxPacketSize, 10))
+	default:
+		q.Add(PacketSize, strconv.FormatUint(uint64(p.PacketSize), 10))
+	}
+	if p.ConnTimeout != 0 {
+		if seconds, ok := wholeSeconds(p.ConnTimeout); ok {
+			q.Add(ConnectionTimeout, seconds)
+		}
+	}
+	if p.KeepAlive != defaultKeepAlive {
+		if seconds, ok := wholeSeconds(p.KeepAlive); ok {
+			q.Add(KeepAlive, seconds)
+		}
+	}
+	if p.AppName != defaultAppName {
+		q.Add(AppName, p.AppName)
+	}
+	// The workstation default is this machine's host name rather than a
+	// constant, so a field that happens to match it is not evidence that nobody
+	// asked for it. Without the presence test an explicit workstation id equal
+	// to the local host name would become the reading machine's name instead.
+	_, workstationSupplied := p.Parameters[WorkstationID]
+	if workstationSupplied || p.Workstation != defaultWorkstation() {
+		q.Add(WorkstationID, p.Workstation)
+	}
+
+	// The settings other packages read for themselves. See carriedVerbatim for
+	// why this is a list and not a copy of Config.Parameters.
+	for name := range carriedVerbatim {
+		// Nothing above writes one of these names today. If something ever
+		// does, splitConnectionStringURL rejects a duplicate key outright, so
+		// skipping is the difference between a redundant parameter and a DSN
+		// that cannot be read back.
+		if _, written := q[name]; written {
+			continue
+		}
+		if !p.retainedCertificateParameterApplies(name) {
+			continue
+		}
+		if value, ok := p.Parameters[name]; ok {
+			q.Add(name, value)
+		}
 	}
 
 	if len(q) > 0 {
