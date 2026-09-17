@@ -1353,6 +1353,32 @@ func TestConfigURLDropsTrustBesideAPinAndKeepsTheHandshake(t *testing.T) {
 	assert.Error(t, verify([][]byte{otherDER}, nil), "another certificate is still rejected")
 }
 
+// TestConfigURLReadsBackADERCertificate covers the other spelling readCertificate
+// accepts. readDERFile re-encodes a .der file as PEM before anyone sees the
+// bytes, so the pool comparison in retainedCertificateParameterApplies, which
+// reads the file back the same way SetupTLS did, sees the same PEM and the
+// parameter travels. It is here because a review claimed the comparison would
+// reject DER and drop the file, which would have widened the reparsed policy to
+// system roots.
+func TestConfigURLReadsBackADERCertificate(t *testing.T) {
+	_, der := newSelfSignedCert(t)
+	file, err := os.CreateTemp("", "*.der")
+	require.NoError(t, err, "creating temporary certificate file")
+	t.Cleanup(func() { _ = os.Remove(file.Name()) })
+	_, err = file.Write(der)
+	require.NoError(t, err, "writing temporary certificate file")
+	require.NoError(t, file.Close(), "closing temporary certificate file")
+
+	before, after := roundTrip(t, "server=host.example.com;encrypt=true;certificate="+file.Name())
+	require.NotNil(t, before.TLSConfig, "TLSConfig before")
+	require.NotNil(t, before.TLSConfig.RootCAs, "SetupTLS built a pool from the .der file")
+	assert.Equal(t, file.Name(), after.Parameters[Certificate], "certificate after")
+	require.NotNil(t, after.TLSConfig, "TLSConfig after")
+	require.NotNil(t, after.TLSConfig.RootCAs, "RootCAs after")
+	assert.True(t, after.TLSConfig.RootCAs.Equal(before.TLSConfig.RootCAs), "the same pool comes back")
+	assert.False(t, after.TLSConfig.InsecureSkipVerify, "InsecureSkipVerify after")
+}
+
 // TestConfigURLKeepsACommonNameCheckVerifying covers the other place SetupTLS
 // turns InsecureSkipVerify on for a configuration that still verifies: a
 // certificate whose common name contains a colon gets its own VerifyConnection
