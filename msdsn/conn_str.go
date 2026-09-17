@@ -1218,10 +1218,10 @@ func (p Config) URL() *url.URL {
 		q.Add(ApplicationIntent, "ReadOnly")
 	}
 	if p.NoTraceID {
-		q.Add(NoTraceID, strconv.FormatBool(p.NoTraceID))
+		q.Add(NoTraceID, "true")
 	}
 	if !p.MultiSubnetFailover {
-		q.Add(MultiSubnetFailover, strconv.FormatBool(p.MultiSubnetFailover))
+		q.Add(MultiSubnetFailover, "false")
 	}
 	// epa enabled is the one setting whose absence does not mean a fixed value:
 	// Parse falls back to MSSQL_USE_EPA. A connection string that never named it
