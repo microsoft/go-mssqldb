@@ -819,6 +819,13 @@ func (p Config) retainedCertificateParameterApplies(name string) bool {
 // Config carrying one must not be described as trusting: reparsing will verify
 // against system roots instead, which may fail the handshake but will not
 // accept anything.
+//
+// The field is read as well, though getTLSConn never reads it, and only as a
+// veto: a Config is described as trusting only if the tls.Config trusts and the
+// field agrees. A field set to false by hand over a trusting tls.Config is a
+// request to verify that the connection itself would ignore, and honouring it
+// here can only narrow what the reparsed Config accepts. The field can never
+// grant trust on its own, because the tls.Config is what the handshake uses.
 func (p Config) trustsAnyCertificate() bool {
 	if p.Encryption == EncryptionDisabled {
 		// No TLS is negotiated, so no certificate is seen either way.
