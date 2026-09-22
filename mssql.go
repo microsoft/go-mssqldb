@@ -352,6 +352,9 @@ func (c *Conn) simpleProcessResp(ctx context.Context, isRollback bool) error {
 
 func (c *Conn) Commit() error {
 	if err := c.awaitResponse(c.transactionCtx); err != nil {
+		// database/sql has already finished the Tx and cannot roll it back.
+		// The server transaction may still be open, so prevent reuse.
+		c.connectionGood = false
 		return err
 	}
 	defer func() { c.inTransaction = false }()

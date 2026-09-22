@@ -435,6 +435,13 @@ connection, including commit, rollback, or pool reset, waits for this cleanup.
 Cleanup does not introduce another query deadline or cancel SQL merely because
 a statement failed.
 
+If the transaction context is canceled or expires while `Commit` waits for
+earlier cleanup, `Commit` returns the original context error and makes the
+connection unusable. `database/sql` has already finished the transaction at that
+point, so it can no longer roll back the still-open server transaction. Closing
+the connection disposes of it; the driver does not report that a commit or
+rollback succeeded.
+
 An output-assignment error (for example, SQL `NULL` returned into an `int64`
 instead of `sql.NullInt64`) does not itself invalidate the connection. Later
 output parameters are still processed while the response is consumed; do not
