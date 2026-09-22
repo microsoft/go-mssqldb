@@ -23,7 +23,7 @@ Other supported formats are listed below.
 
 All connection string parameters are case-insensitive. Providing the same parameter more than once with different casing (e.g., `TrustServerCertificate` and `trustservercertificate`) will result in a parse error.
 
-Boolean parameters accept `1`, `t`, `T`, `TRUE`, `true`, `True`, `0`, `f`, `F`, `FALSE`, `false`, `False`, and additionally `yes` and `no` in any casing. `yes` and `no` are accepted so that a connection string can be shared with ODBC-based drivers, which only accept those two spellings.
+Boolean parameters accept `1`, `t`, `T`, `TRUE`, `true`, `True`, `0`, `f`, `F`, `FALSE`, `false`, `False`, and additionally `yes` and `no` in any casing.
 
 ### Common parameters
 
