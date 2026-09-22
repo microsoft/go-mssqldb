@@ -195,9 +195,11 @@ type Connector struct {
 	// When not present, the next query will still reset the session to the
 	// database defaults.
 	//
-	// When present the connection will immediately mark the session to
-	// be reset, then execute the SessionInitSQL text to setup the session
+	// When present the connection will mark the session to be reset,
+	// then execute the SessionInitSQL text to setup the session
 	// that may be different from the base database defaults.
+	// If pool acquisition is canceled before reset can start, initialization
+	// is deferred until a subsequent request can complete it.
 	//
 	// For Example, the application relies on the following defaults
 	// but is not allowed to set them at the database system level.
@@ -251,6 +253,7 @@ type Conn struct {
 	sess           *tdsSession
 	transactionCtx context.Context
 	resetSession   bool
+	resetPending   bool // Cleanup and session initialization have not completed.
 
 	processQueryText bool
 	connectionGood   bool
@@ -900,6 +903,11 @@ func (s *Stmt) exec(ctx context.Context, args []namedValue) (res driver.Result, 
 	if err := s.c.awaitResponse(ctx); err != nil {
 		return nil, err
 	}
+	return s.execAfterResponse(ctx, args)
+}
+
+// Session initialization uses this after awaitResponse has finished cleanup.
+func (s *Stmt) execAfterResponse(ctx context.Context, args []namedValue) (res driver.Result, err error) {
 	if s.doEncryption() && len(args) > 0 {
 		args, err = s.encryptArgs(ctx, args)
 	}

@@ -435,6 +435,18 @@ connection, including commit, rollback, or pool reset, waits for this cleanup.
 Cleanup does not introduce another query deadline or cancel SQL merely because
 a statement failed.
 
+If a later pool acquisition is canceled before session reset can start, the
+earlier batch continues. The driver retains the reset obligation and completes
+cleanup before subsequent application SQL, setting the TDS reset flag and running
+any configured `SessionInitSQL` first. Initialization uses that later request's
+context and does not consume its output parameters, return status, or messages.
+
+`database/sql` ignores `ResetSession` errors other than `driver.ErrBadConn`, so
+`DB.Conn(ctx)` can still return a reserved connection after acquisition
+cancellation. This does not change that acquisition behavior: the returned
+connection cannot send application SQL until reset is complete. Failed cleanup
+or initialization makes the connection unusable.
+
 If the transaction context is canceled or expires while `Commit` waits for
 earlier cleanup, `Commit` returns the original context error and makes the
 connection unusable. `database/sql` has already finished the transaction at that

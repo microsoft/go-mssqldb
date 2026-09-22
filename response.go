@@ -67,23 +67,25 @@ func (c *Conn) awaitResponse(ctx context.Context) error {
 	if !c.connectionGood {
 		return driver.ErrBadConn
 	}
-	if c.sess == nil || c.sess.cleanup == nil {
-		return nil
-	}
-	pending := c.sess.cleanup
-	select {
-	case <-pending.done:
-	default:
+	if c.sess != nil && c.sess.cleanup != nil {
+		pending := c.sess.cleanup
 		select {
 		case <-pending.done:
-		case <-ctx.Done():
-			return ctx.Err()
+		default:
+			select {
+			case <-pending.done:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		c.sess.cleanup = nil
+		if pending.err != nil {
+			c.connectionGood = false
+			return driver.ErrBadConn
 		}
 	}
-	c.sess.cleanup = nil
-	if pending.err != nil {
-		c.connectionGood = false
-		return driver.ErrBadConn
+	if c.resetPending {
+		return c.completeReset(ctx)
 	}
 	return nil
 }

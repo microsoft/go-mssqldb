@@ -13,24 +13,36 @@ var _ driver.Connector = &Connector{}
 var _ driver.SessionResetter = &Conn{}
 
 func (c *Conn) ResetSession(ctx context.Context) error {
-	if err := c.awaitResponse(ctx); err != nil {
+	if !c.connectionGood {
+		return driver.ErrBadConn
+	}
+	// database/sql ignores reset errors other than ErrBadConn. Keep the
+	// obligation if acquisition stops waiting for a healthy earlier response.
+	c.resetPending = true
+	return c.awaitResponse(ctx)
+}
+
+func (c *Conn) completeReset(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	c.resetSession = true
+	if c.connector != nil && len(c.connector.SessionInitSQL) != 0 {
+		// CheckNamedValue may already have registered the application's outputs.
+		outs := c.outs
+		c.clearOuts()
+		defer func() { c.outs = outs }()
 
-	if c.connector == nil || len(c.connector.SessionInitSQL) == 0 {
-		return nil
+		s, err := c.prepareContext(ctx, c.connector.SessionInitSQL)
+		if err == nil {
+			_, err = s.execAfterResponse(ctx, nil)
+		}
+		if err != nil {
+			c.connectionGood = false
+			return driver.ErrBadConn
+		}
 	}
-
-	s, err := c.prepareContext(ctx, c.connector.SessionInitSQL)
-	if err != nil {
-		return driver.ErrBadConn
-	}
-	_, err = s.exec(ctx, nil)
-	if err != nil {
-		return driver.ErrBadConn
-	}
-
+	c.resetPending = false
 	return nil
 }
 
