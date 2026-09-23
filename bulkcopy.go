@@ -763,9 +763,6 @@ func (b *Bulk) makeBulkVectorParam(vector Vector, col columnStruct) (res param, 
 	if !ok || len(vector.Data) != dimensions {
 		return res, fmt.Errorf("mssql: vector dimensions %d do not match column dimensions %d", len(vector.Data), dimensions)
 	}
-	if vector.ElementType == VectorElementFloat16 {
-		return makeVectorJSONParam(vector)
-	}
 	res.buffer, err = vector.encodeToBytes()
 	if err == nil {
 		res.ti.Size = len(res.buffer)

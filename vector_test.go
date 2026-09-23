@@ -805,7 +805,7 @@ func TestBulkMakeParamVectorJSONFallback(t *testing.T) {
 	}
 }
 
-func TestBulkMakeParamVectorFloat16UsesJSON(t *testing.T) {
+func TestBulkMakeParamVectorFloat16UsesBinary(t *testing.T) {
 	bulk := &Bulk{cn: &Conn{sess: &tdsSession{vectorSupported: true}}}
 	column := columnStruct{ti: typeInfo{
 		TypeId: typeVectorN,
@@ -818,15 +818,15 @@ func TestBulkMakeParamVectorFloat16UsesJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if param.ti.TypeId != typeNVarChar {
-		t.Fatalf("float16 bulk parameter type = %#x; want nvarchar", param.ti.TypeId)
+	if param.ti.TypeId != typeVectorN {
+		t.Fatalf("float16 bulk parameter type = %#x; want vector", param.ti.TypeId)
 	}
-	got, err := ucs22str(param.buffer)
-	if err != nil {
+	var decoded Vector
+	if err := decoded.decodeFromBytes(param.buffer); err != nil {
 		t.Fatal(err)
 	}
-	if got != "[1, 2, 3]" {
-		t.Fatalf("float16 bulk JSON vector = %q; want %q", got, "[1, 2, 3]")
+	if !reflect.DeepEqual(decoded.Data, vector.Data) {
+		t.Fatalf("float16 bulk vector = %v; want %v", decoded.Data, vector.Data)
 	}
 }
 
