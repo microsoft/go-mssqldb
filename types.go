@@ -601,10 +601,10 @@ func readVectorType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msds
 		size = int(encodedSize)
 	}
 	if size > vectorMaxWireSize {
-		badStreamPanicf("vector length %d exceeds wire maximum %d", size, vectorMaxWireSize)
+		badStreamPanic(fmt.Errorf("vector length %d exceeds wire maximum %d", size, vectorMaxWireSize))
 	}
 	if c == nil && size > ti.Size {
-		badStreamPanicf("vector length %d exceeds column maximum %d", size, ti.Size)
+		badStreamPanic(fmt.Errorf("vector length %d exceeds column maximum %d", size, ti.Size))
 	}
 	out := make([]byte, size)
 	r.ReadFull(out)
@@ -859,7 +859,7 @@ func readVectorPLPType(_ *typeInfo, r *tdsBuffer, c *cryptoMetadata, _ msdsn.Enc
 	if c != nil {
 		size := r.rsize - r.rpos
 		if size > vectorMaxWireSize {
-			badStreamPanicf("vector PLP length %d exceeds maximum %d", size, vectorMaxWireSize)
+			badStreamPanic(fmt.Errorf("vector PLP length %d exceeds maximum %d", size, vectorMaxWireSize))
 		}
 		out := make([]byte, size)
 		r.ReadFull(out)
@@ -873,7 +873,7 @@ func readVectorPLPType(_ *typeInfo, r *tdsBuffer, c *cryptoMetadata, _ msdsn.Enc
 	case _UNKNOWN_PLP_LEN:
 	default:
 		if size > vectorMaxWireSize {
-			badStreamPanicf("vector PLP length %d exceeds maximum %d", size, vectorMaxWireSize)
+			badStreamPanic(fmt.Errorf("vector PLP length %d exceeds maximum %d", size, vectorMaxWireSize))
 		}
 	}
 
@@ -886,15 +886,15 @@ func readVectorPLPType(_ *typeInfo, r *tdsBuffer, c *cryptoMetadata, _ msdsn.Enc
 		chunkSize := r.uint32()
 		if chunkSize == _PLP_TERMINATOR {
 			if size != _UNKNOWN_PLP_LEN && uint64(len(out)) != size {
-				badStreamPanicf("vector PLP length %d does not match advertised length %d", len(out), size)
+				badStreamPanic(fmt.Errorf("vector PLP length %d does not match advertised length %d", len(out), size))
 			}
 			return out
 		}
 		if uint64(len(out))+uint64(chunkSize) > vectorMaxWireSize {
-			badStreamPanicf("vector PLP accumulated length exceeds maximum %d", vectorMaxWireSize)
+			badStreamPanic(fmt.Errorf("vector PLP accumulated length exceeds maximum %d", vectorMaxWireSize))
 		}
 		if size != _UNKNOWN_PLP_LEN && uint64(len(out))+uint64(chunkSize) > size {
-			badStreamPanicf("vector PLP chunk exceeds advertised length %d", size)
+			badStreamPanic(fmt.Errorf("vector PLP chunk exceeds advertised length %d", size))
 		}
 		offset := len(out)
 		out = append(out, make([]byte, int(chunkSize))...)
@@ -1030,15 +1030,15 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		ti.Scale = scaleByte
 		elementType := VectorElementType(scaleByte)
 		if !elementType.IsValid() {
-			badStreamPanicf("Invalid element type for VECTOR: %d", scaleByte)
+			badStreamPanic(fmt.Errorf("Invalid element type for VECTOR: %d", scaleByte))
 		}
 		if ti.Size != 0xffff {
 			if ti.Size < vectorHeaderSize+1 || ti.Size > vectorMaxWireSize {
-				badStreamPanicf("Invalid size for VECTOR: %d", ti.Size)
+				badStreamPanic(fmt.Errorf("Invalid size for VECTOR: %d", ti.Size))
 			}
 			payloadSize := ti.Size - vectorHeaderSize
 			if payloadSize%elementType.BytesPerElement() != 0 {
-				badStreamPanicf("Invalid size for VECTOR element type %d: %d", scaleByte, ti.Size)
+				badStreamPanic(fmt.Errorf("Invalid size for VECTOR element type %d: %d", scaleByte, ti.Size))
 			}
 		}
 		// Note: We do not store dimension count in ti.Prec (uint8) to avoid overflow.

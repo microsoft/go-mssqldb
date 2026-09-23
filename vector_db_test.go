@@ -540,7 +540,7 @@ func TestVectorBulkCopy(t *testing.T) {
 	}
 }
 
-func TestVectorBulkCopyJSONFallback(t *testing.T) {
+func TestVectorBulkCopyWithoutNegotiation(t *testing.T) {
 	ctx := setupVectorTestWithSupport(t, 3, false, msdsn.VectorTypeSupportOff)
 
 	stmt, err := ctx.tx.Prepare(CopyIn(ctx.tableName, BulkOptions{}, "embedding"))

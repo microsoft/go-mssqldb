@@ -1473,6 +1473,9 @@ func TestReadVectorTypeRejectsLengthAboveColumnMaximum(t *testing.T) {
 		if !ok {
 			t.Fatalf("recovered %T, want error", recovered)
 		}
+		if _, ok := recovered.(StreamError); !ok {
+			t.Fatalf("recovered %T, want StreamError", recovered)
+		}
 		if !strings.Contains(err.Error(), "vector length 9 exceeds column maximum 8") {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1497,6 +1500,9 @@ func TestReadVectorTypeRejectsLengthAboveWireMaximum(t *testing.T) {
 		err, ok := recovered.(error)
 		if !ok {
 			t.Fatalf("recovered %T, want error", recovered)
+		}
+		if _, ok := recovered.(StreamError); !ok {
+			t.Fatalf("recovered %T, want StreamError", recovered)
 		}
 		if !strings.Contains(err.Error(), "vector length 8001 exceeds wire maximum 8000") {
 			t.Fatalf("unexpected error: %v", err)
