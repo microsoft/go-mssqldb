@@ -335,7 +335,7 @@ jobs:
           set -e
           case "$rc" in
             0) exit 0 ;;
-            2) echo "::error::Regression reproduced on a second measurement (>15%, p<0.01)"; exit 1 ;;
+            2) echo "::error::Regression reproduced on a second measurement (>=15%, p<0.01)"; exit 1 ;;
             *) echo "::error::could not evaluate the confirmation run"; exit 1 ;;
           esac
       - name: Post benchmark results to PR
