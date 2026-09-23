@@ -1,4 +1,17 @@
 # Changelog
+## [1.11.1](https://github.com/microsoft/go-mssqldb/compare/v1.11.0...v1.11.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* drain response tokens on query error to prevent Tx.Query hang ([#407](https://github.com/microsoft/go-mssqldb/issues/407)) ([#410](https://github.com/microsoft/go-mssqldb/issues/410)) ([1f52296](https://github.com/microsoft/go-mssqldb/commit/1f5229662c8006ab3f2ff8bee49d24faa95287b8))
+* preserve strict encryption in DSN URLs ([#452](https://github.com/microsoft/go-mssqldb/issues/452)) ([ae21d6a](https://github.com/microsoft/go-mssqldb/commit/ae21d6a9a7b0d88e22a0ddb957ad792205c4cfdc))
+
+
+### Reverts
+
+* undo response-cleanup changes from [#410](https://github.com/microsoft/go-mssqldb/issues/410) ([#469](https://github.com/microsoft/go-mssqldb/issues/469)) ([46dbf85](https://github.com/microsoft/go-mssqldb/commit/46dbf85941c5f2bba0cbde962fc0b113834cac9a))
+
 ## [1.11.0](https://github.com/microsoft/go-mssqldb/compare/v1.10.0...v1.11.0) (2026-08-23)
 
 
