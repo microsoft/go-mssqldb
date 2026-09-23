@@ -34,9 +34,15 @@ feedback first.
 
    Copilot's review summary and bot analysis usually live in the latter two, not inline.
 
-4. Check CI: `gh pr checks <n>`. If checks are failing, say which one and what it
-   reports, and stop. A line-by-line review of a PR whose tests do not compile wastes
-   everyone's time.
+4. Check CI: `gh pr checks <n>`. Read failed-job output before classifying a failure.
+   If the only failures are measured benchmark regressions exceeding the performance
+   threshold, report the measurements and continue the code review. Include benchmark
+   name, base/head values, percentage change, statistical result, threshold and log
+   link when available. Do not infer that the PR caused the slowdown or dismiss it as
+   noise. Other failures, including build/test failures inside a benchmark job, still
+   defer review; a job name alone does not qualify for this exception. If the failure
+   cannot be classified, state the verification gap and defer rather than guessing.
+   Continuing review does not waive CI or permit merge with failed required checks.
 
 5. **Verify claims against the actual code — do not assume.** Read the full function,
    the type declarations, and the call sites, not just the changed lines. Most false
@@ -218,6 +224,13 @@ per run and end the body with an idempotency marker so later sweeps skip this co
 Before reviewing, check the PR's comments for a marker matching the current head SHA and
 skip the PR entirely if one exists. With no findings, post only a brief "No findings"
 line plus the marker — that is a normal, successful outcome, not a failure.
+
+For the benchmark-only exception, include one factual **CI status** section in the
+same review body (or the no-new-findings comment), separate from code findings.
+Do not post a preliminary benchmark comment/marker and then a second review: publish
+once after review completes. Link existing benchmark feedback rather than repeating
+its full table, and do not turn the CI failure itself into a duplicate inline finding.
+The existing same-SHA skip still applies, including to older CI-deferred markers.
 
 Never raise a finding on a line that was modified in direct response to an earlier review
 comment — whether yours, GitHub Copilot's, or a human's — unless the change introduced a
