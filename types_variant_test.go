@@ -59,9 +59,10 @@ func TestReadVariantType_RejectsInvalidWidths(t *testing.T) {
 	for _, typeID := range []byte{typeTimeN, typeDateTime2N, typeDateTimeOffsetN} {
 		for _, scale := range []byte{0, 2, 3, 4, 5, 7} {
 			width := []int{3, 3, 3, 4, 4, 5, 5, 5}[scale]
-			if typeID == typeDateTime2N {
+			switch typeID {
+			case typeDateTime2N:
 				width += 3
-			} else if typeID == typeDateTimeOffsetN {
+			case typeDateTimeOffsetN:
 				width += 5
 			}
 			for _, length := range []int{width - 1, width + 1} {

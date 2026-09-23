@@ -781,9 +781,10 @@ func readVariantTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 			badStreamPanic(fmt.Errorf("sql_variant type 0x%x has invalid scale %d", vartype, scale))
 		}
 		wantData := int32(calcTimeSize(int(scale)))
-		if vartype == typeDateTime2N {
+		switch vartype {
+		case typeDateTime2N:
 			wantData += 3
-		} else if vartype == typeDateTimeOffsetN {
+		case typeDateTimeOffsetN:
 			wantData += 5
 		}
 		checkLengths(1, wantData)
