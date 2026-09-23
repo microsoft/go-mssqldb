@@ -76,6 +76,11 @@ type StreamError struct {
 	InnerError error
 }
 
+// Unwrap returns the error that caused the invalid stream.
+func (e StreamError) Unwrap() error {
+	return e.InnerError
+}
+
 func (e StreamError) Error() string {
 	return "Invalid TDS stream: " + e.InnerError.Error()
 }

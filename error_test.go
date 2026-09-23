@@ -28,6 +28,15 @@ func TestServerError(t *testing.T) {
 	}
 }
 
+func TestStreamErrorUnwrap(t *testing.T) {
+	originalErr := errors.New("underlying error")
+	streamErr := StreamError{InnerError: originalErr}
+
+	if !errors.Is(streamErr, originalErr) {
+		t.Fatalf("StreamError did not preserve wrapped error. Got '%+v', wanted '%+v'", streamErr.Unwrap(), originalErr)
+	}
+}
+
 func TestRetryableError(t *testing.T) {
 
 	originalErr := driver.ErrBadConn
