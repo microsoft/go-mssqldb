@@ -80,9 +80,9 @@ func isTableHeader(rec []string) bool {
 func isFileListLine(rec []string) bool {
 	return len(rec) == 7 &&
 		field(rec, 0) == "" &&
-		field(rec, 1) == "old" &&
+		field(rec, 1) != "" &&
 		field(rec, 2) == "" &&
-		field(rec, 3) == "new" &&
+		field(rec, 3) != "" &&
 		field(rec, 4) == "" &&
 		field(rec, 5) == "" &&
 		field(rec, 6) == ""

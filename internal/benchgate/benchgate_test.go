@@ -91,6 +91,17 @@ Foo-4,1e-07,0%,1.25e-07,0%,+25.00%,p=0.000 n=10,extra
 	}
 }
 
+func TestParseAcceptsBenchstatFileNames(t *testing.T) {
+	const in = `,bench_old.txt,,bench_new.txt,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Foo-4,1e-07,0%,1.25e-07,0%,+25.00%,p=0.000 n=10
+`
+	rows := parseString(t, in)
+	if len(rows) != 1 || rows[0].Name != "Foo-4" {
+		t.Fatalf("got %+v, want Foo-4", rows)
+	}
+}
+
 // An unreadable delta must be an error, not a dropped row: dropping it would
 // let a regression hide behind the rows that did parse.
 func TestParseFailsClosedOnUnreadableDelta(t *testing.T) {
