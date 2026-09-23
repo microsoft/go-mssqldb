@@ -118,30 +118,6 @@ const (
 // the connection is marked bad via checkBadConn.
 const cancelDrainTimeout = 5 * time.Second
 
-func sendAttentionWithTimeout(transport io.ReadWriteCloser, timeout time.Duration) error {
-	packet := make([]byte, headerSize)
-	packet[0] = byte(packAttention)
-	packet[1] = 1
-	binary.BigEndian.PutUint16(packet[2:4], uint16(headerSize))
-	packet[6] = 1
-
-	result := make(chan error, 1)
-	go func() {
-		_, err := transport.Write(packet)
-		result <- err
-	}()
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case err := <-result:
-		return err
-	case <-timer.C:
-		go transport.Close()
-		return fmt.Errorf("attention write timed out after %s", timeout)
-	}
-}
-
 var errCancelConfirmation = errors.New("did not get cancellation confirmation from the server")
 
 type cancelConfirmationResult uint8
