@@ -629,6 +629,8 @@ func FuzzProcessSingleResponse(f *testing.F) {
 		variantStream(typeInt8, nil, []byte{0x12}),
 		variantStream(typeTimeN, nil, []byte{7, 0, 0, 0, 0, 0}),
 		variantStream(typeDecimalN, []byte{38, 0}, make([]byte, 21)),
+		variantStream(typeNVarChar, []byte{9, 4, 0, 0, 0, 8, 0}, []byte{'a'}),
+		variantStream(typeNChar, []byte{9, 4, 0, 0, 0, 8, 0}, []byte{'a'}),
 		variantStream(typeInt8, nil, binary.LittleEndian.AppendUint64(nil, 42)),
 	} {
 		f.Add(variantResponse(value), uint16(0))

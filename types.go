@@ -824,6 +824,9 @@ func readVariantTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 		return decodeChar(col, buf)
 	case typeNVarChar, typeNChar:
 		checkLengths(7, datalen)
+		if datalen%2 != 0 {
+			badStreamPanic(fmt.Errorf("sql_variant type 0x%x has odd UTF-16 data length %d", vartype, datalen))
+		}
 		_ = readCollation(r)
 		r.uint16() // max length, ignoring
 		buf := make([]byte, datalen)

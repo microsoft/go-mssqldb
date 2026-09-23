@@ -130,6 +130,70 @@ func TestReadVariantType_PropertyWidths(t *testing.T) {
 	}
 }
 
+func TestReadVariantType_UnicodeLengths(t *testing.T) {
+	properties := []byte{9, 4, 0, 0, 0, 8, 0}
+	for _, typeID := range []byte{typeNVarChar, typeNChar} {
+		for length := 0; length <= 6; length++ {
+			t.Run(fmt.Sprintf("%02x/%d", typeID, length), func(t *testing.T) {
+				payload := ucs2("abc")[:length]
+				value := variantStream(typeID, properties, payload)
+				r := bufFromBytes(append(bytes.Repeat(value, 2), 0xa5))
+				defer r.bufClose()
+				ti := typeInfo{TypeId: typeVariant}
+				conn := &Conn{connectionGood: true}
+				for attempt := 0; attempt < 2; attempt++ {
+					start := r.rpos
+					var got interface{}
+					err := recoverErr(func() {
+						got = readVariantTypeWithEncoding(&ti, r, nil, msdsn.EncodeParameters{})
+					})
+					if length%2 != 0 {
+						assertStreamError(t, err)
+						assert.Contains(t, err.Error(), "UTF-16")
+						assert.Equal(t, start+6, r.rpos, "reject before reading properties or payload")
+						assert.Equal(t, err, conn.checkBadConn(context.Background(), err, false))
+						assert.False(t, conn.connectionGood)
+						return
+					}
+					assert.NoError(t, err)
+					assert.Equal(t, "abc"[:length/2], got)
+					assert.Equal(t, start+len(value), r.rpos)
+					assert.Nil(t, conn.checkBadConn(context.Background(), err, false))
+					assert.True(t, conn.connectionGood)
+				}
+				assert.Equal(t, byte(0xa5), r.byte())
+			})
+		}
+	}
+}
+
+func TestProcessSingleResponse_VariantUnicodeLengths(t *testing.T) {
+	properties := []byte{9, 4, 0, 0, 0, 8, 0}
+	for _, typeID := range []byte{typeNVarChar, typeNChar} {
+		for _, chunk := range []int{0, 1, 3} {
+			t.Run(fmt.Sprintf("%02x/%d", typeID, chunk), func(t *testing.T) {
+				value := variantStream(typeID, properties, []byte{'a'})
+				tokens, _, sawError, framed := drainSingleResponse(variantResponse(value), chunk, true)
+				if !framed || !sawError {
+					t.Fatal("expected malformed Unicode variant to fail")
+				}
+				assert.Contains(t, tokens, "error:mssql.StreamError")
+				for _, tok := range tokens {
+					if strings.HasPrefix(tok, "row") {
+						t.Fatalf("malformed Unicode variant emitted a row: %s", tok)
+					}
+				}
+				value = variantStream(typeID, properties, ucs2("hi"))
+				tokens, _, sawError, framed = drainSingleResponse(variantResponse(value), chunk, true)
+				if !framed || sawError {
+					t.Fatalf("valid Unicode variant failed: %v", tokens)
+				}
+				assert.Contains(t, tokens, "row[hi 123]")
+			})
+		}
+	}
+}
+
 func TestReadVariantType_ValuesAndPacketBoundaries(t *testing.T) {
 	guid := []byte{0xff, 0x19, 0x96, 0x6f, 0x86, 0x8b, 0x11, 0xd0, 0xb4, 0x2d, 0, 0xc0, 0x4f, 0xc9, 0x64, 0xff}
 	type variantCase struct {
