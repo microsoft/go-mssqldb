@@ -625,6 +625,16 @@ func FuzzProcessSingleResponse(f *testing.F) {
 		f.Add(stream, uint16(0))
 	}
 
+	for _, value := range [][]byte{
+		variantStream(typeInt8, nil, []byte{0x12}),
+		variantStream(typeTimeN, nil, []byte{7, 0, 0, 0, 0, 0}),
+		variantStream(typeDecimalN, []byte{38, 0}, make([]byte, 21)),
+		variantStream(typeInt8, nil, binary.LittleEndian.AppendUint64(nil, 42)),
+	} {
+		f.Add(variantResponse(value), uint16(0))
+		f.Add(variantResponse(value), uint16(3))
+	}
+
 	f.Fuzz(func(t *testing.T, stream []byte, frag uint16) {
 		// Bound input size to keep framing and allocations reasonable. A TDS
 		// packet length is a uint16, and the read buffer is 32 KiB, so very

@@ -699,6 +699,9 @@ func readVariantTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 	if size == 0 {
 		return nil
 	}
+	if size < 2 {
+		badStreamPanic(fmt.Errorf("sql_variant data length %d is invalid", size))
+	}
 	vartype := r.byte()
 	propbytes := int32(r.byte())
 	// size-2-propbytes is the trailing data length and is used below as an
@@ -706,88 +709,127 @@ func readVariantTypeWithEncoding(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, 
 	// so reject an underflowed (negative) or implausibly large value before any
 	// make() to avoid an OOM DoS (issue #420). A sql_variant tops out at ~8 KB
 	// on the wire, so it is bounded far below the LOB ceiling.
-	if datalen := size - 2 - propbytes; datalen < 0 || datalen > _MAX_VARIANT_LEN {
+	datalen := size - 2 - propbytes
+	if datalen < 0 || datalen > _MAX_VARIANT_LEN {
 		badStreamPanic(fmt.Errorf("sql_variant data length %d is invalid", datalen))
+	}
+	// Each read must fit the variant, not consume bytes from the next value.
+	checkLengths := func(wantProps, wantData int32) {
+		if propbytes != wantProps {
+			badStreamPanic(fmt.Errorf("sql_variant type 0x%x has %d property bytes, want %d", vartype, propbytes, wantProps))
+		}
+		if datalen != wantData {
+			badStreamPanic(fmt.Errorf("sql_variant type 0x%x has data length %d, want %d", vartype, datalen, wantData))
+		}
 	}
 	switch vartype {
 	case typeGuid:
-		buf := make([]byte, size-2-propbytes)
+		checkLengths(0, 16)
+		buf := make([]byte, datalen)
 		r.ReadFull(buf)
 		return decodeGuid(buf, encoding)
 	case typeBit:
+		checkLengths(0, 1)
 		return r.byte() != 0
 	case typeInt1:
+		checkLengths(0, 1)
 		return int64(r.byte())
 	case typeInt2:
+		checkLengths(0, 2)
 		return int64(int16(r.uint16()))
 	case typeInt4:
+		checkLengths(0, 4)
 		return int64(r.int32())
 	case typeInt8:
+		checkLengths(0, 8)
 		return int64(r.uint64())
 	case typeDateTime:
-		buf := make([]byte, size-2-propbytes)
+		checkLengths(0, 8)
+		buf := make([]byte, datalen)
 		r.ReadFull(buf)
 		return decodeDateTime(buf, loc)
 	case typeDateTim4:
-		buf := make([]byte, size-2-propbytes)
+		checkLengths(0, 4)
+		buf := make([]byte, datalen)
 		r.ReadFull(buf)
 		return decodeDateTim4(buf, loc)
 	case typeFlt4:
+		checkLengths(0, 4)
 		return float64(math.Float32frombits(r.uint32()))
 	case typeFlt8:
+		checkLengths(0, 8)
 		return math.Float64frombits(r.uint64())
 	case typeMoney4:
-		buf := make([]byte, size-2-propbytes)
+		checkLengths(0, 4)
+		buf := make([]byte, datalen)
 		r.ReadFull(buf)
 		return decodeMoney4(buf)
 	case typeMoney:
-		buf := make([]byte, size-2-propbytes)
+		checkLengths(0, 8)
+		buf := make([]byte, datalen)
 		r.ReadFull(buf)
 		return decodeMoney(buf)
 	case typeDateN:
-		buf := make([]byte, size-2-propbytes)
+		checkLengths(0, 3)
+		buf := make([]byte, datalen)
 		r.ReadFull(buf)
 		return decodeDate(buf, loc)
-	case typeTimeN:
+	case typeTimeN, typeDateTime2N, typeDateTimeOffsetN:
+		checkLengths(1, datalen)
 		scale := r.byte()
-		buf := make([]byte, size-2-propbytes)
+		if scale > 7 {
+			badStreamPanic(fmt.Errorf("sql_variant type 0x%x has invalid scale %d", vartype, scale))
+		}
+		wantData := int32(calcTimeSize(int(scale)))
+		if vartype == typeDateTime2N {
+			wantData += 3
+		} else if vartype == typeDateTimeOffsetN {
+			wantData += 5
+		}
+		checkLengths(1, wantData)
+		buf := make([]byte, datalen)
 		r.ReadFull(buf)
-		return decodeTime(scale, buf, loc)
-	case typeDateTime2N:
-		scale := r.byte()
-		buf := make([]byte, size-2-propbytes)
-		r.ReadFull(buf)
-		return decodeDateTime2(scale, buf, loc)
-	case typeDateTimeOffsetN:
-		scale := r.byte()
-		buf := make([]byte, size-2-propbytes)
-		r.ReadFull(buf)
+		if vartype == typeTimeN {
+			return decodeTime(scale, buf, loc)
+		}
+		if vartype == typeDateTime2N {
+			return decodeDateTime2(scale, buf, loc)
+		}
 		return decodeDateTimeOffset(scale, buf)
 	case typeBigVarBin, typeBigBinary:
+		checkLengths(2, datalen)
 		r.uint16() // max length, ignoring
-		buf := make([]byte, size-2-propbytes)
+		buf := make([]byte, datalen)
 		r.ReadFull(buf)
 		return buf
 	case typeDecimalN, typeNumericN:
+		checkLengths(2, datalen)
+		switch datalen {
+		case 5, 9, 13, 17:
+		default:
+			badStreamPanic(fmt.Errorf("sql_variant type 0x%x has invalid data length %d", vartype, datalen))
+		}
 		prec := r.byte()
 		scale := r.byte()
-		buf := make([]byte, size-2-propbytes)
+		buf := make([]byte, datalen)
 		r.ReadFull(buf)
 		return decodeDecimal(prec, scale, buf)
 	case typeBigVarChar, typeBigChar:
+		checkLengths(7, datalen)
 		col := readCollation(r)
 		r.uint16() // max length, ignoring
-		buf := make([]byte, size-2-propbytes)
+		buf := make([]byte, datalen)
 		r.ReadFull(buf)
 		return decodeChar(col, buf)
 	case typeNVarChar, typeNChar:
+		checkLengths(7, datalen)
 		_ = readCollation(r)
 		r.uint16() // max length, ignoring
-		buf := make([]byte, size-2-propbytes)
+		buf := make([]byte, datalen)
 		r.ReadFull(buf)
 		return decodeNChar(buf)
 	default:
-		badStreamPanicf("Invalid variant typeid")
+		badStreamPanic(fmt.Errorf("invalid sql_variant type 0x%x", vartype))
 	}
 	panic("shoulnd't get here")
 }
