@@ -3,23 +3,8 @@ package mssql
 import (
 	"fmt"
 	"net"
-	"sync"
 	"time"
 )
-
-// onceCloseConn shares transport closure between timeout cleanup and pool eviction.
-type onceCloseConn struct {
-	net.Conn
-	once     sync.Once
-	closeErr error
-}
-
-func (c *onceCloseConn) Close() error {
-	c.once.Do(func() {
-		c.closeErr = c.Conn.Close()
-	})
-	return c.closeErr
-}
 
 type timeoutConn struct {
 	c       net.Conn
@@ -28,7 +13,7 @@ type timeoutConn struct {
 
 func newTimeoutConn(conn net.Conn, timeout time.Duration) *timeoutConn {
 	return &timeoutConn{
-		c:       &onceCloseConn{Conn: conn},
+		c:       conn,
 		timeout: timeout,
 	}
 }
