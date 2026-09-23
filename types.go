@@ -618,20 +618,40 @@ func readVectorType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msds
 }
 
 func validateVectorPayload(payload []byte, ti *typeInfo) {
+	expectedElementType := VectorElementType(ti.Scale)
+	expectedDimensions := (ti.Size - vectorHeaderSize) / expectedElementType.BytesPerElement()
+	validateVectorHeader(payload, expectedElementType, expectedDimensions)
+}
+
+func validateVectorHeader(payload []byte, expectedElementType VectorElementType, expectedDimensions int) {
 	if len(payload) < vectorHeaderSize {
 		badStreamPanic(fmt.Errorf("vector payload is too short for header: %d", len(payload)))
 	}
+	if payload[0] != vectorMagic {
+		badStreamPanic(fmt.Errorf("invalid vector magic byte: got 0x%02X, expected 0x%02X", payload[0], vectorMagic))
+	}
+	if payload[1] != vectorVersion {
+		badStreamPanic(fmt.Errorf("unsupported vector version: got 0x%02X, expected 0x%02X", payload[1], vectorVersion))
+	}
 
 	elementType := VectorElementType(payload[4])
-	expectedElementType := VectorElementType(ti.Scale)
 	if elementType != expectedElementType {
 		badStreamPanic(fmt.Errorf("vector element type %s does not match column element type %s", elementType, expectedElementType))
 	}
+	if !elementType.IsValid() {
+		badStreamPanic(fmt.Errorf("invalid vector element type: %d", elementType))
+	}
 
 	dimensions := int(binary.LittleEndian.Uint16(payload[2:4]))
-	expectedDimensions := (ti.Size - vectorHeaderSize) / elementType.BytesPerElement()
-	if dimensions != expectedDimensions {
+	if expectedDimensions >= 0 && dimensions != expectedDimensions {
 		badStreamPanic(fmt.Errorf("vector dimensions %d do not match column dimensions %d", dimensions, expectedDimensions))
+	}
+	if dimensions > elementType.MaxDimensions() {
+		badStreamPanic(fmt.Errorf("vector dimensions %d exceed maximum %d for element type %s", dimensions, elementType.MaxDimensions(), elementType))
+	}
+	expectedPayloadLength := vectorHeaderSize + dimensions*elementType.BytesPerElement()
+	if len(payload) != expectedPayloadLength {
+		badStreamPanic(fmt.Errorf("vector payload length %d does not match header dimensions %d", len(payload), dimensions))
 	}
 }
 
@@ -879,7 +899,7 @@ func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.E
 	panic("shouldn't get here")
 }
 
-func readVectorPLPType(_ *typeInfo, r *tdsBuffer, c *cryptoMetadata, _ msdsn.EncodeParameters) interface{} {
+func readVectorPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, _ msdsn.EncodeParameters) interface{} {
 	if c != nil {
 		size := r.rsize - r.rpos
 		if size > vectorMaxWireSize {
@@ -912,6 +932,7 @@ func readVectorPLPType(_ *typeInfo, r *tdsBuffer, c *cryptoMetadata, _ msdsn.Enc
 			if size != _UNKNOWN_PLP_LEN && uint64(len(out)) != size {
 				badStreamPanic(fmt.Errorf("vector PLP length %d does not match advertised length %d", len(out), size))
 			}
+			validateVectorHeader(out, VectorElementType(ti.Scale), -1)
 			return out
 		}
 		if uint64(len(out))+uint64(chunkSize) > vectorMaxWireSize {

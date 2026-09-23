@@ -1582,6 +1582,67 @@ func TestReadVectorTypeRejectsMismatchedDimensions(t *testing.T) {
 	readVectorType(&ti, buf, nil, msdsn.EncodeParameters{})
 }
 
+func TestReadVectorTypeRejectsInvalidHeader(t *testing.T) {
+	tests := []struct {
+		name string
+		set  func([]byte)
+		want string
+	}{
+		{
+			name: "magic",
+			set: func(payload []byte) {
+				payload[0] = 0
+			},
+			want: "invalid vector magic byte",
+		},
+		{
+			name: "version",
+			set: func(payload []byte) {
+				payload[1] = 0
+			},
+			want: "unsupported vector version",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload := make([]byte, 20)
+			payload[0] = vectorMagic
+			payload[1] = vectorVersion
+			binary.LittleEndian.PutUint16(payload[2:4], 3)
+			payload[4] = byte(VectorElementFloat32)
+			test.set(payload)
+
+			buf := newTdsBuffer(uint16(len(payload)+2), nil)
+			binary.LittleEndian.PutUint16(buf.rbuf[:2], uint16(len(payload)))
+			copy(buf.rbuf[2:], payload)
+			buf.rpos = 0
+			buf.rsize = len(buf.rbuf)
+			buf.final = true
+
+			ti := typeInfo{TypeId: typeVectorN, Size: len(payload), Scale: byte(VectorElementFloat32)}
+			defer func() {
+				recovered := recover()
+				if recovered == nil {
+					t.Fatal("readVectorType should reject an invalid vector header")
+				}
+				err, ok := recovered.(error)
+				if !ok {
+					t.Fatalf("recovered %T, want error", recovered)
+				}
+				if _, ok := recovered.(StreamError); !ok {
+					t.Fatalf("recovered %T, want StreamError", recovered)
+				}
+				if !strings.Contains(err.Error(), test.want) {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}()
+
+			readVectorType(&ti, buf, nil, msdsn.EncodeParameters{})
+		})
+	}
+}
+
 func TestReadVectorTypeRejectsLengthAboveWireMaximum(t *testing.T) {
 	buf := newTdsBuffer(512, nil)
 	binary.LittleEndian.PutUint16(buf.rbuf[:2], vectorMaxWireSize+1)
@@ -1748,6 +1809,67 @@ func TestReadVectorPLPTypeRejectsOversizedPayload(t *testing.T) {
 			}()
 
 			ti.Reader(&ti, buf, nil, msdsn.EncodeParameters{})
+		})
+	}
+}
+
+func TestReadVectorPLPTypeRejectsInvalidHeader(t *testing.T) {
+	tests := []struct {
+		name string
+		set  func([]byte)
+		want string
+	}{
+		{
+			name: "magic",
+			set: func(payload []byte) {
+				payload[0] = 0
+			},
+			want: "invalid vector magic byte",
+		},
+		{
+			name: "version",
+			set: func(payload []byte) {
+				payload[1] = 0
+			},
+			want: "unsupported vector version",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload := make([]byte, 20)
+			payload[0] = vectorMagic
+			payload[1] = vectorVersion
+			binary.LittleEndian.PutUint16(payload[2:4], 3)
+			payload[4] = byte(VectorElementFloat32)
+			test.set(payload)
+
+			stream := plpStream(uint64(len(payload)), payload)
+			buf := newTdsBuffer(uint16(len(stream)), nil)
+			copy(buf.rbuf[:len(stream)], stream)
+			buf.rpos = 0
+			buf.rsize = len(stream)
+			buf.final = true
+			ti := typeInfo{TypeId: typeVectorN, Size: 0xffff, Scale: byte(VectorElementFloat32)}
+
+			defer func() {
+				recovered := recover()
+				if recovered == nil {
+					t.Fatal("readVectorPLPType should reject an invalid vector header")
+				}
+				err, ok := recovered.(error)
+				if !ok {
+					t.Fatalf("recovered %T, want error", recovered)
+				}
+				if _, ok := recovered.(StreamError); !ok {
+					t.Fatalf("recovered %T, want StreamError", recovered)
+				}
+				if !strings.Contains(err.Error(), test.want) {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}()
+
+			readVectorPLPType(&ti, buf, nil, msdsn.EncodeParameters{})
 		})
 	}
 }
