@@ -606,6 +606,9 @@ func readVectorType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msds
 	if c == nil && size > ti.Size {
 		badStreamPanic(fmt.Errorf("vector length %d exceeds column maximum %d", size, ti.Size))
 	}
+	if c == nil && size < ti.Size {
+		badStreamPanic(fmt.Errorf("vector length %d is less than column size %d", size, ti.Size))
+	}
 	out := make([]byte, size)
 	r.ReadFull(out)
 	return out

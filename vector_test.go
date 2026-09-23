@@ -1484,6 +1484,34 @@ func TestReadVectorTypeRejectsLengthAboveColumnMaximum(t *testing.T) {
 	readVectorType(&ti, buf, nil, msdsn.EncodeParameters{})
 }
 
+func TestReadVectorTypeRejectsLengthBelowColumnSize(t *testing.T) {
+	buf := newTdsBuffer(512, nil)
+	binary.LittleEndian.PutUint16(buf.rbuf[:2], 12)
+	buf.rpos = 0
+	buf.rsize = 2
+	buf.final = true
+
+	ti := typeInfo{TypeId: typeVectorN, Size: 20}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("readVectorType should reject a value shorter than the column size")
+		}
+		err, ok := recovered.(error)
+		if !ok {
+			t.Fatalf("recovered %T, want error", recovered)
+		}
+		if _, ok := recovered.(StreamError); !ok {
+			t.Fatalf("recovered %T, want StreamError", recovered)
+		}
+		if !strings.Contains(err.Error(), "vector length 12 is less than column size 20") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}()
+
+	readVectorType(&ti, buf, nil, msdsn.EncodeParameters{})
+}
+
 func TestReadVectorTypeRejectsLengthAboveWireMaximum(t *testing.T) {
 	buf := newTdsBuffer(512, nil)
 	binary.LittleEndian.PutUint16(buf.rbuf[:2], vectorMaxWireSize+1)
