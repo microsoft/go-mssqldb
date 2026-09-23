@@ -91,8 +91,12 @@ declaration.
   directly to the parser — no SQL Server required. For a buffer-overflow fix, the test
   must reproduce the specific malformed input from the issue and fail without the fix.
 - Round-trip tests for encoding changes: encode, decode, compare.
-- Flag a protocol fix that ships without a malformed-input test. That is the test that
-  would have caught the original bug.
+- Flag a malformed-input or buffer-bounds fix that ships without a test for the
+  triggering malformed input.
+- For valid-response lifecycle fixes, require a regression test exercising the concrete
+  valid token sequence and caller/cancellation ordering that triggered the bug. It must
+  fail without the fix and pass with it; retain controls for previously valid behavior.
+  Do not require malformed input for these fixes.
 
 ## Output
 
