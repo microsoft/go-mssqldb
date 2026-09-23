@@ -732,8 +732,13 @@ func TestConnectSuccessfulPreloginAndLogin(t *testing.T) {
 	}
 	conn.Close()
 
-	if sErr := <-serverErr; sErr != nil {
-		t.Errorf("Mock server error: %v", sErr)
+	select {
+	case sErr := <-serverErr:
+		if sErr != nil {
+			t.Errorf("Mock server error: %v", sErr)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for mock server")
 	}
 }
 
@@ -758,11 +763,18 @@ func TestConnectZeroTimeoutDoesNotRequireDeadlineReset(t *testing.T) {
 	defer conn.Close()
 
 	<-ctx.Done()
-	if _, err := conn.ExecContext(context.Background(), "select 1"); err != nil {
+	queryCtx, cancelQuery := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelQuery()
+	if _, err := conn.ExecContext(queryCtx, "select 1"); err != nil {
 		t.Fatalf("query after prelogin context deadline failed: %v", err)
 	}
-	if err := <-serverErr; err != nil {
-		t.Fatalf("Mock server error: %v", err)
+	select {
+	case err := <-serverErr:
+		if err != nil {
+			t.Fatalf("Mock server error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for mock server")
 	}
 }
 
