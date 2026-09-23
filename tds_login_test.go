@@ -141,6 +141,7 @@ func TestLoginWithSQLServerAuth(t *testing.T) {
 	defer tl.StopLogging()
 	SetLogger(&tl)
 	v := versionToHexString(getDriverVersion(driverVersion))
+	serverVersion := "0b 00 00 00 00 00"
 	pid := versionToHexString(uint32(os.Getpid()))
 	mock := NewMockTransportDialer(
 		[]string{
@@ -169,7 +170,7 @@ func TestLoginWithSQLServerAuth(t *testing.T) {
 		},
 		[]string{
 			"  04 01 00 20  00 00 01 00   00 00 10 00  06 01 00 16\n" +
-				"00 01 06 00  17 00 01 FF   0C 00 07 D0  00 00 02 01\n",
+				"00 01 06 00  17 00 01 FF   " + serverVersion + " 02 01\n",
 			"  04 01 00 4A  00 00 01 00   AD 32 00 01 74  00 00 04\n" +
 				"14 4d 00 69  00 63 00 72   00 6f 00 73  00 6f 00 66\n" +
 				"00 74 00 20  00 53 00 51   00 4c 00 20  00 53 00 65\n" +
@@ -209,6 +210,7 @@ func TestLoginWithSecurityTokenAuth(t *testing.T) {
 	defer tl.StopLogging()
 	SetLogger(&tl)
 	v := versionToHexString(getDriverVersion(driverVersion))
+	serverVersion := "0b 00 00 00 00 00"
 	pid := versionToHexString(uint32(os.Getpid()))
 	mock := NewMockTransportDialer(
 		[]string{
@@ -234,7 +236,7 @@ func TestLoginWithSecurityTokenAuth(t *testing.T) {
 		},
 		[]string{
 			"  04 01 00 20  00 00 01 00   00 00 10 00  06 01 00 16\n" +
-				"00 01 06 00  17 00 01 FF   0C 00 07 D0  00 00 02 01\n",
+				"00 01 06 00  17 00 01 FF   " + serverVersion + " 02 01\n",
 			"  04 01 00 4A  00 00 01 00   AD 32 00 01 74  00 00 04\n" +
 				"14 4d 00 69  00 63 00 72   00 6f 00 73  00 6f 00 66\n" +
 				"00 74 00 20  00 53 00 51   00 4c 00 20  00 53 00 65\n" +
@@ -276,6 +278,7 @@ func TestLoginWithADALUsernamePasswordAuth(t *testing.T) {
 	defer tl.StopLogging()
 	SetLogger(&tl)
 	v := versionToHexString(getDriverVersion(driverVersion))
+	serverVersion := "0b 00 00 00 00 00"
 	pid := versionToHexString(uint32(os.Getpid()))
 	mock := NewMockTransportDialer(
 		[]string{
@@ -302,7 +305,7 @@ func TestLoginWithADALUsernamePasswordAuth(t *testing.T) {
 		},
 		[]string{
 			"  04 01 00 20 00 00 01 00  00 00 10 00 06 01 00 16\n" +
-				"00 01 06 00 17 00 01 FF  0C 00 07 D0 00 00 02 01\n",
+				"00 01 06 00 17 00 01 FF  " + serverVersion + " 02 01\n",
 			"  04 01 00 97 00 00 01 00  EE 8A 00 00 00 02 00 00\n" +
 				"00 02 3A 00 00 00 16 00  00 00 01 3A 00 00 00 50\n" +
 				"00 00 00 68 00 74 00 74  00 70 00 73 00 3A 00 2F\n" +
@@ -355,6 +358,7 @@ func TestLoginWithADALManagedIdentityAuth(t *testing.T) {
 	SetLogger(&tl)
 
 	v := versionToHexString(getDriverVersion(driverVersion))
+	serverVersion := "0b 00 00 00 00 00"
 	pid := versionToHexString(uint32(os.Getpid()))
 	mock := NewMockTransportDialer(
 		[]string{
@@ -381,7 +385,7 @@ func TestLoginWithADALManagedIdentityAuth(t *testing.T) {
 		},
 		[]string{
 			"  04 01 00 20 00 00 01 00  00 00 10 00 06 01 00 16\n" +
-				"00 01 06 00 17 00 01 FF  0C 00 07 D0 00 00 02 01\n",
+				"00 01 06 00 17 00 01 FF  " + serverVersion + " 02 01\n",
 			"  04 01 00 97 00 00 01 00  EE 8A 00 00 00 02 00 00\n" +
 				"00 02 3A 00 00 00 16 00  00 00 01 3A 00 00 00 50\n" +
 				"00 00 00 68 00 74 00 74  00 70 00 73 00 3A 00 2F\n" +
