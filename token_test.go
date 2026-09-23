@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -486,7 +487,7 @@ func (b *blockingTransport) Read([]byte) (int, error) {
 }
 
 func (b *blockingTransport) Write(p []byte) (int, error) { return len(p), nil }
-func (b *blockingTransport) Close() error                 { return nil }
+func (b *blockingTransport) Close() error                { return nil }
 
 // TestStartResponseReaderSerializes verifies that startResponseReader waits for
 // the previous goroutine to finish before launching a new one.
