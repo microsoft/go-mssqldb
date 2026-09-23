@@ -1028,6 +1028,19 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		ti.Size = int(r.uint16())
 		scaleByte := r.byte() // element type: 0=FLOAT32, 1=FLOAT16
 		ti.Scale = scaleByte
+		elementType := VectorElementType(scaleByte)
+		if !elementType.IsValid() {
+			badStreamPanicf("Invalid element type for VECTOR: %d", scaleByte)
+		}
+		if ti.Size != 0xffff {
+			if ti.Size < vectorHeaderSize+1 || ti.Size > vectorMaxWireSize {
+				badStreamPanicf("Invalid size for VECTOR: %d", ti.Size)
+			}
+			payloadSize := ti.Size - vectorHeaderSize
+			if payloadSize%elementType.BytesPerElement() != 0 {
+				badStreamPanicf("Invalid size for VECTOR element type %d: %d", scaleByte, ti.Size)
+			}
+		}
 		// Note: We do not store dimension count in ti.Prec (uint8) to avoid overflow.
 		// Vector dimensions can be up to 1998 (float32) or 3996 (float16).
 		// Dimension count can be derived as: (ti.Size - 8) / bytesPerDim when needed.

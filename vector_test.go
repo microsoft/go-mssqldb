@@ -1474,6 +1474,62 @@ func TestReadVectorTypeRejectsLengthAboveWireMaximum(t *testing.T) {
 	readVectorType(&ti, buf, nil, msdsn.EncodeParameters{})
 }
 
+func TestReadVarLenVectorRejectsInvalidMetadata(t *testing.T) {
+	tests := []struct {
+		name  string
+		size  uint16
+		scale byte
+		want  string
+	}{
+		{
+			name:  "size above wire maximum",
+			size:  0xfffc,
+			scale: byte(VectorElementFloat32),
+			want:  "Invalid size for VECTOR: 65532",
+		},
+		{
+			name:  "unsupported element type",
+			size:  vectorHeaderSize + 4,
+			scale: 2,
+			want:  "Invalid element type for VECTOR: 2",
+		},
+		{
+			name:  "unaligned payload",
+			size:  vectorHeaderSize + 1,
+			scale: byte(VectorElementFloat32),
+			want:  "Invalid size for VECTOR element type 0: 9",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			metadata := newTdsBuffer(3, nil)
+			binary.LittleEndian.PutUint16(metadata.rbuf[:2], test.size)
+			metadata.rbuf[2] = test.scale
+			metadata.rpos = 0
+			metadata.rsize = 3
+			metadata.final = true
+
+			defer func() {
+				recovered := recover()
+				if recovered == nil {
+					t.Fatal("readVarLen should reject invalid VECTOR metadata")
+				}
+				err, ok := recovered.(error)
+				if !ok {
+					t.Fatalf("recovered %T, want error", recovered)
+				}
+				if !strings.Contains(err.Error(), test.want) {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}()
+
+			ti := typeInfo{TypeId: typeVectorN}
+			readVarLen(&ti, metadata, nil, msdsn.EncodeParameters{})
+		})
+	}
+}
+
 func TestReadVectorTypeReadsRemainingEncryptedValue(t *testing.T) {
 	value := []byte{vectorMagic, vectorVersion, byte(VectorElementFloat32), 0, 1, 0, 0, 0, 0, 0, 0, 0}
 	buf := &tdsBuffer{
