@@ -1512,6 +1512,76 @@ func TestReadVectorTypeRejectsLengthBelowColumnSize(t *testing.T) {
 	readVectorType(&ti, buf, nil, msdsn.EncodeParameters{})
 }
 
+func TestReadVectorTypeRejectsMismatchedElementType(t *testing.T) {
+	payload := make([]byte, 20)
+	payload[0] = vectorMagic
+	payload[1] = vectorVersion
+	binary.LittleEndian.PutUint16(payload[2:4], 6)
+	payload[4] = byte(VectorElementFloat16)
+
+	buf := newTdsBuffer(uint16(len(payload)+2), nil)
+	binary.LittleEndian.PutUint16(buf.rbuf[:2], uint16(len(payload)))
+	copy(buf.rbuf[2:], payload)
+	buf.rpos = 0
+	buf.rsize = len(buf.rbuf)
+	buf.final = true
+
+	ti := typeInfo{TypeId: typeVectorN, Size: len(payload), Scale: byte(VectorElementFloat32)}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("readVectorType should reject a payload with a mismatched element type")
+		}
+		err, ok := recovered.(error)
+		if !ok {
+			t.Fatalf("recovered %T, want error", recovered)
+		}
+		if _, ok := recovered.(StreamError); !ok {
+			t.Fatalf("recovered %T, want StreamError", recovered)
+		}
+		if !strings.Contains(err.Error(), "vector element type FLOAT16 does not match column element type FLOAT32") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}()
+
+	readVectorType(&ti, buf, nil, msdsn.EncodeParameters{})
+}
+
+func TestReadVectorTypeRejectsMismatchedDimensions(t *testing.T) {
+	payload := make([]byte, 20)
+	payload[0] = vectorMagic
+	payload[1] = vectorVersion
+	binary.LittleEndian.PutUint16(payload[2:4], 4)
+	payload[4] = byte(VectorElementFloat32)
+
+	buf := newTdsBuffer(uint16(len(payload)+2), nil)
+	binary.LittleEndian.PutUint16(buf.rbuf[:2], uint16(len(payload)))
+	copy(buf.rbuf[2:], payload)
+	buf.rpos = 0
+	buf.rsize = len(buf.rbuf)
+	buf.final = true
+
+	ti := typeInfo{TypeId: typeVectorN, Size: len(payload), Scale: byte(VectorElementFloat32)}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("readVectorType should reject a payload with mismatched dimensions")
+		}
+		err, ok := recovered.(error)
+		if !ok {
+			t.Fatalf("recovered %T, want error", recovered)
+		}
+		if _, ok := recovered.(StreamError); !ok {
+			t.Fatalf("recovered %T, want StreamError", recovered)
+		}
+		if !strings.Contains(err.Error(), "vector dimensions 4 do not match column dimensions 3") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}()
+
+	readVectorType(&ti, buf, nil, msdsn.EncodeParameters{})
+}
+
 func TestReadVectorTypeRejectsLengthAboveWireMaximum(t *testing.T) {
 	buf := newTdsBuffer(512, nil)
 	binary.LittleEndian.PutUint16(buf.rbuf[:2], vectorMaxWireSize+1)

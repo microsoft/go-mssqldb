@@ -611,7 +611,28 @@ func readVectorType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msds
 	}
 	out := make([]byte, size)
 	r.ReadFull(out)
+	if c == nil {
+		validateVectorPayload(out, ti)
+	}
 	return out
+}
+
+func validateVectorPayload(payload []byte, ti *typeInfo) {
+	if len(payload) < vectorHeaderSize {
+		badStreamPanic(fmt.Errorf("vector payload is too short for header: %d", len(payload)))
+	}
+
+	elementType := VectorElementType(payload[4])
+	expectedElementType := VectorElementType(ti.Scale)
+	if elementType != expectedElementType {
+		badStreamPanic(fmt.Errorf("vector element type %s does not match column element type %s", elementType, expectedElementType))
+	}
+
+	dimensions := int(binary.LittleEndian.Uint16(payload[2:4]))
+	expectedDimensions := (ti.Size - vectorHeaderSize) / elementType.BytesPerElement()
+	if dimensions != expectedDimensions {
+		badStreamPanic(fmt.Errorf("vector dimensions %d do not match column dimensions %d", dimensions, expectedDimensions))
+	}
 }
 
 // writeVectorType writes a Vector value to the TDS stream.
