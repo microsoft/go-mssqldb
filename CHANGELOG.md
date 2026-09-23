@@ -1,4 +1,11 @@
 # Changelog
+## [1.11.2](https://github.com/microsoft/go-mssqldb/compare/v1.11.1...v1.11.2) (2026-09-23)
+
+
+### Bug Fixes
+
+* accept yes/no for boolean connection string keywords ([#468](https://github.com/microsoft/go-mssqldb/issues/468)) ([0ad75cd](https://github.com/microsoft/go-mssqldb/commit/0ad75cd1f92cbfdd4c148b2369332ace4f208160))
+
 ## [1.11.1](https://github.com/microsoft/go-mssqldb/compare/v1.11.0...v1.11.1) (2026-09-23)
 
 
