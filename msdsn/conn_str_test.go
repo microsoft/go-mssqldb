@@ -678,6 +678,9 @@ func TestTrustServerCertificateField(t *testing.T) {
 		{"TrustServerCertificate=false", "sqlserver://user:pass@host?TrustServerCertificate=false", false},
 		{"TrustServerCertificate=1", "sqlserver://user:pass@host?TrustServerCertificate=1", true},
 		{"TrustServerCertificate=0", "sqlserver://user:pass@host?TrustServerCertificate=0", false},
+		{"TrustServerCertificate=yes", "sqlserver://user:pass@host?encrypt=true&TrustServerCertificate=yes", true},
+		{"TrustServerCertificate=no", "sqlserver://user:pass@host?TrustServerCertificate=no", false},
+		{"TrustServerCertificate=YES", "sqlserver://user:pass@host?encrypt=true&TrustServerCertificate=YES", true},
 		{"No TrustServerCertificate with encrypt", "sqlserver://user:pass@host?encrypt=true", false},
 		{"No TrustServerCertificate without encrypt defaults true", "sqlserver://user:pass@host", true},
 		{"ADO format true", "server=host;user id=user;password=pass;TrustServerCertificate=true", true},
@@ -689,6 +692,32 @@ func TestTrustServerCertificateField(t *testing.T) {
 			config, err := Parse(tt.connStr)
 			require.NoError(t, err, "Failed to parse connection string")
 			assert.Equal(t, tt.expected, config.TrustServerCertificate, "TrustServerCertificate")
+		})
+	}
+}
+
+func TestBooleanParamsAcceptYesNo(t *testing.T) {
+	tests := []struct {
+		name    string
+		connStr string
+		check   func(Config) bool
+	}{
+		{"trustservercertificate=yes", "server=host;encrypt=true;trustservercertificate=yes", func(p Config) bool { return p.TrustServerCertificate }},
+		{"trustservercertificate=no", "server=host;trustservercertificate=no", func(p Config) bool { return !p.TrustServerCertificate }},
+		{"disableretry=yes", "server=host;disableretry=yes", func(p Config) bool { return p.DisableRetry }},
+		{"disableretry=no", "server=host;disableretry=no", func(p Config) bool { return !p.DisableRetry }},
+		{"columnencryption=yes", "server=host;columnencryption=yes", func(p Config) bool { return p.ColumnEncryption }},
+		{"multisubnetfailover=no", "server=host;multisubnetfailover=no", func(p Config) bool { return !p.MultiSubnetFailover }},
+		{"notraceid=yes", "server=host;notraceid=yes", func(p Config) bool { return p.NoTraceID }},
+		{"guid conversion=yes", "server=host;guid conversion=yes", func(p Config) bool { return p.Encoding.GuidConversion }},
+		{"epa enabled=yes", "server=host;epa enabled=yes", func(p Config) bool { return p.EpaEnabled }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := Parse(tt.connStr)
+			require.NoError(t, err, "Failed to parse connection string")
+			assert.True(t, tt.check(p), "value was not applied")
 		})
 	}
 }
@@ -714,6 +743,21 @@ func TestTrustServerCertificateRoundTrip(t *testing.T) {
 				"TrustServerCertificate changed after round-trip (URL: %s)", urlStr)
 		})
 	}
+}
+
+func TestEncryptionStrictRoundTrip(t *testing.T) {
+	config, err := Parse("sqlserver://user:pass@host?encrypt=strict")
+	require.NoError(t, err, "Failed to parse connection string")
+
+	urlStr := config.URL().String()
+	assert.Contains(t, urlStr, "encrypt=strict")
+
+	config2, err := Parse(urlStr)
+	require.NoError(t, err, "Failed to parse round-tripped URL")
+	assert.Equal(t, Encryption(EncryptionStrict), config2.Encryption,
+		"Encryption changed after round-trip (URL: %s)", urlStr)
+	assert.False(t, config2.TrustServerCertificate,
+		"strict encryption must not trust the server certificate (URL: %s)", urlStr)
 }
 
 func TestTrustServerCertificateURLOverride(t *testing.T) {
