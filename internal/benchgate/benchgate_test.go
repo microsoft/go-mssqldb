@@ -149,6 +149,17 @@ Both-4,2e-06,0%,2e-06,0%,~,p=0.900 n=10
 	}
 }
 
+func TestParseFailsClosedOnRowWithNoMeasurements(t *testing.T) {
+	const in = `,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Clean-4,1e-07,0%,1e-07,0%,~,p=0.900 n=10
+Broken-4
+`
+	if _, err := Parse(strings.NewReader(in)); err == nil {
+		t.Fatal("want an error for a benchmark row with no measurements")
+	}
+}
+
 // Today benchstat truncates one-sided rows, so this full-width shape does not
 // occur. A blank delta still means "no comparison", which is a skip and not the
 // format drift that must fail the parse.

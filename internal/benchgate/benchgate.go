@@ -66,6 +66,10 @@ func bothSidesMeasured(rec []string) bool {
 	return field(rec, 1) != "" && field(rec, 3) != ""
 }
 
+func oneSideMeasured(rec []string) bool {
+	return (field(rec, 1) != "") != (field(rec, 3) != "")
+}
+
 func isTableHeader(rec []string) bool {
 	return len(rec) == 7 &&
 		field(rec, 0) == "" &&
@@ -146,6 +150,9 @@ func Parse(r io.Reader) ([]Row, error) {
 			if bothSidesMeasured(rec) {
 				return nil, fmt.Errorf("row for %s (%s) has both measurements but no delta", rec[0], unit)
 			}
+			if !oneSideMeasured(rec) {
+				return nil, fmt.Errorf("row for %s (%s) has no measurements", rec[0], unit)
+			}
 			continue
 		}
 		row := Row{Package: pkg, Name: rec[0], Unit: unit}
@@ -153,6 +160,9 @@ func Parse(r io.Reader) ([]Row, error) {
 		case d == "":
 			if bothSidesMeasured(rec) {
 				return nil, fmt.Errorf("empty delta for %s (%s) with both measurements present", rec[0], unit)
+			}
+			if !oneSideMeasured(rec) {
+				return nil, fmt.Errorf("empty delta for %s (%s) with no measurements", rec[0], unit)
 			}
 			// Measured on only one side, so there is nothing to compare.
 			continue
