@@ -862,6 +862,37 @@ func TestVectorFloat16(t *testing.T) {
 				i, precisionTestValues[i], val, diff)
 		}
 	}
+
+	stmt, err := tx.Prepare(CopyIn(tableName, BulkOptions{}, "embedding"))
+	if err != nil {
+		t.Fatalf("Failed to prepare float16 bulk copy: %v", err)
+	}
+	if _, err = stmt.Exec(v); err != nil {
+		t.Fatalf("Failed to send float16 bulk vector: %v", err)
+	}
+	if _, err = stmt.Exec(); err != nil {
+		t.Fatalf("Failed to flush float16 bulk vector: %v", err)
+	}
+	if err := stmt.Close(); err != nil {
+		t.Fatalf("Failed to close float16 bulk copy: %v", err)
+	}
+
+	var bulkVector Vector
+	err = tx.QueryRow(
+		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 3", tableName),
+	).Scan(&bulkVector)
+	if err != nil {
+		t.Fatalf("Failed to scan float16 bulk vector: %v", err)
+	}
+	if bulkVector.Dimensions() != 3 {
+		t.Fatalf("Float16 bulk vector dimensions = %d; want 3", bulkVector.Dimensions())
+	}
+	for i, val := range bulkVector.Data {
+		if diff := math.Abs(float64(val - expected[i])); diff > 0.01 {
+			t.Errorf("Float16 bulk dimension %d: expected %f, got %f (diff: %f)",
+				i, expected[i], val, diff)
+		}
+	}
 }
 
 // floatsEqualVector compares two float32 values with tolerance for vector tests.

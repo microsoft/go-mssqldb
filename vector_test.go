@@ -805,6 +805,31 @@ func TestBulkMakeParamVectorJSONFallback(t *testing.T) {
 	}
 }
 
+func TestBulkMakeParamVectorFloat16UsesJSON(t *testing.T) {
+	bulk := &Bulk{cn: &Conn{sess: &tdsSession{vectorSupported: true}}}
+	column := columnStruct{ti: typeInfo{
+		TypeId: typeVectorN,
+		Size:   vectorHeaderSize + 3*VectorElementFloat16.BytesPerElement(),
+		Scale:  byte(VectorElementFloat16),
+	}}
+	vector := Vector{ElementType: VectorElementFloat16, Data: []float32{1, 2, 3}}
+
+	param, err := bulk.makeParam(vector, column)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if param.ti.TypeId != typeNVarChar {
+		t.Fatalf("float16 bulk parameter type = %#x; want nvarchar", param.ti.TypeId)
+	}
+	got, err := ucs22str(param.buffer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "[1, 2, 3]" {
+		t.Fatalf("float16 bulk JSON vector = %q; want %q", got, "[1, 2, 3]")
+	}
+}
+
 func TestBulkMakeParamVectorValidation(t *testing.T) {
 	bulk := &Bulk{cn: &Conn{sess: &tdsSession{}}}
 	column := columnStruct{ti: typeInfo{
@@ -868,6 +893,13 @@ func TestVectorDecodeInvalidJSON(t *testing.T) {
 	err := v.decodeFromJSON("not json")
 	if err == nil {
 		t.Error("Expected error for malformed JSON")
+	}
+}
+
+func TestVectorDecodeJSONRejectsMismatchedArrayDelimiter(t *testing.T) {
+	var v Vector
+	if err := v.decodeFromJSON("[1}"); err == nil {
+		t.Fatal("decodeFromJSON should reject mismatched array delimiters")
 	}
 }
 

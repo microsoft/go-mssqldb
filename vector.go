@@ -524,8 +524,13 @@ func (v *Vector) decodeFromJSON(jsonStr string) error {
 		}
 		data = append(data, converted)
 	}
-	if _, err := decoder.Token(); err != nil {
+	token, err = decoder.Token()
+	if err != nil {
 		return fmt.Errorf("mssql: failed to parse vector JSON: %w", err)
+	}
+	delim, ok = token.(json.Delim)
+	if !ok || delim != ']' {
+		return errors.New("mssql: failed to parse vector JSON: expected array end")
 	}
 	if _, err := decoder.Token(); err != io.EOF {
 		if err == nil {
