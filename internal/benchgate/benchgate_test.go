@@ -206,6 +206,18 @@ Foo-4,1e-07,0%,1.25e-07,0%,+25.00%,p=0.000 n=10
 	}
 }
 
+func TestParseFailsClosedWhenPreambleIsMissingTableHeader(t *testing.T) {
+	const in = `,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Foo-4,1e-07,0%,1e-07,0%,~,p=0.900 n=10
+pkg: example.com/root/msdsn
+Bar-4,1e-07,0%,1.25e-07,0%,+25.00%,p=0.000 n=10
+`
+	if _, err := Parse(strings.NewReader(in)); err == nil {
+		t.Fatal("want an error when a preamble is not followed by a table header")
+	}
+}
+
 // The mirror of the gain case: throughput falling is a regression even though
 // the delta is negative, so the threshold applies in the opposite direction.
 func TestRegressionsCatchThroughputLosses(t *testing.T) {

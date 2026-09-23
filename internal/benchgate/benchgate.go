@@ -109,8 +109,11 @@ func Parse(r io.Reader) ([]Row, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read csv: %w", err)
 		}
-		if len(rec) == 1 && strings.HasPrefix(rec[0], "pkg: ") {
-			pkg = strings.TrimSpace(strings.TrimPrefix(rec[0], "pkg: "))
+		if len(rec) == 1 && strings.Contains(rec[0], ":") {
+			unit = ""
+			if strings.HasPrefix(rec[0], "pkg: ") {
+				pkg = strings.TrimSpace(strings.TrimPrefix(rec[0], "pkg: "))
+			}
 			continue
 		}
 		switch {
