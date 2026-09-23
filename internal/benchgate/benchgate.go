@@ -66,6 +66,28 @@ func bothSidesMeasured(rec []string) bool {
 	return field(rec, 1) != "" && field(rec, 3) != ""
 }
 
+func isTableHeader(rec []string) bool {
+	return len(rec) == 7 &&
+		field(rec, 0) == "" &&
+		field(rec, 1) != "" &&
+		field(rec, 2) == "CI" &&
+		field(rec, 3) == field(rec, 1) &&
+		field(rec, 4) == "CI" &&
+		field(rec, 5) == "vs base" &&
+		field(rec, 6) == "P"
+}
+
+func isFileListLine(rec []string) bool {
+	return len(rec) == 7 &&
+		field(rec, 0) == "" &&
+		field(rec, 1) == "old" &&
+		field(rec, 2) == "" &&
+		field(rec, 3) == "new" &&
+		field(rec, 4) == "" &&
+		field(rec, 5) == "" &&
+		field(rec, 6) == ""
+}
+
 var deltaPattern = regexp.MustCompile(`^[+-][0-9]+(\.[0-9]+)?%$`)
 
 // Parse reads benchstat -format=csv output. Rows outside a recognised table are
@@ -92,14 +114,11 @@ func Parse(r io.Reader) ([]Row, error) {
 			continue
 		}
 		switch {
-		case len(rec) >= 3 && rec[0] == "" && rec[2] == "CI":
+		case isTableHeader(rec):
 			unit = rec[1]
 			continue
-		case len(rec) >= 3 && rec[0] == "" && rec[2] == "":
+		case isFileListLine(rec):
 			// File-list line between tables; the next header sets the unit again.
-			// It is told apart from a header by the empty CI column, so a header
-			// we no longer recognise cannot pass as a separator and quietly drop
-			// its whole table.
 			unit = ""
 			continue
 		case len(rec) > 0 && rec[0] == "":
