@@ -2,6 +2,7 @@ package mssql
 
 import (
 	"bytes"
+	"database/sql/driver"
 	"encoding/binary"
 	"math"
 	"reflect"
@@ -198,6 +199,7 @@ func TestFloat32ToFloat16Conversion(t *testing.T) {
 		{"negative 2.0", -2.0, 0xC000},
 		{"half 0.5", 0.5, 0x3800},
 		{"zero", 0.0, 0x0000},
+		{"subnormal rounds to minimum normal", math.Float32frombits(0x387fe000), 0x0400},
 		{"positive infinity", float32(math.Inf(1)), 0x7C00},
 		{"negative infinity", float32(math.Inf(-1)), 0xFC00},
 	}
@@ -1833,6 +1835,13 @@ func TestReadVectorPLPTypeRejectsInvalidHeader(t *testing.T) {
 			},
 			want: "unsupported vector version",
 		},
+		{
+			name: "zero dimensions",
+			set: func(payload []byte) {
+				binary.LittleEndian.PutUint16(payload[2:4], 0)
+			},
+			want: "vector dimensions must be at least 1",
+		},
 	}
 
 	for _, test := range tests {
@@ -1914,4 +1923,22 @@ func TestConvertInputParameterVector(t *testing.T) {
 			t.Error("Expected Valid to be false")
 		}
 	})
+}
+
+func TestMakeParamNilVectorData(t *testing.T) {
+	stmt := &Stmt{c: &Conn{sess: &tdsSession{vectorSupported: true}}}
+
+	for _, value := range []driver.Value{
+		Vector{ElementType: VectorElementFloat32},
+		[]float32(nil),
+		[]float64(nil),
+	} {
+		got, err := stmt.makeParam(value)
+		if err != nil {
+			t.Fatalf("makeParam(%T) returned error: %v", value, err)
+		}
+		if got.ti.TypeId != typeNVarChar || got.ti.Size != 2 || got.buffer != nil {
+			t.Errorf("makeParam(%T) returned %+v, want a NULL vector parameter", value, got)
+		}
+	}
 }

@@ -617,6 +617,9 @@ func float32ToFloat16(value float32) uint16 {
 		if roundBit == 1 && (lostBits != 0 || (mant&1) == 1) {
 			mant++
 		}
+		if mant == 0x400 {
+			return uint16((sign << 15) | (1 << 10))
+		}
 
 		return uint16((sign << 15) | mant)
 	}

@@ -643,6 +643,9 @@ func validateVectorHeader(payload []byte, expectedElementType VectorElementType,
 	}
 
 	dimensions := int(binary.LittleEndian.Uint16(payload[2:4]))
+	if dimensions == 0 {
+		badStreamPanic(fmt.Errorf("vector dimensions must be at least 1"))
+	}
 	if expectedDimensions >= 0 && dimensions != expectedDimensions {
 		badStreamPanic(fmt.Errorf("vector dimensions %d do not match column dimensions %d", dimensions, expectedDimensions))
 	}

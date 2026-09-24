@@ -1080,7 +1080,10 @@ func (s *Stmt) makeVectorParam(v Vector) (res param, err error) {
 
 // makeVectorOrJSON returns a native binary param if supported, otherwise JSON.
 func (s *Stmt) makeVectorOrJSON(v Vector) (param, error) {
-	if v.Data != nil && len(v.Data) == 0 {
+	if v.Data == nil {
+		return makeNullVectorParam(), nil
+	}
+	if len(v.Data) == 0 {
 		return param{}, errors.New("mssql: vector dimensions must be at least 1")
 	}
 	if s.c.sess.vectorSupported && v.ElementType == VectorElementFloat32 {
