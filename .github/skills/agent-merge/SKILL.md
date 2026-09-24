@@ -79,6 +79,18 @@ direction. Reply asking for clarification and leave the thread open for the auth
 
 ## After each fix
 
+Apply the `code-review` regression and compatibility analysis to the proposed remedy,
+not only to the original finding. Reproduce the reported failure and preserve controls
+for previously valid behavior; for a repair PR, compare with the version before the
+original regression as well as the immediate base. Tests that merely endorse a new
+timeout, error wrapper, or connection eviction do not establish compatibility.
+
+Trace affected public callers and subsequent operations, including `database/sql`
+ownership and background writes to caller storage. A reviewer requesting a change is
+not authorization to introduce a different breaking behavior. If preserving compatibility
+requires a design decision, leave the thread open and escalate to the author rather
+than treating documentation as a fix. State which probes ran and which remain unverified.
+
 Run the narrowest test command covering the change, plus the fast unit suite:
 
 ```bash
