@@ -81,12 +81,22 @@ declaration.
 
 ## Testing expectations
 
+- Apply `code-review`'s regression and compatibility analysis to lifecycle changes.
+  Trace statement errors, output-conversion errors, actual cancellation, ATTENTION,
+  DONE-family tokens, notifications, reader completion and connection reuse separately.
+  A recoverable application error is not automatically stream corruption. Check that
+  later valid batch work survives cleanup and that native handles/buffers remain owned
+  until pending I/O finishes.
 - Malformed-input handling should be covered by a unit test that feeds crafted bytes
   directly to the parser — no SQL Server required. For a buffer-overflow fix, the test
   must reproduce the specific malformed input from the issue and fail without the fix.
 - Round-trip tests for encoding changes: encode, decode, compare.
-- Flag a protocol fix that ships without a malformed-input test. That is the test that
-  would have caught the original bug.
+- Flag a malformed-input or buffer-bounds fix that ships without a test for the
+  triggering malformed input.
+- For valid-response lifecycle fixes, require a regression test exercising the concrete
+  valid token sequence and caller/cancellation ordering that triggered the bug. It must
+  fail without the fix and pass with it; retain controls for previously valid behavior.
+  Do not require malformed input for these fixes.
 
 ## Output
 
@@ -98,5 +108,7 @@ Follow the `code-review` output format. Severity here:
   of the calling code.
 - **Nit** — genuinely minor.
 
-For every finding, state the malformed input that triggers it. If you cannot describe
-the bytes that cause the failure, you have not verified the finding — do not post it.
+For every finding, state the triggering bytes or concrete valid token sequence and
+caller/cancellation ordering. Lifecycle regressions can occur with a valid response;
+malformed input is not required. If you cannot describe a reachable failure, do not
+post it.

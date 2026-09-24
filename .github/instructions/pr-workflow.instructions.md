@@ -40,6 +40,19 @@ Every behavioral change ships with a test that fails before the fix and passes a
   now fails legitimately, that is a behavior change and must be called out explicitly in
   the PR description.
 
+## Compatibility controls
+
+For behavioral fixes, cover both the original failure and previously valid behavior
+on affected paths. Compare the base and head; for a repair of an earlier regression,
+also compare with the version before that regression. Record exact revisions, executed
+checks and gaps in the PR description. Follow the `code-review` skill's regression
+analysis for affected contracts and callers.
+
+Do not silently make cleanup a new query deadline, wrap public errors, evict healthy
+transactions, or shift synchronization obligations to callers just to fix a hang.
+Documentation and high coverage do not make such changes compatible. Preserve existing
+behavior or obtain explicit human approval for a breaking change and its release handling.
+
 ## Coverage
 
 Aim to cover all new code. Every branch you add, including the error paths, should have
