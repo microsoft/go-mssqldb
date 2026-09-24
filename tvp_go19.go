@@ -167,6 +167,14 @@ func (tvp TVP) columnTypes() ([]columnStruct, []int, error) {
 		if IsSkipField(tvpTagValue, isTvpTag, jsonTagValue, isJsonTag) {
 			continue
 		}
+		fieldType := field.Type
+		if fieldType.Kind() == reflect.Ptr {
+			fieldType = fieldType.Elem()
+		}
+		if fieldType == reflect.TypeOf(Vector{}) || fieldType == reflect.TypeOf(NullVector{}) ||
+			fieldType == reflect.TypeOf([]float32{}) || fieldType == reflect.TypeOf([]float64{}) {
+			return nil, nil, fmt.Errorf("mssql: Vector fields are not supported in table-valued parameters")
+		}
 		tvpFieldIndexes = append(tvpFieldIndexes, i)
 		isIdentity := tvpTagValue == tvpIdentity
 		if field.Type.Kind() == reflect.Ptr {
