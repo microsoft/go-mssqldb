@@ -155,9 +155,8 @@ func Parse(r io.Reader) ([]Row, error) {
 			}
 			continue
 		}
-		row := Row{Package: pkg, Name: rec[0], Unit: unit}
-		switch d := strings.TrimSpace(rec[5]); {
-		case d == "":
+		d := strings.TrimSpace(rec[5])
+		if d == "" {
 			if bothSidesMeasured(rec) {
 				return nil, fmt.Errorf("empty delta for %s (%s) with both measurements present", rec[0], unit)
 			}
@@ -166,6 +165,15 @@ func Parse(r io.Reader) ([]Row, error) {
 			}
 			// Measured on only one side, so there is nothing to compare.
 			continue
+		}
+		// A delta only means something if both sides ran. Accepting one without
+		// them would let Unmeasured count the key as compared and clear a
+		// flagged benchmark that never re-ran.
+		if !bothSidesMeasured(rec) {
+			return nil, fmt.Errorf("delta %q for %s (%s) without both measurements", d, rec[0], unit)
+		}
+		row := Row{Package: pkg, Name: rec[0], Unit: unit}
+		switch {
 		case d == "~":
 			row.Significant = false
 		case deltaPattern.MatchString(d):

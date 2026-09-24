@@ -178,7 +178,22 @@ Both-4,2e-06,0%,2e-06,0%,~,p=0.900 n=10
 	}
 }
 
-// A unit must not carry over into the next table.
+// A delta with a side missing is contradictory output. Accepting it would let
+// Unmeasured count the key as compared and clear a benchmark that never re-ran.
+func TestParseFailsClosedOnOneSidedRowWithDelta(t *testing.T) {
+	for _, delta := range []string{"~", "+25.00%"} {
+		t.Run(delta, func(t *testing.T) {
+			in := `,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Added-4,,,1.5e-06,∞,` + delta + `,
+`
+			if _, err := Parse(strings.NewReader(in)); err == nil {
+				t.Fatalf("want an error for a one-sided row carrying delta %q", delta)
+			}
+		})
+	}
+}
+
 func TestParseResetsUnitBetweenTables(t *testing.T) {
 	const in = `,old,,new,,,
 ,sec/op,CI,sec/op,CI,vs base,P
