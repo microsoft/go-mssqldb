@@ -1298,7 +1298,7 @@ func (t tokenProcessor) nextToken() (tokenStruct, error) {
 			return nil, t.ctx.Err()
 		}
 		t.sess.LogF(t.ctx, msdsn.LogDebug, "Sending attention to the server")
-		if err := sendAttention(t.sess.buf); err != nil {
+		if err := sendAttentionWithGuard(t.sess); err != nil {
 			// unable to send attention, current connection is bad
 			// notify caller and close channel
 			return nil, err
