@@ -1003,22 +1003,35 @@ const defaultAttentionWriteTimeout = 30 * time.Second
 // the normal transport deadline is disabled and a fixed deadline is required:
 // this function is called only after ctx has fired, so a context-based write
 // guard would expire immediately. The deadline is always cleared afterward.
-func sendAttentionWithGuard(sess *tdsSession) error {
+func sendAttentionWithGuard(sess *tdsSession) (err error) {
 	if !sess.disableConnTimeoutAsQueryTimeout {
 		return sendAttention(sess.buf)
 	}
 	wd, ok := sess.buf.transport.(interface{ SetWriteDeadline(time.Time) error })
 	if !ok {
-		return errors.New("attention transport does not support write deadlines")
+		_ = sess.buf.transport.Close()
+		return &net.OpError{
+			Op:  "guard attention write",
+			Net: "mssql",
+			Err: errors.New("transport does not support write deadlines"),
+		}
 	}
 	timeout := sess.connTimeout
 	if timeout <= 0 {
 		timeout = defaultAttentionWriteTimeout
 	}
-	if err := wd.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
-		return err
+	if err = wd.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+		_ = sess.buf.transport.Close()
+		return &net.OpError{Op: "set attention write deadline", Net: "mssql", Err: err}
 	}
-	defer func() { _ = wd.SetWriteDeadline(time.Time{}) }()
+	defer func() {
+		if clearErr := wd.SetWriteDeadline(time.Time{}); clearErr != nil {
+			_ = sess.buf.transport.Close()
+			if err == nil {
+				err = &net.OpError{Op: "clear attention write deadline", Net: "mssql", Err: clearErr}
+			}
+		}
+	}()
 	return sendAttention(sess.buf)
 }
 

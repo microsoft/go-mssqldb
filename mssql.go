@@ -357,7 +357,7 @@ func (c *Conn) sendCommitRequest() error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	err := withWriteGuard(ctx, c.sess.buf.transport, func() error {
+	err := withWriteGuard(ctx, c.sess, func() error {
 		return sendCommitXact(c.sess.buf, headers, "", 0, 0, "", reset)
 	})
 	if err != nil {
@@ -394,7 +394,7 @@ func (c *Conn) sendRollbackRequest() error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	err := withWriteGuard(ctx, c.sess.buf.transport, func() error {
+	err := withWriteGuard(ctx, c.sess, func() error {
 		return sendRollbackXact(c.sess.buf, headers, "", 0, 0, "", reset)
 	})
 	if err != nil {
@@ -432,7 +432,7 @@ func (c *Conn) sendBeginRequest(ctx context.Context, tdsIsolation isoLevel) erro
 	}
 	reset := c.resetSession
 	c.resetSession = false
-	err := withWriteGuard(ctx, c.sess.buf.transport, func() error {
+	err := withWriteGuard(ctx, c.sess, func() error {
 		return sendBeginXact(c.sess.buf, headers, tdsIsolation, "", reset)
 	})
 	if err != nil {
@@ -561,7 +561,12 @@ func (s *Stmt) NumInput() int {
 	return s.paramCount
 }
 
-// watchContextForWrite arms an immediate write deadline on wd if ctx is
+type writeDeadlineCloser interface {
+	SetWriteDeadline(time.Time) error
+	Close() error
+}
+
+// watchContextForWrite arms an immediate write deadline on transport if ctx is
 // cancelled before the returned stop function is called. It exists to bound
 // synchronous request writes (see sendQuery) that would otherwise be able to
 // block forever once the transport's own ConnTimeout-based write deadline
@@ -570,31 +575,51 @@ func (s *Stmt) NumInput() int {
 // cancellation, since no response reader exists yet to observe it. It is a
 // no-op if ctx can never be cancelled (e.g. context.Background()).
 //
-// stop() blocks until the monitoring goroutine has fully exited, and always
-// clears any write deadline before returning (whether or not it set one),
-// so a benign race between a completing Write and ctx firing can never
-// leave a stale deadline armed on the connection for a subsequent command.
-func watchContextForWrite(ctx context.Context, wd interface{ SetWriteDeadline(time.Time) error }) (stop func()) {
+// stop() blocks until the monitoring goroutine has fully exited and clears
+// any deadline it armed. If setting or clearing the deadline fails, the
+// transport is closed and the error is returned so the connection cannot be
+// reused with an in-flight request or stale deadline.
+func watchContextForWrite(ctx context.Context, transport writeDeadlineCloser) (stop func() error) {
 	if ctx.Done() == nil {
-		return func() {}
+		return func() error { return nil }
 	}
 	done := make(chan struct{})
 	stopped := make(chan struct{})
+	var deadlineErr error
+	var deadlineArmed bool
 	go func() {
 		defer close(stopped)
 		select {
 		case <-ctx.Done():
 			// Force any in-flight or subsequent Write on this transport to
 			// fail immediately instead of blocking indefinitely.
-			_ = wd.SetWriteDeadline(time.Now())
+			if deadlineErr = transport.SetWriteDeadline(time.Now()); deadlineErr != nil {
+				// net.Conn.Close must unblock concurrent operations. It is the
+				// only remaining cancellation mechanism when deadlines are
+				// unsupported by a custom transport.
+				_ = transport.Close()
+			} else {
+				deadlineArmed = true
+			}
 		case <-done:
 		}
 	}()
-	var once sync.Once
-	return func() {
-		once.Do(func() { close(done) })
-		<-stopped
-		_ = wd.SetWriteDeadline(time.Time{})
+	var stopOnce sync.Once
+	var stopErr error
+	return func() error {
+		stopOnce.Do(func() {
+			close(done)
+			<-stopped
+			if deadlineArmed {
+				if clearErr := transport.SetWriteDeadline(time.Time{}); clearErr != nil {
+					_ = transport.Close()
+					stopErr = clearErr
+					return
+				}
+			}
+			stopErr = deadlineErr
+		})
+		return stopErr
 	}
 }
 
@@ -604,14 +629,27 @@ func watchContextForWrite(ctx context.Context, wd interface{ SetWriteDeadline(ti
 // disabled (disableconntimeoutasquerytimeout=true). It centralizes the
 // pattern needed by every synchronous request writer (sendQuery,
 // sendBeginRequest, sendCommitRequest, sendRollbackRequest, bulk copy),
-// and is a no-op guard (write runs unprotected) if transport doesn't
-// support SetWriteDeadline.
-func withWriteGuard(ctx context.Context, transport io.Writer, write func() error) error {
-	if wd, ok := transport.(interface{ SetWriteDeadline(time.Time) error }); ok {
-		stop := watchContextForWrite(ctx, wd)
-		defer stop()
+// and is a no-op in legacy mode to preserve the previous ConnTimeout behavior.
+func withWriteGuard(ctx context.Context, sess *tdsSession, write func() error) error {
+	if !sess.disableConnTimeoutAsQueryTimeout {
+		return write()
 	}
-	return write()
+	transport, ok := sess.buf.transport.(writeDeadlineCloser)
+	if !ok {
+		_ = sess.buf.transport.Close()
+		return &net.OpError{
+			Op:  "guard request write",
+			Net: "mssql",
+			Err: errors.New("transport does not support write deadlines"),
+		}
+	}
+	stop := watchContextForWrite(ctx, transport)
+	writeErr := write()
+	deadlineErr := stop()
+	if deadlineErr != nil {
+		return &net.OpError{Op: "guard request write", Net: "mssql", Err: deadlineErr}
+	}
+	return writeErr
 }
 
 func (s *Stmt) sendQuery(ctx context.Context, args []namedValue) (err error) {
@@ -686,7 +724,7 @@ func (s *Stmt) sendQuery(ctx context.Context, args []namedValue) (err error) {
 	// cancellation. withWriteGuard protects against that by forcing an
 	// immediate write deadline if ctx is cancelled while the write is in
 	// flight.
-	err = withWriteGuard(ctx, conn.sess.buf.transport, func() error {
+	err = withWriteGuard(ctx, conn.sess, func() error {
 		if isBatch {
 			return sendSqlBatch72(conn.sess.buf, s.query, headers, reset)
 		}

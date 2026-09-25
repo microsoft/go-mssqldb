@@ -277,7 +277,7 @@ func (b *Bulk) Done() (rowcount int64, err error) {
 // writeRequest guards a bulk request write and invalidates the connection on
 // error because any prefix of the TDS packet may already have been sent.
 func (b *Bulk) writeRequest(ctx context.Context, write func() error) error {
-	err := withWriteGuard(ctx, b.cn.sess.buf.transport, write)
+	err := withWriteGuard(ctx, b.cn.sess, write)
 	if err != nil {
 		b.cn.connectionGood = false
 	}
