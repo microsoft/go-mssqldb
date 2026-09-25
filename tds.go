@@ -1427,6 +1427,22 @@ initiate_connection:
 		}
 	}
 
+	// Login succeeded. By default (UseConnTimeoutAsQueryTimeout=true) we
+	// preserve the existing, backward-compatible behavior of continuing to
+	// apply the connect timeout as a socket read/write deadline for the
+	// whole lifetime of the connection: some callers rely on it as a
+	// de-facto command timeout when they don't set up their own context
+	// deadline. Set "useconntimeoutasquerytimeout=false" to restrict the
+	// connect timeout to the login/handshake phase only, so long-running
+	// commands are governed exclusively by the caller-supplied
+	// context.Context deadline instead of being cut short by the
+	// connection timeout.
+	if !p.UseConnTimeoutAsQueryTimeout {
+		if err := toconn.disableTimeout(); err != nil {
+			return nil, err
+		}
+	}
+
 	if sess.routedServer != "" {
 		toconn.Close()
 		toconn = nil // avoid double-close: if dialConnection fails after goto, the defer would see the old (closed) conn

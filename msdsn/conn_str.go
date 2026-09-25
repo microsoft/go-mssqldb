@@ -58,38 +58,39 @@ const (
 )
 
 const (
-	Database               = "database"
-	Encrypt                = "encrypt"
-	Password               = "password"
-	ChangePassword         = "change password"
-	UserID                 = "user id"
-	Port                   = "port"
-	TrustServerCertificate = "trustservercertificate"
-	Certificate            = "certificate"
-	ServerCertificate      = "servercertificate"
-	TLSMin                 = "tlsmin"
-	PacketSize             = "packet size"
-	LogParam               = "log"
-	ConnectionTimeout      = "connection timeout"
-	HostNameInCertificate  = "hostnameincertificate"
-	KeepAlive              = "keepalive"
-	ServerSpn              = "serverspn"
-	WorkstationID          = "workstation id"
-	AppName                = "app name"
-	ApplicationIntent      = "applicationintent"
-	FailoverPartner        = "failoverpartner"
-	FailOverPort           = "failoverport"
-	FailoverPartnerSpn     = "failoverpartnerspn"
-	DisableRetry           = "disableretry"
-	Server                 = "server"
-	Protocol               = "protocol"
-	DialTimeout            = "dial timeout"
-	Pipe                   = "pipe"
-	MultiSubnetFailover    = "multisubnetfailover"
-	NoTraceID              = "notraceid"
-	GuidConversion         = "guid conversion"
-	Timezone               = "timezone"
-	EpaEnabled             = "epa enabled"
+	Database                     = "database"
+	Encrypt                      = "encrypt"
+	Password                     = "password"
+	ChangePassword               = "change password"
+	UserID                       = "user id"
+	Port                         = "port"
+	TrustServerCertificate       = "trustservercertificate"
+	Certificate                  = "certificate"
+	ServerCertificate            = "servercertificate"
+	TLSMin                       = "tlsmin"
+	PacketSize                   = "packet size"
+	LogParam                     = "log"
+	ConnectionTimeout            = "connection timeout"
+	HostNameInCertificate        = "hostnameincertificate"
+	KeepAlive                    = "keepalive"
+	ServerSpn                    = "serverspn"
+	WorkstationID                = "workstation id"
+	AppName                      = "app name"
+	ApplicationIntent            = "applicationintent"
+	FailoverPartner              = "failoverpartner"
+	FailOverPort                 = "failoverport"
+	FailoverPartnerSpn           = "failoverpartnerspn"
+	DisableRetry                 = "disableretry"
+	Server                       = "server"
+	Protocol                     = "protocol"
+	DialTimeout                  = "dial timeout"
+	Pipe                         = "pipe"
+	MultiSubnetFailover          = "multisubnetfailover"
+	NoTraceID                    = "notraceid"
+	GuidConversion               = "guid conversion"
+	Timezone                     = "timezone"
+	EpaEnabled                   = "epa enabled"
+	UseConnTimeoutAsQueryTimeout = "useconntimeoutasquerytimeout"
 )
 
 type EncodeParameters struct {
@@ -143,6 +144,15 @@ type Config struct {
 	ConnTimeout time.Duration // Use context for timeouts.
 	KeepAlive   time.Duration // Leave at default.
 	PacketSize  uint16
+
+	// UseConnTimeoutAsQueryTimeout controls whether ConnTimeout keeps being
+	// re-applied as a socket read/write deadline for the whole lifetime of
+	// the connection (true, the default, preserved for backward
+	// compatibility), so it can also cut short long-running commands, as it
+	// always has. Set to false so ConnTimeout only bounds the
+	// login/handshake phase; once logged in, command execution timeouts are
+	// governed exclusively by the caller-supplied context.Context deadline.
+	UseConnTimeoutAsQueryTimeout bool
 
 	Parameters map[string]string
 	// Protocols is an ordered list of protocols to dial
@@ -561,6 +571,20 @@ func Parse(dsn string) (Config, error) {
 		p.DisableRetry = disableRetryDefault
 	}
 
+	useConnTimeoutAsQueryTimeout, ok := params[UseConnTimeoutAsQueryTimeout]
+	if ok {
+		var err error
+		p.UseConnTimeoutAsQueryTimeout, err = parseBoolParam(useConnTimeoutAsQueryTimeout)
+		if err != nil {
+			f := "invalid useconntimeoutasquerytimeout '%s': %s"
+			return p, fmt.Errorf(f, useConnTimeoutAsQueryTimeout, err.Error())
+		}
+	} else {
+		// Default to true: preserves the historical, backward-compatible
+		// behavior of connection timeout also bounding command execution.
+		p.UseConnTimeoutAsQueryTimeout = true
+	}
+
 	server := params[Server]
 	protocol, ok := params[Protocol]
 
@@ -704,6 +728,9 @@ func (p Config) URL() *url.URL {
 		host = net.JoinHostPort(host, strconv.Itoa(int(p.Port)))
 	}
 	q.Add(DisableRetry, fmt.Sprintf("%t", p.DisableRetry))
+	if !p.UseConnTimeoutAsQueryTimeout {
+		q.Add(UseConnTimeoutAsQueryTimeout, fmt.Sprintf("%t", p.UseConnTimeoutAsQueryTimeout))
+	}
 	protocolParam, ok := p.Parameters[Protocol]
 	if ok {
 		if protocol != "" && protocolParam != protocol {

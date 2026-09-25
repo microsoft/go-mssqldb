@@ -38,6 +38,17 @@ func (c *timeoutConn) Write(b []byte) (n int, err error) {
 	return c.c.Write(b)
 }
 
+// disableTimeout stops the connect timeout from being (re)applied as a
+// socket read/write deadline, and clears any deadline left over from the
+// last login-phase Read/Write call. It must be called once the login
+// handshake has completed successfully, so that subsequent command
+// execution is governed exclusively by the caller-supplied context.Context
+// deadlines instead of being cut short by the connection timeout.
+func (c *timeoutConn) disableTimeout() error {
+	c.timeout = 0
+	return c.c.SetDeadline(time.Time{})
+}
+
 func (c timeoutConn) Close() error {
 	return c.c.Close()
 }
