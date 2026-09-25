@@ -171,7 +171,10 @@ func (b *Bulk) sendBulkCommand(ctx context.Context) (err error) {
 
 	// Send the columns metadata.
 	columnMetadata := b.createColMetadata()
-	_, err = buf.Write(columnMetadata)
+	err = withWriteGuard(ctx, buf.transport, func() error {
+		_, werr := buf.Write(columnMetadata)
+		return werr
+	})
 
 	return
 }
@@ -196,7 +199,10 @@ func (b *Bulk) AddRow(row []interface{}) (err error) {
 		return
 	}
 
-	_, err = b.cn.sess.buf.Write(bytes)
+	err = withWriteGuard(b.ctx, b.cn.sess.buf.transport, func() error {
+		_, werr := b.cn.sess.buf.Write(bytes)
+		return werr
+	})
 	if err != nil {
 		return
 	}
@@ -241,18 +247,23 @@ func (b *Bulk) Done() (rowcount int64, err error) {
 		return 0, nil
 	}
 	var buf = b.cn.sess.buf
-	buf.WriteByte(byte(tokenDone))
+	err = withWriteGuard(b.ctx, buf.transport, func() error {
+		buf.WriteByte(byte(tokenDone))
 
-	binary.Write(buf, binary.LittleEndian, uint16(doneFinal))
-	binary.Write(buf, binary.LittleEndian, uint16(0)) //     curcmd
+		binary.Write(buf, binary.LittleEndian, uint16(doneFinal))
+		binary.Write(buf, binary.LittleEndian, uint16(0)) //     curcmd
 
-	if b.cn.sess.loginAck.TDSVersion >= verTDS72 {
-		binary.Write(buf, binary.LittleEndian, uint64(0)) //rowcount 0
-	} else {
-		binary.Write(buf, binary.LittleEndian, uint32(0)) //rowcount 0
+		if b.cn.sess.loginAck.TDSVersion >= verTDS72 {
+			binary.Write(buf, binary.LittleEndian, uint64(0)) //rowcount 0
+		} else {
+			binary.Write(buf, binary.LittleEndian, uint32(0)) //rowcount 0
+		}
+
+		return buf.FinishPacket()
+	})
+	if err != nil {
+		return 0, b.cn.checkBadConn(b.ctx, err, false)
 	}
-
-	buf.FinishPacket()
 
 	reader := startReading(b.cn.sess, b.ctx, outputs{})
 	err = reader.iterateResponse()

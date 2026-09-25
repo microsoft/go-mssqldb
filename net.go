@@ -29,7 +29,14 @@ func newTimeoutConn(conn net.Conn, timeout time.Duration) *timeoutConn {
 
 func (c *timeoutConn) Read(b []byte) (n int, err error) {
 	if c.timeout > 0 && !c.timeoutDisabled {
-		err = c.c.SetReadDeadline(time.Now().Add(c.timeout))
+		// SetDeadline (not SetReadDeadline) is used deliberately here, to
+		// preserve the exact legacy/default (timeoutDisabled==false)
+		// semantics: every I/O call re-arms a single, shared deadline for
+		// both directions, so e.g. a read during a multi-step handshake
+		// also extends how long a subsequent write may still take, and
+		// vice versa. Splitting these per-direction here would silently
+		// change that default behavior even when the opt-in flag is off.
+		err = c.c.SetDeadline(time.Now().Add(c.timeout))
 		if err != nil {
 			return
 		}
@@ -39,7 +46,7 @@ func (c *timeoutConn) Read(b []byte) (n int, err error) {
 
 func (c *timeoutConn) Write(b []byte) (n int, err error) {
 	if c.timeout > 0 && !c.timeoutDisabled {
-		err = c.c.SetWriteDeadline(time.Now().Add(c.timeout))
+		err = c.c.SetDeadline(time.Now().Add(c.timeout))
 		if err != nil {
 			return
 		}

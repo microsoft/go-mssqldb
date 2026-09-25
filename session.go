@@ -11,11 +11,12 @@ import (
 
 func newSession(outbuf *tdsBuffer, logger ContextLogger, p msdsn.Config) *tdsSession {
 	sess := &tdsSession{
-		buf:        outbuf,
-		logger:     logger,
-		logFlags:   uint64(p.LogFlags),
-		aeSettings: &alwaysEncryptedSettings{keyProviders: aecmk.GetGlobalCekProviders()},
-		encoding:   p.Encoding,
+		buf:         outbuf,
+		logger:      logger,
+		logFlags:    uint64(p.LogFlags),
+		aeSettings:  &alwaysEncryptedSettings{keyProviders: aecmk.GetGlobalCekProviders()},
+		encoding:    p.Encoding,
+		connTimeout: p.ConnTimeout,
 	}
 	_ = sess.activityid.Scan(p.ActivityID)
 	// generating a guid has a small chance of failure. Make a best effort

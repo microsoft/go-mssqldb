@@ -145,18 +145,6 @@ type Config struct {
 	KeepAlive   time.Duration // Leave at default.
 	PacketSize  uint16
 
-	// DisableConnTimeoutAsQueryTimeout controls whether ConnTimeout keeps
-	// being re-applied as a socket read/write deadline for the whole
-	// lifetime of the connection. The zero value (false) preserves the
-	// existing, backward-compatible behavior exactly as before, both when
-	// parsed from a DSN and when a msdsn.Config is built programmatically
-	// (e.g. via NewConnectorConfig): ConnTimeout keeps bounding command
-	// execution too, as it always has. Set to true so ConnTimeout only
-	// bounds the login/handshake phase; once logged in, command execution
-	// timeouts are governed exclusively by the caller-supplied
-	// context.Context deadline.
-	DisableConnTimeoutAsQueryTimeout bool
-
 	Parameters map[string]string
 	// Protocols is an ordered list of protocols to dial
 	Protocols []string
@@ -182,6 +170,27 @@ type Config struct {
 	Encoding EncodeParameters
 	// EPA mode determines how the Channel Bindings are calculated.
 	EpaEnabled bool
+
+	// DisableConnTimeoutAsQueryTimeout controls whether ConnTimeout keeps
+	// being re-applied as a socket read/write deadline for the whole
+	// lifetime of the connection. The zero value (false) preserves the
+	// existing, backward-compatible behavior exactly as before, both when
+	// parsed from a DSN and when a msdsn.Config is built programmatically
+	// (e.g. via NewConnectorConfig): ConnTimeout keeps bounding command
+	// execution too, as it always has. Set to true so ConnTimeout only
+	// bounds the login/handshake phase; once logged in, command execution
+	// timeouts are governed exclusively by the caller-supplied
+	// context.Context deadline.
+	//
+	// This field is appended at the end of the struct, rather than
+	// grouped with the other timeout-related fields above, to minimize
+	// (not eliminate) disruption for any existing unkeyed composite
+	// literal of msdsn.Config that lists every field positionally: such a
+	// literal is already relying on an unsupported pattern for a struct
+	// this large and exported from another package (flagged by `go vet`'s
+	// composites check), and would already have needed updating for any
+	// past field addition to this struct.
+	DisableConnTimeoutAsQueryTimeout bool
 }
 
 func readDERFile(filename string) ([]byte, error) {
