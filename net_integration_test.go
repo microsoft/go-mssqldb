@@ -2,6 +2,7 @@ package mssql
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -89,4 +90,72 @@ func TestConnection_TLSHandshake_Integration(t *testing.T) {
 
 	mssqlConn := conn.(*Conn)
 	assert.True(t, mssqlConn.connectionGood, "TLS connection should be good")
+}
+
+// TestConnTimeout_AppliesToQueryExecution_ByDefault_Integration is a regression
+// test for the historical, backward-compatible behavior of "connection
+// timeout": by default it keeps being re-applied as a socket read/write
+// deadline for the whole lifetime of the connection, so a long-running
+// command can be cut short by it even though the caller's context has a much
+// longer deadline.
+func TestConnTimeout_AppliesToQueryExecution_ByDefault_Integration(t *testing.T) {
+	checkConnStr(t)
+
+	connStr := makeConnStr(t)
+	q := connStr.Query()
+	q.Set("connection timeout", "2")
+	connStr.RawQuery = q.Encode()
+
+	connector, err := NewConnector(connStr.String())
+	if err != nil {
+		t.Fatalf("NewConnector failed: %v", err)
+	}
+	db := sql.OpenDB(connector)
+	defer db.Close()
+
+	// The context deadline (20s) is much longer than "connection timeout"
+	// (2s), so if the command fails before the context deadline elapses,
+	// it must have been the connection timeout that cut it short.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	_, err = db.ExecContext(ctx, "waitfor delay '00:00:05'")
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected the command to fail due to the connection timeout, but it succeeded")
+	}
+	if err == context.DeadlineExceeded {
+		t.Fatalf("expected a connection-timeout failure, not context.DeadlineExceeded: %v", err)
+	}
+	assert.Less(t, elapsed, 5*time.Second, "command should have failed well before the 5s WAITFOR DELAY completed")
+}
+
+// TestConnTimeout_ScopedToLoginOnly_WhenDisabled_Integration verifies the new
+// opt-in behavior: with disableconntimeoutasquerytimeout=true, "connection
+// timeout" only bounds the login/handshake phase, so a long-running command
+// that exceeds it is no longer cut short and instead completes, governed
+// solely by the context deadline.
+func TestConnTimeout_ScopedToLoginOnly_WhenDisabled_Integration(t *testing.T) {
+	checkConnStr(t)
+
+	connStr := makeConnStr(t)
+	q := connStr.Query()
+	q.Set("connection timeout", "2")
+	q.Set(msdsn.DisableConnTimeoutAsQueryTimeout, "true")
+	connStr.RawQuery = q.Encode()
+
+	connector, err := NewConnector(connStr.String())
+	if err != nil {
+		t.Fatalf("NewConnector failed: %v", err)
+	}
+	db := sql.OpenDB(connector)
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	_, err = db.ExecContext(ctx, "waitfor delay '00:00:05'")
+	assert.NoError(t, err, "command should complete despite exceeding the connection timeout, since it is disabled as a query timeout")
 }

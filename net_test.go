@@ -13,7 +13,9 @@ import (
 // mockConn implements a basic net.Conn for testing
 type mockConn struct {
 	*bytes.Buffer
-	closed bool
+	closed           bool
+	lastDeadline     time.Time
+	deadlineSetCount int
 }
 
 func (m *mockConn) Close() error {
@@ -21,9 +23,13 @@ func (m *mockConn) Close() error {
 	return nil
 }
 
-func (m *mockConn) LocalAddr() net.Addr                { return nil }
-func (m *mockConn) RemoteAddr() net.Addr               { return nil }
-func (m *mockConn) SetDeadline(t time.Time) error      { return nil }
+func (m *mockConn) LocalAddr() net.Addr  { return nil }
+func (m *mockConn) RemoteAddr() net.Addr { return nil }
+func (m *mockConn) SetDeadline(t time.Time) error {
+	m.lastDeadline = t
+	m.deadlineSetCount++
+	return nil
+}
 func (m *mockConn) SetReadDeadline(t time.Time) error  { return nil }
 func (m *mockConn) SetWriteDeadline(t time.Time) error { return nil }
 
@@ -228,6 +234,28 @@ func TestTimeoutConn_Addr(t *testing.T) {
 
 	assert.Nil(t, tc.LocalAddr(), "LocalAddr() should return nil from mockConn")
 	assert.Nil(t, tc.RemoteAddr(), "RemoteAddr() should return nil from mockConn")
+}
+
+func TestTimeoutConn_DisableTimeout(t *testing.T) {
+	mock := &mockConn{Buffer: &bytes.Buffer{}}
+	tc := newTimeoutConn(mock, 5*time.Second)
+
+	// Simulate a login-phase I/O operation that leaves a deadline set on
+	// the underlying connection, as Read/Write normally do.
+	_, err := tc.Write([]byte("hello"))
+	assert.NoError(t, err, "Write()")
+	assert.NotZero(t, mock.lastDeadline, "SetDeadline should have been called by Write()")
+
+	err = tc.disableTimeout()
+	assert.NoError(t, err, "disableTimeout()")
+	assert.Zero(t, tc.timeout, "disableTimeout() should zero out the configured timeout")
+	assert.True(t, mock.lastDeadline.IsZero(), "disableTimeout() should clear any deadline left over from login I/O")
+
+	// After disabling, further I/O must not re-apply a deadline.
+	countBefore := mock.deadlineSetCount
+	_, err = tc.Write([]byte("world"))
+	assert.NoError(t, err, "Write() after disableTimeout()")
+	assert.Equal(t, countBefore, mock.deadlineSetCount, "Write() should not call SetDeadline once the timeout is disabled")
 }
 
 func TestTlsHandshakeConn_Close(t *testing.T) {

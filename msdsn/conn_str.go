@@ -90,7 +90,7 @@ const (
 	GuidConversion               = "guid conversion"
 	Timezone                     = "timezone"
 	EpaEnabled                   = "epa enabled"
-	UseConnTimeoutAsQueryTimeout = "useconntimeoutasquerytimeout"
+	DisableConnTimeoutAsQueryTimeout = "disableconntimeoutasquerytimeout"
 )
 
 type EncodeParameters struct {
@@ -145,14 +145,17 @@ type Config struct {
 	KeepAlive   time.Duration // Leave at default.
 	PacketSize  uint16
 
-	// UseConnTimeoutAsQueryTimeout controls whether ConnTimeout keeps being
-	// re-applied as a socket read/write deadline for the whole lifetime of
-	// the connection (true, the default, preserved for backward
-	// compatibility), so it can also cut short long-running commands, as it
-	// always has. Set to false so ConnTimeout only bounds the
-	// login/handshake phase; once logged in, command execution timeouts are
-	// governed exclusively by the caller-supplied context.Context deadline.
-	UseConnTimeoutAsQueryTimeout bool
+	// DisableConnTimeoutAsQueryTimeout controls whether ConnTimeout keeps
+	// being re-applied as a socket read/write deadline for the whole
+	// lifetime of the connection. The zero value (false) preserves the
+	// existing, backward-compatible behavior exactly as before, both when
+	// parsed from a DSN and when a msdsn.Config is built programmatically
+	// (e.g. via NewConnectorConfig): ConnTimeout keeps bounding command
+	// execution too, as it always has. Set to true so ConnTimeout only
+	// bounds the login/handshake phase; once logged in, command execution
+	// timeouts are governed exclusively by the caller-supplied
+	// context.Context deadline.
+	DisableConnTimeoutAsQueryTimeout bool
 
 	Parameters map[string]string
 	// Protocols is an ordered list of protocols to dial
@@ -571,19 +574,19 @@ func Parse(dsn string) (Config, error) {
 		p.DisableRetry = disableRetryDefault
 	}
 
-	useConnTimeoutAsQueryTimeout, ok := params[UseConnTimeoutAsQueryTimeout]
+	disableConnTimeoutAsQueryTimeout, ok := params[DisableConnTimeoutAsQueryTimeout]
 	if ok {
 		var err error
-		p.UseConnTimeoutAsQueryTimeout, err = parseBoolParam(useConnTimeoutAsQueryTimeout)
+		p.DisableConnTimeoutAsQueryTimeout, err = parseBoolParam(disableConnTimeoutAsQueryTimeout)
 		if err != nil {
-			f := "invalid useconntimeoutasquerytimeout '%s': %s"
-			return p, fmt.Errorf(f, useConnTimeoutAsQueryTimeout, err.Error())
+			f := "invalid disableconntimeoutasquerytimeout '%s': %s"
+			return p, fmt.Errorf(f, disableConnTimeoutAsQueryTimeout, err.Error())
 		}
-	} else {
-		// Default to true: preserves the historical, backward-compatible
-		// behavior of connection timeout also bounding command execution.
-		p.UseConnTimeoutAsQueryTimeout = true
 	}
+	// No else branch needed: the zero value (false) already matches the
+	// desired backward-compatible default, both here and for programmatic
+	// callers that build a msdsn.Config directly without going through
+	// Parse.
 
 	server := params[Server]
 	protocol, ok := params[Protocol]
@@ -728,8 +731,8 @@ func (p Config) URL() *url.URL {
 		host = net.JoinHostPort(host, strconv.Itoa(int(p.Port)))
 	}
 	q.Add(DisableRetry, fmt.Sprintf("%t", p.DisableRetry))
-	if !p.UseConnTimeoutAsQueryTimeout {
-		q.Add(UseConnTimeoutAsQueryTimeout, fmt.Sprintf("%t", p.UseConnTimeoutAsQueryTimeout))
+	if p.DisableConnTimeoutAsQueryTimeout {
+		q.Add(DisableConnTimeoutAsQueryTimeout, fmt.Sprintf("%t", p.DisableConnTimeoutAsQueryTimeout))
 	}
 	protocolParam, ok := p.Parameters[Protocol]
 	if ok {
