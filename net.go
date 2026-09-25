@@ -7,8 +7,14 @@ import (
 )
 
 type timeoutConn struct {
-	c       net.Conn
-	timeout time.Duration
+	c net.Conn
+	// timeout bounds both Read and Write by default. disableReadTimeout,
+	// once set via disableTimeout(), stops Read from re-arming its
+	// deadline (see disableTimeout doc comment below), while Write keeps
+	// being bounded by timeout unconditionally, as a safety net against a
+	// stuck send regardless of whether the read timeout was disabled.
+	timeout            time.Duration
+	disableReadTimeout bool
 }
 
 func newTimeoutConn(conn net.Conn, timeout time.Duration) *timeoutConn {
@@ -19,8 +25,8 @@ func newTimeoutConn(conn net.Conn, timeout time.Duration) *timeoutConn {
 }
 
 func (c *timeoutConn) Read(b []byte) (n int, err error) {
-	if c.timeout > 0 {
-		err = c.c.SetDeadline(time.Now().Add(c.timeout))
+	if c.timeout > 0 && !c.disableReadTimeout {
+		err = c.c.SetReadDeadline(time.Now().Add(c.timeout))
 		if err != nil {
 			return
 		}
@@ -30,7 +36,14 @@ func (c *timeoutConn) Read(b []byte) (n int, err error) {
 
 func (c *timeoutConn) Write(b []byte) (n int, err error) {
 	if c.timeout > 0 {
-		err = c.c.SetDeadline(time.Now().Add(c.timeout))
+		// Always bound writes by timeout, even after disableTimeout(): a
+		// request write can still block indefinitely if the server stops
+		// consuming (e.g. a full TCP send window), and nothing observes
+		// the caller's context until a response reader exists to receive
+		// an ATTENTION acknowledgement. Bounding writes here guarantees
+		// they cannot hang forever, independent of the read-timeout
+		// behavior controlled by disableTimeout().
+		err = c.c.SetWriteDeadline(time.Now().Add(c.timeout))
 		if err != nil {
 			return
 		}
@@ -39,14 +52,24 @@ func (c *timeoutConn) Write(b []byte) (n int, err error) {
 }
 
 // disableTimeout stops the connect timeout from being (re)applied as a
-// socket read/write deadline, and clears any deadline left over from the
-// last login-phase Read/Write call. It must be called once the login
-// handshake has completed successfully, so that subsequent command
-// execution is governed exclusively by the caller-supplied context.Context
-// deadlines instead of being cut short by the connection timeout.
+// socket *read* deadline, and clears any read deadline left over from the
+// last login-phase Read call. It must be called once the login handshake
+// has completed successfully, so that subsequent command execution is
+// governed exclusively by the caller-supplied context.Context deadlines
+// instead of being cut short by the connection timeout. Write deadlines are
+// deliberately left untouched (see Write above): only the read side, which
+// is what blocks for the duration of a long-running command, is affected.
 func (c *timeoutConn) disableTimeout() error {
-	c.timeout = 0
-	return c.c.SetDeadline(time.Time{})
+	c.disableReadTimeout = true
+	if c.timeout <= 0 {
+		// No deadline was ever armed by this wrapper (ConnTimeout==0), so
+		// there is nothing to clear. Some net.Conn implementations
+		// (e.g. from a custom Connector.Dialer) may not support deadlines
+		// at all; avoid calling SetReadDeadline unless we know we
+		// previously set one.
+		return nil
+	}
+	return c.c.SetReadDeadline(time.Time{})
 }
 
 func (c timeoutConn) Close() error {

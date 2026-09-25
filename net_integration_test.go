@@ -3,6 +3,7 @@ package mssql
 import (
 	"context"
 	"database/sql"
+	"net"
 	"testing"
 	"time"
 
@@ -128,6 +129,12 @@ func TestConnTimeout_AppliesToQueryExecution_ByDefault_Integration(t *testing.T)
 	}
 	if err == context.DeadlineExceeded {
 		t.Fatalf("expected a connection-timeout failure, not context.DeadlineExceeded: %v", err)
+	}
+	// Assert the failure is specifically a socket timeout (i/o timeout),
+	// not merely "any error before 5s" (which a failed login or an
+	// unrelated network/server error would also satisfy).
+	if neterr, ok := err.(net.Error); !ok || !neterr.Timeout() {
+		t.Fatalf("expected a net.Error timeout, got %T: %v", err, err)
 	}
 	assert.Less(t, elapsed, 5*time.Second, "command should have failed well before the 5s WAITFOR DELAY completed")
 }
