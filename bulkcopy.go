@@ -171,7 +171,7 @@ func (b *Bulk) sendBulkCommand(ctx context.Context) (err error) {
 
 	// Send the columns metadata.
 	columnMetadata := b.createColMetadata()
-	err = withWriteGuard(ctx, buf.transport, func() error {
+	err = b.writeRequest(ctx, func() error {
 		_, werr := buf.Write(columnMetadata)
 		return werr
 	})
@@ -199,7 +199,7 @@ func (b *Bulk) AddRow(row []interface{}) (err error) {
 		return
 	}
 
-	err = withWriteGuard(b.ctx, b.cn.sess.buf.transport, func() error {
+	err = b.writeRequest(b.ctx, func() error {
 		_, werr := b.cn.sess.buf.Write(bytes)
 		return werr
 	})
@@ -247,7 +247,7 @@ func (b *Bulk) Done() (rowcount int64, err error) {
 		return 0, nil
 	}
 	var buf = b.cn.sess.buf
-	err = withWriteGuard(b.ctx, buf.transport, func() error {
+	err = b.writeRequest(b.ctx, func() error {
 		buf.WriteByte(byte(tokenDone))
 
 		binary.Write(buf, binary.LittleEndian, uint16(doneFinal))
@@ -272,6 +272,16 @@ func (b *Bulk) Done() (rowcount int64, err error) {
 	}
 
 	return reader.rowCount, nil
+}
+
+// writeRequest guards a bulk request write and invalidates the connection on
+// error because any prefix of the TDS packet may already have been sent.
+func (b *Bulk) writeRequest(ctx context.Context, write func() error) error {
+	err := withWriteGuard(ctx, b.cn.sess.buf.transport, write)
+	if err != nil {
+		b.cn.connectionGood = false
+	}
+	return err
 }
 
 func (b *Bulk) createColMetadata() []byte {

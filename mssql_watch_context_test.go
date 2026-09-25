@@ -1,10 +1,14 @@
 package mssql
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
 	"testing"
 	"time"
 
+	"github.com/microsoft/go-mssqldb/msdsn"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -13,6 +17,25 @@ import (
 type fakeWriteDeadliner struct {
 	lastDeadline time.Time
 	setCount     int
+}
+
+type attentionTransport struct {
+	bytes.Buffer
+	deadlines   []time.Time
+	deadlineErr error
+}
+
+func (*attentionTransport) Read([]byte) (int, error) {
+	return 0, io.EOF
+}
+
+func (*attentionTransport) Close() error {
+	return nil
+}
+
+func (t *attentionTransport) SetWriteDeadline(deadline time.Time) error {
+	t.deadlines = append(t.deadlines, deadline)
+	return t.deadlineErr
 }
 
 func (f *fakeWriteDeadliner) SetWriteDeadline(t time.Time) error {
@@ -65,4 +88,38 @@ func TestWatchContextForWrite_CancelForcesImmediateDeadline(t *testing.T) {
 	// once to force the immediate deadline, once to clear it.
 	assert.GreaterOrEqual(t, wd.setCount, 2, "SetWriteDeadline should be called both to force and then clear the deadline")
 	assert.True(t, wd.lastDeadline.IsZero(), "stop() must always clear the deadline before returning")
+}
+
+func TestSendAttentionWithGuardPreservesLegacyNoTimeout(t *testing.T) {
+	transport := &attentionTransport{}
+	sess := newSession(newTdsBuffer(defaultPacketSize, transport), nil, msdsn.Config{})
+
+	assert.NoError(t, sendAttentionWithGuard(sess))
+	assert.Empty(t, transport.deadlines, "legacy mode must not introduce an attention write deadline")
+}
+
+func TestSendAttentionWithGuardBoundsOptInNoTimeout(t *testing.T) {
+	transport := &attentionTransport{}
+	sess := newSession(newTdsBuffer(defaultPacketSize, transport), nil, msdsn.Config{
+		DisableConnTimeoutAsQueryTimeout: true,
+	})
+
+	assert.NoError(t, sendAttentionWithGuard(sess))
+	if assert.Len(t, transport.deadlines, 2) {
+		assert.False(t, transport.deadlines[0].IsZero(), "opt-in mode must bound the attention write")
+		assert.True(t, transport.deadlines[1].IsZero(), "attention write deadline must be cleared")
+	}
+}
+
+func TestSendAttentionWithGuardDoesNotWriteWithoutDeadline(t *testing.T) {
+	deadlineErr := errors.New("deadlines unsupported")
+	transport := &attentionTransport{deadlineErr: deadlineErr}
+	sess := newSession(newTdsBuffer(defaultPacketSize, transport), nil, msdsn.Config{
+		DisableConnTimeoutAsQueryTimeout: true,
+	})
+
+	err := sendAttentionWithGuard(sess)
+
+	assert.ErrorIs(t, err, deadlineErr)
+	assert.Empty(t, transport.Bytes(), "attention must not risk an unbounded write")
 }

@@ -201,13 +201,10 @@ type tdsSession struct {
 	connid          UniqueIdentifier
 	activityid      UniqueIdentifier
 	encoding        msdsn.EncodeParameters
-	// connTimeout is the configured "connection timeout" (msdsn.Config.ConnTimeout).
-	// It is used to bound the attention (cancellation) write with a safety-net
-	// deadline (see sendAttentionWithGuard in token.go), independently of
-	// whether DisableConnTimeoutAsQueryTimeout disabled it as a general
-	// per-I/O deadline: the attention write happens precisely when ctx has
-	// already fired, so a context-based guard can't be used to bound it.
-	connTimeout time.Duration
+	// These settings are retained so the opt-in path can bound the attention
+	// write after the caller's context has already been cancelled.
+	connTimeout                      time.Duration
+	disableConnTimeoutAsQueryTimeout bool
 	// readDone is closed when the current processSingleResponse goroutine
 	// completes. startResponseReader waits on this to prevent concurrent buffer reads.
 	readDone chan struct{}
@@ -997,36 +994,29 @@ func sendAttention(buf *tdsBuffer) error {
 	return buf.FinishPacket()
 }
 
-// defaultAttentionWriteTimeout bounds the attention (cancellation) write
-// below when no "connection timeout" is configured (ConnTimeout==0,
-// meaning "no timeout" for ordinary reads/writes). Without some bound, a
-// server that stopped consuming could make the attention write - which is
-// only ever sent after ctx has already fired - block forever, defeating
-// the very purpose of cancelling in the first place.
+// defaultAttentionWriteTimeout bounds the attention write in the opt-in path
+// when no connection timeout is configured.
 const defaultAttentionWriteTimeout = 30 * time.Second
 
-// sendAttentionWithGuard sends the attention (cancellation) packet with a
-// bounded write deadline. It exists because the attention write is only
-// ever sent from token.go after ctx has already fired (see the <-t.ctx.Done()
-// case in tokenProcessor.iterateResponse), so a context-cancellation-based
-// guard like watchContextForWrite can't help here: ctx.Done() would fire
-// immediately, making the deadline effectively zero. A fixed deadline is
-// used instead, based on the connection's configured ConnTimeout (or a
-// sane fallback if ConnTimeout is 0/unset, which would otherwise mean "no
-// deadline at all" for this write). The deadline is always cleared again
-// afterward, regardless of outcome, so it can never leak into later,
-// unrelated use of the same transport.
+// sendAttentionWithGuard preserves the legacy attention-write behavior unless
+// the caller opted out of using ConnTimeout for query execution. In that mode,
+// the normal transport deadline is disabled and a fixed deadline is required:
+// this function is called only after ctx has fired, so a context-based write
+// guard would expire immediately. The deadline is always cleared afterward.
 func sendAttentionWithGuard(sess *tdsSession) error {
+	if !sess.disableConnTimeoutAsQueryTimeout {
+		return sendAttention(sess.buf)
+	}
 	wd, ok := sess.buf.transport.(interface{ SetWriteDeadline(time.Time) error })
 	if !ok {
-		return sendAttention(sess.buf)
+		return errors.New("attention transport does not support write deadlines")
 	}
 	timeout := sess.connTimeout
 	if timeout <= 0 {
 		timeout = defaultAttentionWriteTimeout
 	}
 	if err := wd.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
-		return sendAttention(sess.buf)
+		return err
 	}
 	defer func() { _ = wd.SetWriteDeadline(time.Time{}) }()
 	return sendAttention(sess.buf)
