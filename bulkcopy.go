@@ -373,19 +373,17 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 	res.ti.TypeId = col.ti.TypeId
 	loc := getTimezone(b.cn)
 
-	if raw, ok := val.(json.RawMessage); ok {
+	switch valuer := val.(type) {
+	case json.RawMessage:
 		switch col.ti.TypeId {
 		case typeNVarChar, typeNText, typeNChar:
 		default:
-			if raw == nil {
+			if valuer == nil {
 				val = nil
 			} else {
-				val = []byte(raw)
+				val = []byte(valuer)
 			}
 		}
-	}
-
-	switch valuer := val.(type) {
 	case Money[shopspring.Decimal]:
 		return b.makeParam(valuer.Decimal, col)
 	case Money[shopspring.NullDecimal]:
