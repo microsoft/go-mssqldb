@@ -250,30 +250,35 @@ func TestTimeoutConn_DisableTimeout(t *testing.T) {
 	mock := &mockConn{Buffer: bytes.NewBuffer([]byte("hello world"))}
 	tc := newTimeoutConn(mock, 5*time.Second)
 
-	// Simulate a login-phase read that leaves a read deadline set on the
-	// underlying connection.
+	// Simulate login-phase I/O that leaves read and write deadlines set on
+	// the underlying connection.
 	_, err := tc.Read(make([]byte, 1))
 	assert.NoError(t, err, "Read()")
 	assert.NotZero(t, mock.lastReadDeadline, "SetReadDeadline should have been called by Read()")
+	_, err = tc.Write([]byte("hi"))
+	assert.NoError(t, err, "Write()")
+	assert.NotZero(t, mock.lastWriteDeadline, "SetWriteDeadline should have been called by Write()")
 
 	err = tc.disableTimeout()
 	assert.NoError(t, err, "disableTimeout()")
-	assert.True(t, tc.disableReadTimeout, "disableTimeout() should mark the read timeout as disabled")
+	assert.True(t, tc.timeoutDisabled, "disableTimeout() should mark the timeout as disabled")
 	assert.True(t, mock.lastReadDeadline.IsZero(), "disableTimeout() should clear any read deadline left over from login I/O")
+	assert.True(t, mock.lastWriteDeadline.IsZero(), "disableTimeout() should clear any write deadline left over from login I/O")
 
-	// After disabling, further reads must not re-apply a read deadline.
+	// After disabling, further reads and writes must not re-apply a
+	// deadline: once disabled, protecting a stuck write against hanging
+	// forever is the caller's responsibility via context-based
+	// cancellation (see watchContextForWrite in mssql.go), not
+	// timeoutConn's.
 	readCountBefore := mock.readDeadlineSetCount
 	_, err = tc.Read(make([]byte, 1))
 	assert.NoError(t, err, "Read() after disableTimeout()")
-	assert.Equal(t, readCountBefore, mock.readDeadlineSetCount, "Read() should not call SetReadDeadline once the read timeout is disabled")
+	assert.Equal(t, readCountBefore, mock.readDeadlineSetCount, "Read() should not call SetReadDeadline once the timeout is disabled")
 
-	// Writes must keep being bounded by the configured timeout even after
-	// disableTimeout(), as a safety net against a stuck send (see net.go).
 	writeCountBefore := mock.writeDeadlineSetCount
 	_, err = tc.Write([]byte("hello"))
 	assert.NoError(t, err, "Write() after disableTimeout()")
-	assert.Equal(t, writeCountBefore+1, mock.writeDeadlineSetCount, "Write() should keep re-arming the write deadline even after disableTimeout()")
-	assert.NotZero(t, mock.lastWriteDeadline, "Write() should keep setting a write deadline even after disableTimeout()")
+	assert.Equal(t, writeCountBefore, mock.writeDeadlineSetCount, "Write() should not call SetWriteDeadline once the timeout is disabled")
 }
 
 func TestTimeoutConn_DisableTimeout_NoOpWhenNoTimeoutConfigured(t *testing.T) {

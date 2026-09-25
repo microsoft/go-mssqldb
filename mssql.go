@@ -13,6 +13,7 @@ import (
 	"net"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -543,6 +544,43 @@ func (s *Stmt) NumInput() int {
 	return s.paramCount
 }
 
+// watchContextForWrite arms an immediate write deadline on wd if ctx is
+// cancelled before the returned stop function is called. It exists to bound
+// synchronous request writes (see sendQuery) that would otherwise be able to
+// block forever once the transport's own ConnTimeout-based write deadline
+// has been disabled via disableconntimeoutasquerytimeout: without it, a
+// write stuck because the server stopped consuming would never notice ctx
+// cancellation, since no response reader exists yet to observe it. It is a
+// no-op if ctx can never be cancelled (e.g. context.Background()).
+//
+// stop() blocks until the monitoring goroutine has fully exited, and always
+// clears any write deadline before returning (whether or not it set one),
+// so a benign race between a completing Write and ctx firing can never
+// leave a stale deadline armed on the connection for a subsequent command.
+func watchContextForWrite(ctx context.Context, wd interface{ SetWriteDeadline(time.Time) error }) (stop func()) {
+	if ctx.Done() == nil {
+		return func() {}
+	}
+	done := make(chan struct{})
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		select {
+		case <-ctx.Done():
+			// Force any in-flight or subsequent Write on this transport to
+			// fail immediately instead of blocking indefinitely.
+			_ = wd.SetWriteDeadline(time.Now())
+		case <-done:
+		}
+	}()
+	var once sync.Once
+	return func() {
+		once.Do(func() { close(done) })
+		<-stopped
+		_ = wd.SetWriteDeadline(time.Time{})
+	}
+}
+
 func (s *Stmt) sendQuery(ctx context.Context, args []namedValue) (err error) {
 	// Fail fast if XACT_ABORT rolled back the transaction. The mssql.Error
 	// type avoids triggering checkBadConn's retry/reconnect path.
@@ -582,6 +620,20 @@ func (s *Stmt) sendQuery(ctx context.Context, args []namedValue) (err error) {
 
 	reset := conn.resetSession
 	conn.resetSession = false
+
+	// The writes below (sendSqlBatch72/sendRpc) are synchronous and don't
+	// otherwise observe ctx. Normally that's fine because ConnTimeout
+	// keeps bounding them via toconn's own deadline (see net.go). But once
+	// disableconntimeoutasquerytimeout has disabled that deadline, a write
+	// could block forever if the server stops consuming (e.g. a full TCP
+	// send window), with no response reader yet running to notice ctx
+	// cancellation. Guard against that by forcing an immediate write
+	// deadline if ctx is cancelled while the write is in flight.
+	if wd, ok := conn.sess.buf.transport.(interface{ SetWriteDeadline(time.Time) error }); ok {
+		stop := watchContextForWrite(ctx, wd)
+		defer stop()
+	}
+
 	isProc := isProc(s.query)
 	if len(args) == 0 && !isProc {
 		if err = sendSqlBatch72(conn.sess.buf, s.query, headers, reset); err != nil {

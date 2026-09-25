@@ -114,6 +114,15 @@ func TestConnTimeout_AppliesToQueryExecution_ByDefault_Integration(t *testing.T)
 	db := sql.OpenDB(connector)
 	defer db.Close()
 
+	// Establish the connection (and complete login) first, outside the
+	// timer below. Otherwise a login/handshake failure hitting the same
+	// "connection timeout" could satisfy the assertions below just as
+	// well as a query-execution timeout would, without actually
+	// exercising the behavior under test.
+	if err := db.PingContext(context.Background()); err != nil {
+		t.Fatalf("PingContext failed: %v", err)
+	}
+
 	// The context deadline (20s) is much longer than "connection timeout"
 	// (2s), so if the command fails before the context deadline elapses,
 	// it must have been the connection timeout that cut it short.
