@@ -84,6 +84,13 @@ func (ci *copyin) NumInput() int {
 	return -1
 }
 
+func (ci *copyin) CheckNamedValue(nv *driver.NamedValue) error {
+	if _, ok := nv.Value.(json.RawMessage); ok {
+		return nil
+	}
+	return ci.cn.CheckNamedValue(nv)
+}
+
 func (ci *copyin) Query(v []driver.Value) (r driver.Rows, err error) {
 	panic("should never be called")
 }

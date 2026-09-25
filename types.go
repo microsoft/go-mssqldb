@@ -66,6 +66,7 @@ const (
 	typeXml        = 0xf1
 	typeUdt        = 0xf0
 	typeTvp        = 0xf3
+	typeJson       = 0xf4
 
 	// long length types
 	typeText    = 0x23
@@ -76,6 +77,8 @@ const (
 const _PLP_NULL = 0xFFFFFFFFFFFFFFFF
 const _UNKNOWN_PLP_LEN = 0xFFFFFFFFFFFFFFFE
 const _PLP_TERMINATOR = 0x00000000
+
+const _PLP_INITIAL_BUFFER_SIZE = 32 * 1024
 
 // _MAX_PLP_LEN is the largest length a PLP value can legitimately advertise.
 // The (max) LOB types top out at 2 GB - 1 byte, so any larger size is a
@@ -250,6 +253,12 @@ func writeVarLen(w io.Writer, ti *typeInfo, out bool, encoding msdsn.EncodeParam
 				return
 			}
 		}
+	case typeJson:
+		// JSON TYPE_INFO has no USHORTMAXLEN field. Unlike nvarchar/varchar, and
+		// unlike XML as handled above in this driver, JSON does not write a 2-byte
+		// max-length prefix here. The type byte (0xF4) is followed directly by
+		// PLP data with no size indicator. Confirmed by SqlClient for JSON.
+		ti.Writer = writePLPType
 	case typeText, typeImage, typeNText, typeVariant:
 		// LONGLEN_TYPE
 		if err = binary.Write(w, binary.LittleEndian, uint32(ti.Size)); err != nil {
@@ -542,14 +551,17 @@ func readShortLenType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding ms
 }
 
 func writeShortLenType(w io.Writer, ti typeInfo, buf []byte, encoding msdsn.EncodeParameters) (err error) {
+	var size [2]byte
 	if buf == nil {
-		err = binary.Write(w, binary.LittleEndian, uint16(0xffff))
+		binary.LittleEndian.PutUint16(size[:], 0xffff)
+		_, err = w.Write(size[:])
 		return
 	}
 	if ti.Size > 0xfffe {
 		panic("Invalid size for USHORTLEN_TYPE")
 	}
-	err = binary.Write(w, binary.LittleEndian, uint16(ti.Size))
+	binary.LittleEndian.PutUint16(size[:], uint16(ti.Size))
+	_, err = w.Write(size[:])
 	if err != nil {
 		return
 	}
@@ -753,18 +765,25 @@ func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.E
 			// size unknown
 			buf = bytes.NewBuffer(make([]byte, 0, 1000))
 		default:
-			// The advertised size is untrusted, so reject anything a real server
-			// cannot produce before using it as an allocation size.
 			if size > _MAX_PLP_LEN {
 				badStreamPanicf("PLP length %d exceeds the maximum LOB size of %d bytes", size, uint64(_MAX_PLP_LEN))
 			}
-			buf = bytes.NewBuffer(make([]byte, 0, size))
+			initialSize := min(size, _PLP_INITIAL_BUFFER_SIZE)
+			buf = bytes.NewBuffer(make([]byte, 0, initialSize))
 		}
+		var totalSize uint64
 		for {
 			chunksize := r.uint32()
 			if chunksize == 0 {
 				break
 			}
+			if size != _UNKNOWN_PLP_LEN && uint64(chunksize) > size-totalSize {
+				badStreamPanicf("PLP chunks exceed the advertised length of %d bytes", size)
+			}
+			if uint64(chunksize) > uint64(_MAX_PLP_LEN)-totalSize {
+				badStreamPanicf("PLP length exceeds the maximum LOB size of %d bytes", uint64(_MAX_PLP_LEN))
+			}
+			totalSize += uint64(chunksize)
 			if _, err := io.CopyN(buf, r, int64(chunksize)); err != nil {
 				badStreamPanicf("Reading PLP type failed: %s", err.Error())
 			}
@@ -782,6 +801,13 @@ func readPLPType(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.E
 		return bytesToDecode
 	case typeNVarChar, typeNChar, typeNText:
 		return decodeNChar(bytesToDecode)
+	case typeJson:
+		// Current SqlClient expects UTF-8, while SQL Server 2025 builds may emit
+		// UTF-16LE. Raw NUL bytes cannot occur in valid UTF-8 JSON.
+		if bytes.IndexByte(bytesToDecode, 0) < 0 {
+			return string(bytesToDecode)
+		}
+		return decodeUcs2(bytesToDecode)
 	case typeUdt:
 		return decodeUdt(*ti, bytesToDecode)
 	}
@@ -870,6 +896,8 @@ func readVarLen(ti *typeInfo, r *tdsBuffer, c *cryptoMetadata, encoding msdsn.En
 		ti.UdtInfo.AssemblyQualifiedName = r.UsVarChar()
 
 		ti.Buffer = make([]byte, ti.Size)
+		ti.Reader = readPLPType
+	case typeJson:
 		ti.Reader = readPLPType
 	case typeBigVarBin, typeBigVarChar, typeBigBinary, typeBigChar,
 		typeNVarChar, typeNChar:
@@ -1223,6 +1251,8 @@ func makeGoLangScanType(ti typeInfo) reflect.Type {
 		return reflect.TypeOf((*interface{})(nil)).Elem()
 	case typeUdt:
 		return reflect.TypeOf([]byte{})
+	case typeJson:
+		return reflect.TypeOf("")
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangScanType for type %d", ti.TypeId))
 	}
@@ -1343,6 +1373,8 @@ func makeDecl(ti typeInfo) string {
 		return ti.UdtInfo.TypeName
 	case typeImage:
 		return "image"
+	case typeJson:
+		return "json"
 	case typeGuid:
 		return "uniqueidentifier"
 	case typeTvp:
@@ -1459,6 +1491,8 @@ func makeGoLangTypeName(ti typeInfo) string {
 		return "BINARY"
 	case typeUdt:
 		return strings.ToUpper(ti.UdtInfo.TypeName)
+	case typeJson:
+		return "JSON"
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypeName for type %d", ti.TypeId))
 	}
@@ -1583,6 +1617,10 @@ func makeGoLangTypeLength(ti typeInfo) (int64, bool) {
 		return 0, false
 	case typeBigBinary:
 		return int64(ti.Size), true
+	case typeJson:
+		// JSON stores UTF-8 text and should report the same maximum
+		// length metadata as other varchar(max)-style types.
+		return 2147483645, true
 	case typeUdt:
 		switch ti.UdtInfo.TypeName {
 		case "hierarchyid":
@@ -1709,6 +1747,8 @@ func makeGoLangTypePrecisionScale(ti typeInfo) (int64, int64, bool) {
 	case typeBigBinary:
 		return 0, 0, false
 	case typeUdt:
+		return 0, 0, false
+	case typeJson:
 		return 0, 0, false
 	default:
 		panic(fmt.Sprintf("not implemented makeGoLangTypePrecisionScale for type %d", ti.TypeId))
