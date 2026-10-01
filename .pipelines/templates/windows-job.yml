@@ -45,6 +45,13 @@ jobs:
       GOBIN: $(Agent.TempDirectory)\go-tools
 
   - task: PowerShell@2
+    displayName: Exercise coverage conversion encoding
+    inputs:
+      targetType: filePath
+      filePath: .pipelines/tests/Test-GoCoverageConversion.ps1
+      workingDirectory: $(Build.SourcesDirectory)/.pipelines/tools
+
+  - task: PowerShell@2
     displayName: Exercise SQL certificate key lookup
     inputs:
       targetType: filePath
@@ -125,7 +132,7 @@ jobs:
     inputs:
       testResultsFormat: JUnit
       testResultsFiles: $(Build.ArtifactStagingDirectory)/windows-results/tests.xml
-      testRunTitle: Windows SQL 2025 - $(System.JobName)
+      testRunTitle: Windows SQL 2025 - ${{ parameters.jobName }}
       failTaskOnFailedTests: true
       failTaskOnMissingResultsFile: true
 
@@ -133,14 +140,8 @@ jobs:
     displayName: Convert Go coverage to Cobertura
     condition: succeededOrFailed()
     inputs:
-      targetType: inline
-      script: |
-        $ErrorActionPreference = 'Stop'
-        $json = & gocov convert "$env:RESULTS_DIR\coverage.txt"
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        $xml = $json | & gocov-xml
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        $xml | Set-Content -Path "$env:RESULTS_DIR\coverage.xml" -Encoding UTF8
+      targetType: filePath
+      filePath: .pipelines/scripts/Convert-GoCoverage.ps1
     env:
       RESULTS_DIR: $(Build.ArtifactStagingDirectory)\windows-results
 
@@ -156,4 +157,4 @@ jobs:
     condition: succeededOrFailed()
     inputs:
       targetPath: $(Build.ArtifactStagingDirectory)/windows-results
-      artifact: windows-$(System.JobName)
+      artifact: windows-${{ parameters.jobName }}

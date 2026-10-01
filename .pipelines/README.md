@@ -41,6 +41,13 @@ is compatible with Go 1.25; installing `gocov@v1.2.1` independently selects an
 older dependency that fails to compile with this toolchain. Keep tool dependencies
 out of the driver's root module and update `tools/go.sum` alongside the tool pins.
 
+`scripts/Convert-GoCoverage.ps1` explicitly uses BOM-free UTF-8 for the native
+JSON pipe because the Azure PowerShell task's inherited encoding can prepend
+a BOM that `gocov-xml` rejects. `tests/Test-GoCoverageConversion.ps1` exercises
+this with real tools and a BOM-emitting caller. Artifact names and test-run
+titles use the template's configuration name, not `System.JobName`, which can
+resolve to `__default` for multiple jobs.
+
 ### Agent prerequisites
 
 - A fresh, disposable Windows agent per job; never point this pipeline at a shared
