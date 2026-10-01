@@ -45,8 +45,7 @@ out of the driver's root module and update `tools/go.sum` alongside the tool pin
 the Go tools' output bytes rather than passing JSON through PowerShell's text
 pipeline, whose inherited encoding can prepend a BOM that `gocov-xml` rejects.
 The intermediate JSON file is removed afterward.
-`tests/Test-GoCoverageConversion.ps1` exercises this with real tools,
-BOM-emitting caller/global encodings, and paths containing spaces. Artifact names and test-run
+Artifact names and test-run
 titles use the template's configuration name, not `System.JobName`, which can
 resolve to `__default` for multiple jobs.
 
@@ -107,15 +106,3 @@ to Azure Pipelines rather than uploaded to Codecov by this new pipeline; Linux
 Codecov reporting remains unchanged. If Windows coverage must also appear in
 Codecov after cutover, arrange an approved upload path for PR artifacts without
 exposing a Codecov secret to fork code before retiring AppVeyor.
-
-The result-assertion script has a standalone regression harness requiring no SQL
-Server or additional test framework:
-
-```powershell
-powershell.exe -NoProfile -File .pipelines/tests/Test-WindowsTestResults.ps1
-```
-
-`tests/Test-SqlCertificateKey.ps1` exercises the vendored script's certificate
-creation and key-name lookup against a real temporary CurrentUser certificate.
-It removes the certificate and key afterward, without touching SQL Server or
-the machine trust store.

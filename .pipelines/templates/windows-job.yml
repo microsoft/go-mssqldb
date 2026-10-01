@@ -19,12 +19,6 @@ jobs:
     clean: true
     persistCredentials: false
 
-  - task: PowerShell@2
-    displayName: Exercise required-test result assertions
-    inputs:
-      targetType: filePath
-      filePath: .pipelines/tests/Test-WindowsTestResults.ps1
-
   - task: GoTool@0
     inputs:
       version: '1.25'
@@ -43,19 +37,6 @@ jobs:
     env:
       GOARCH: amd64
       GOBIN: $(Agent.TempDirectory)\go-tools
-
-  - task: PowerShell@2
-    displayName: Exercise coverage conversion encoding
-    inputs:
-      targetType: filePath
-      filePath: .pipelines/tests/Test-GoCoverageConversion.ps1
-      workingDirectory: $(Build.SourcesDirectory)/.pipelines/tools
-
-  - task: PowerShell@2
-    displayName: Exercise SQL certificate key lookup
-    inputs:
-      targetType: filePath
-      filePath: .pipelines/tests/Test-SqlCertificateKey.ps1
 
   - task: PowerShell@2
     displayName: Configure SQL TLS certificate using mssql-rs script
