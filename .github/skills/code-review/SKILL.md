@@ -34,13 +34,74 @@ feedback first.
 
    Copilot's review summary and bot analysis usually live in the latter two, not inline.
 
-4. Check CI: `gh pr checks <n>`. If checks are failing, say which one and what it
-   reports, and stop. A line-by-line review of a PR whose tests do not compile wastes
-   everyone's time.
+4. Check CI: `gh pr checks <n>`. Read failed-job output before classifying a failure.
+   If the only failures are measured benchmark regressions exceeding the performance
+   threshold, report the measurements and continue the code review. Include benchmark
+   name, base/head values, percentage change, statistical result, threshold and log
+   link when available. Do not infer that the PR caused the slowdown or dismiss it as
+   noise. Other failures, including build/test failures inside a benchmark job, still
+   defer review; a job name alone does not qualify for this exception. If the failure
+   cannot be classified, state the verification gap and defer rather than guessing.
+   Continuing review does not waive CI or permit merge with failed required checks.
 
 5. **Verify claims against the actual code — do not assume.** Read the full function,
    the type declarations, and the call sites, not just the changed lines. Most false
    positives in this repository come from reading a hunk in isolation.
+
+6. Perform the regression and compatibility analysis below before forming a verdict.
+
+## Regression and compatibility analysis
+
+The #410 -> #462 -> #469 fix/repair/revert sequence showed that curing a hang can
+still break valid caller behavior. Green CI, high coverage, documentation, and an
+earlier reviewer's requested fix do not establish backward compatibility.
+
+For each changed behavior, record a compact working matrix: baseline behavior,
+head behavior, affected caller/next operation, and evidence or verification gap.
+Keep this in the run summary, not as checklist comments on the PR. Limit it to
+affected behavior; do not turn every review into an audit of the entire driver.
+
+- **Compare the right versions.** Pin the reviewed head and diff base. Read linked
+  issues, repair PRs, and reverts. For a regression repair, also identify the version
+  before the original regression; comparing only to an already-broken base is not
+  sufficient. Separate newly introduced/worsened defects from pre-existing ones.
+- **Trace public contracts through callers.** As applicable, check error identity,
+  concrete type, text, `errors.Is`/`As`, retry sentinels, return timing, cancellation,
+  configured deadlines, later batch side effects, outputs/ReturnStatus/messages,
+  transaction ownership, reset/init, pool reuse, and native resource lifetime.
+  Follow background work and the next operation on the same connection as well as
+  the immediate return path. Assess conversion, wire-format and performance effects
+  when the diff affects them; performance claims require measurements.
+- **Exercise framework behavior.** For lifecycle changes, prefer actual `database/sql`
+  callers with a controlled TDS peer over driver-method-only tests. Include affected
+  `DB`, reserved `Conn`, `Tx`, prepared/bulk and message APIs rather than assuming
+  they share semantics. Check who owns cleanup after Commit marks a transaction done
+  and which ResetSession errors the pool ignores. Cover affected Windows paths
+  separately; Linux success is not native-transport evidence.
+- **Verify both sides of the fix.** The original failing case should fail before and
+  pass after. Compatibility controls for previously valid behavior should pass on
+  both versions. Include healthy slow work, recoverable errors, and cancellation
+  before/during/after the changed handoff where relevant. For example, a healthy
+  batch continuing beyond five seconds must not acquire an unrequested cancellation
+  deadline merely because cleanup now drains its response.
+- **Test the claim, not the implementation.** Assert caller-visible errors, remaining
+  side effects, ownership and subsequent reuse, not merely a returned error or no
+  hang. Prefer deterministic handoff gates and targeted race tests. Run focused
+  before/after probes where feasible; name exact revisions and distinguish executed
+  evidence from source reasoning. Report missing toolchain/server/platform evidence
+  in the run summary, without inventing a defect or claiming all regressions excluded.
+
+A changelog note does not repair an unintended compatibility break. Treat a demonstrated
+break as Blocking until compatibility is preserved or a human explicitly approves it
+as a breaking change with appropriate release/migration handling. Review suggested
+remedies by the same standard: do not replace a hang with an arbitrary timeout,
+blanket connection eviction, or a new caller synchronization obligation without
+checking the consequences.
+
+On subsequent commits, review the delta **and its interaction with the whole fix**.
+Novelty filters duplicate publications, not investigation: an earlier `Fixed:` or
+`Refuted:` reply is evidence to verify, not proof. A distinct demonstrated regression
+caused by a requested fix is reportable; restating an existing finding is not.
 
 ## The three gates
 
@@ -163,6 +224,13 @@ per run and end the body with an idempotency marker so later sweeps skip this co
 Before reviewing, check the PR's comments for a marker matching the current head SHA and
 skip the PR entirely if one exists. With no findings, post only a brief "No findings"
 line plus the marker — that is a normal, successful outcome, not a failure.
+
+For the benchmark-only exception, include one factual **CI status** section in the
+same review body (or the no-new-findings comment), separate from code findings.
+Do not post a preliminary benchmark comment/marker and then a second review: publish
+once after review completes. Link existing benchmark feedback rather than repeating
+its full table, and do not turn the CI failure itself into a duplicate inline finding.
+The existing same-SHA skip still applies, including to older CI-deferred markers.
 
 Never raise a finding on a line that was modified in direct response to an earlier review
 comment — whether yours, GitHub Copilot's, or a human's — unless the change introduced a
