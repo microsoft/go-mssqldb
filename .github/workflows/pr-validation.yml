@@ -227,15 +227,19 @@ jobs:
           # shows 30-46% swings between sequential CI runs due to cache sensitivity.
           # grep exits 1 when there are no matches. Preserve that clean result,
           # but fail the step for command errors.
+          REGRESSED_FILE=$(mktemp)
           set +e
-          REGRESSED=$(grep -v '~' bench_diff.txt | grep -v 'TdsBuffer_Write_Large' | grep -E '^\S+\s+.+\s+\+[0-9]+\.[0-9]+%' | awk -F'+' '{split($2,a,"%"); if (a[1]+0 >= 15) print}')
+          grep -v '~' bench_diff.txt | grep -v 'TdsBuffer_Write_Large' | grep -E '^\S+\s+.+\s+\+[0-9]+\.[0-9]+%' | awk -F'+' '{split($2,a,"%"); if (a[1]+0 >= 15) print}' > "$REGRESSED_FILE"
           PIPE_STATUS=("${PIPESTATUS[@]}")
           set -e
           for status in "${PIPE_STATUS[@]}"; do
             if [ "$status" -gt 1 ]; then
+              rm -f "$REGRESSED_FILE"
               exit "$status"
             fi
           done
+          REGRESSED=$(cat "$REGRESSED_FILE")
+          rm -f "$REGRESSED_FILE"
           if [ -n "$REGRESSED" ]; then
             echo "$REGRESSED"
             echo "::error::Statistically significant regression detected (>15%, p<0.01)"
