@@ -1,18 +1,15 @@
 $ErrorActionPreference = 'Stop'
 
-# PowerShell@2 can supply a BOM-emitting OutputEncoding. Go's JSON decoder
-# rejects that BOM on stdin; ASCII would instead corrupt non-ASCII file paths.
-$previousOutputEncoding = $OutputEncoding
-$previousConsoleEncoding = [Console]::OutputEncoding
+# Keep native output as bytes. Windows PowerShell's text pipeline can add a
+# BOM or transcode JSON, even when the converter sets its local OutputEncoding.
+$jsonPath = Join-Path $env:RESULTS_DIR 'coverage.json'
 try {
-    $OutputEncoding = New-Object System.Text.UTF8Encoding($false)
-    [Console]::OutputEncoding = $OutputEncoding
-    $json = & gocov convert "$env:RESULTS_DIR\coverage.txt"
+    & $env:ComSpec /d /c 'gocov convert "%RESULTS_DIR%\coverage.txt" > "%RESULTS_DIR%\coverage.json"'
     if ($LASTEXITCODE -ne 0) { throw "gocov failed with exit code $LASTEXITCODE." }
-    $xml = $json | & gocov-xml
+    & $env:ComSpec /d /c 'gocov-xml < "%RESULTS_DIR%\coverage.json" > "%RESULTS_DIR%\coverage.xml"'
     if ($LASTEXITCODE -ne 0) { throw "gocov-xml failed with exit code $LASTEXITCODE." }
-    $xml | Set-Content -Path "$env:RESULTS_DIR\coverage.xml" -Encoding UTF8
 } finally {
-    $OutputEncoding = $previousOutputEncoding
-    [Console]::OutputEncoding = $previousConsoleEncoding
+    if (Test-Path -LiteralPath $jsonPath) {
+        Remove-Item -LiteralPath $jsonPath
+    }
 }
