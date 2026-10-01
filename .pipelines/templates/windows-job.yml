@@ -45,6 +45,20 @@ jobs:
       GOBIN: $(Agent.TempDirectory)\go-tools
 
   - task: PowerShell@2
+    displayName: Exercise SQL certificate key lookup
+    inputs:
+      targetType: filePath
+      filePath: .pipelines/tests/Test-SqlCertificateKey.ps1
+
+  - task: PowerShell@2
+    displayName: Configure SQL TLS certificate using mssql-rs script
+    inputs:
+      targetType: filePath
+      filePath: .pipelines/scripts/Generate-SqlCertificates.ps1
+      arguments: '-InstanceName "MSSQLSERVER"'
+      errorActionPreference: stop
+
+  - task: PowerShell@2
     displayName: Configure local SQL Server 2025
     inputs:
       targetType: filePath

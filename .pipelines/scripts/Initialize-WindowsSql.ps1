@@ -48,32 +48,6 @@ function Invoke-Sql {
     throw 'SQL setup failed. The agent identity must have sysadmin access to the default instance.'
 }
 
-# Bind and trust a job-local TLS certificate rather than weakening driver TLS settings.
-$cert = New-SelfSignedCertificate -Type SSLServerAuthentication `
-    -Subject "CN=$env:COMPUTERNAME" -DnsName $env:COMPUTERNAME,localhost `
-    -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 `
-    -KeySpec KeyExchange -Provider 'Microsoft RSA SChannel Cryptographic Provider' `
-    -CertStoreLocation 'Cert:\LocalMachine\My' -NotAfter (Get-Date).AddDays(2)
-$serviceAccount = (Get-CimInstance Win32_Service -Filter "Name='MSSQLSERVER'").StartName
-$rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
-try {
-    $keyName = $rsa.CspKeyContainerInfo.UniqueKeyContainerName
-    $keyPath = Join-Path $env:ProgramData "Microsoft\Crypto\RSA\MachineKeys\$keyName"
-    $acl = Get-Acl $keyPath
-    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($serviceAccount, 'Read', 'Allow')
-    $acl.AddAccessRule($rule)
-    Set-Acl -Path $keyPath -AclObject $acl
-} finally {
-    $rsa.Dispose()
-}
-$store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'LocalMachine')
-try {
-    $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-    $store.Add($cert)
-} finally {
-    $store.Dispose()
-}
-Set-ItemProperty -Path $networkRoot -Name Certificate -Value $cert.Thumbprint.ToLowerInvariant()
 Set-ItemProperty -Path $sqlRoot -Name LoginMode -Value 2
 foreach ($protocol in @('Tcp', 'Np', 'Sm')) {
     Set-ItemProperty -Path "$networkRoot\$protocol" -Name Enabled -Value 1

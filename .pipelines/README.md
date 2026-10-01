@@ -57,10 +57,19 @@ out of the driver's root module and update `tools/go.sum` alongside the tool pin
 
 Setup discovers the SQL instance registry ID, enables mixed authentication and
 TCP/named pipes/shared memory, starts SQL Browser, and creates database `test`.
-It generates a random, secret-masked SQL password and binds a short-lived TLS
+It generates a random, secret-masked SQL password and binds a TLS
 certificate trusted only on the disposable agent. The driver's TLS defaults
 remain unchanged. Bootstrap `sqlcmd -C` calls are restricted to local CI setup;
 the TCP readiness probe validates the certificate.
+
+TLS provisioning uses `scripts/Generate-SqlCertificates.ps1`, vendored from
+[mssql-rs at commit 96d6abc](https://github.com/microsoft/mssql-rs/blob/96d6abc79d60c3ce0afe661d79a7d03def0082fe/.pipeline/scripts/Generate-SqlCertificates.ps1)
+with its MIT license notice. Only a success-message checkmark and whitespace
+were normalized; the executable logic is unchanged. It uses the returned RSA
+key's `Key.UniqueName`, grants SQL Server access to that key, binds the
+certificate, restarts SQL, and installs the certificate in the machine trust
+store. Its certificate validity is 24 months; the agent is still disposable.
+The pipeline invokes it with terminating PowerShell errors.
 
 `SQLSERVER_DSN`, `INSTANCE`, and `SQLINSTANCE` are explicitly cleared so they cannot
 override the matrix's connection settings. Azure-dependent tests are not supplied
@@ -96,3 +105,8 @@ Server or additional test framework:
 ```powershell
 powershell.exe -NoProfile -File .pipelines/tests/Test-WindowsTestResults.ps1
 ```
+
+`tests/Test-SqlCertificateKey.ps1` exercises the vendored script's certificate
+creation and key-name lookup against a real temporary CurrentUser certificate.
+It removes the certificate and key afterward, without touching SQL Server or
+the machine trust store.
