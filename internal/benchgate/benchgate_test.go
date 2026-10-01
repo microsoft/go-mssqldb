@@ -194,6 +194,29 @@ Added-4,,,1.5e-06,∞,` + delta + `,
 	}
 }
 
+// benchstat drops the sign when a significant comparison lands on equal
+// centers. Rejecting that shape would fail the gate closed on a benchmark that
+// measured no change at all.
+func TestParseAcceptsUnsignedZeroDelta(t *testing.T) {
+	const in = `,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Flat-4,1e-07,0%,1e-07,0%,0.00%,p=0.000 n=10
+`
+	rows, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows, want 1", len(rows))
+	}
+	if !rows[0].Significant {
+		t.Error("got Significant false, want true for a non-tilde delta")
+	}
+	if rows[0].Delta != 0 {
+		t.Errorf("got Delta %v, want 0", rows[0].Delta)
+	}
+}
+
 func TestParseResetsUnitBetweenTables(t *testing.T) {
 	const in = `,old,,new,,,
 ,sec/op,CI,sec/op,CI,vs base,P

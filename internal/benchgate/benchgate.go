@@ -22,7 +22,7 @@ type Row struct {
 	Package     string
 	Name        string
 	Unit        string
-	Delta       float64 // percent, as benchstat signs it
+	Delta       float64 // percent, as benchstat reports it
 	Significant bool
 }
 
@@ -93,6 +93,11 @@ func isFileListLine(rec []string) bool {
 }
 
 var deltaPattern = regexp.MustCompile(`^[+-][0-9]+(\.[0-9]+)?%$`)
+
+// benchstat prints this exact unsigned string when a comparison is significant
+// but the two centers are equal; every other delta carries a sign. See
+// Comparison.FormatDelta in golang.org/x/perf/benchmath.
+const zeroDelta = "0.00%"
 
 // Parse reads benchstat -format=csv output. Rows outside a recognised table are
 // ignored, and rows whose delta it cannot read are an error rather than a silent
@@ -176,6 +181,8 @@ func Parse(r io.Reader) ([]Row, error) {
 		switch {
 		case d == "~":
 			row.Significant = false
+		case d == zeroDelta:
+			row.Delta, row.Significant = 0, true
 		case deltaPattern.MatchString(d):
 			v, err := strconv.ParseFloat(strings.TrimSuffix(d, "%"), 64)
 			if err != nil {
