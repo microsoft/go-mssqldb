@@ -23,6 +23,7 @@ jobs:
 - job: Windows
   timeoutInMinutes: 90
   strategy:
+    maxParallel: 1
     matrix:
       sql_auth:
         targetArch: amd64

@@ -27,6 +27,10 @@ job executes 32-bit tests on the x64 agent. Each job publishes JUnit, Cobertura,
 native Go coverage, and test JSON. Required connection/transport/encryption tests
 must actually pass; a skipped test does not satisfy the job.
 
+The matrix uses `maxParallel: 1`: only one Windows job runs at a time per
+pipeline run, with a fresh agent for each configuration. This does not limit
+concurrency between separate pipeline runs.
+
 ### Agent prerequisites
 
 - A fresh, disposable Windows agent per job; never point this pipeline at a shared
@@ -57,7 +61,7 @@ certificates separately from the SQL Server TLS certificate.
 
 1. Arrange access to `RUST-PUBLIC-X64-WUS3` and its image for the target Azure
    DevOps project; pool names are project-scoped. Confirm disposable-agent
-   isolation and capacity for the four jobs with the pool owner.
+   isolation and capacity for one active job per pipeline run with the pool owner.
 2. Authorize the Azure Pipelines GitHub integration for `microsoft/go-mssqldb`
    and create a pipeline pointing at `.pipelines/windows-validation.yml`.
 3. Enable GitHub fork PR validation with the appropriate maintainer-approval
