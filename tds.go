@@ -206,7 +206,8 @@ type tdsSession struct {
 	// completes. startResponseReader waits on this to prevent concurrent buffer reads.
 	readDone chan struct{}
 	// vectorSupported indicates that native vector protocol v1 was negotiated. V1 supports
-	// binary FLOAT32 values; FLOAT16 parameters use JSON and bulk copy requires protocol v2.
+	// binary FLOAT32; bulk copy without negotiation uses JSON, while FLOAT16 bulk copy with
+	// v1 requires protocol v2.
 	vectorSupported bool
 }
 

@@ -357,8 +357,8 @@ The `vectortypesupport` connection string parameter controls how vector data is 
 
 | Value | Description |
 |-------|-------------|
-| `off` (default) | Vectors are sent as JSON strings using standard parameter types. This mode is intended for backward-compatible client behavior and works with SQL Server 2025 and later versions even without vector feature negotiation; older SQL Server versions still cannot store `VECTOR` columns or use `VECTOR` functions. |
-| `v1` | Enables native binary TDS protocol version 1 for float32 vectors. Float16 parameters use JSON, but bulk copy of float16 vectors is unsupported because it requires protocol version 2. Requires SQL Server 2025 and later versions. |
+| `off` (default) | Vectors and bulk-copy vector rows are sent as JSON without vector feature negotiation. This mode is intended for backward-compatible client behavior and works with SQL Server 2025 and later versions; older SQL Server versions still cannot store `VECTOR` columns or use `VECTOR` functions. |
+| `v1` | Enables native binary TDS protocol version 1 for float32 vectors. Float16 parameters use JSON, but float16 bulk copy is unsupported because it requires protocol version 2. Requires SQL Server 2025 and later versions. |
 
 ### Examples
 

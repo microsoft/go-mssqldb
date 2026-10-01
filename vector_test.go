@@ -807,18 +807,47 @@ func TestBulkMakeParamVectorJSONFallback(t *testing.T) {
 	}
 }
 
-func TestBulkMakeParamVectorRequiresNegotiation(t *testing.T) {
+func TestBulkMakeRowDataVectorJSONFallback(t *testing.T) {
 	bulk := &Bulk{cn: &Conn{sess: &tdsSession{}}}
-	column := columnStruct{ti: typeInfo{
-		TypeId: typeVectorN,
-		Size:   vectorHeaderSize + 3*VectorElementFloat32.BytesPerElement(),
-		Scale:  byte(VectorElementFloat32),
-	}}
-	vector := Vector{ElementType: VectorElementFloat32, Data: []float32{1, 2, 3}}
+	for _, elementType := range []VectorElementType{VectorElementFloat32, VectorElementFloat16} {
+		t.Run(elementType.String(), func(t *testing.T) {
+			column := columnStruct{ti: typeInfo{
+				TypeId: typeVectorN,
+				Size:   vectorHeaderSize + 3*elementType.BytesPerElement(),
+				Scale:  byte(elementType),
+				Writer: writeVectorType,
+			}}
+			bulk.bulkColumns = []columnStruct{column}
+			vector := Vector{ElementType: elementType, Data: []float32{1, 2, 3}}
 
-	_, err := bulk.makeParam(vector, column)
-	if err == nil || !strings.Contains(err.Error(), "native vector bulk copy requires vectortypesupport=v1") {
-		t.Fatalf("makeParam error = %v; want unsupported native vector bulk copy", err)
+			got, err := bulk.makeRowData([]interface{}{vector})
+			if err != nil {
+				t.Fatal(err)
+			}
+			json, err := vector.Value()
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload := str2ucs2(json.(string))
+			want := new(bytes.Buffer)
+			want.WriteByte(byte(tokenRow))
+			binary.Write(want, binary.LittleEndian, uint64(_UNKNOWN_PLP_LEN))
+			binary.Write(want, binary.LittleEndian, uint32(len(payload)))
+			want.Write(payload)
+			binary.Write(want, binary.LittleEndian, uint32(_PLP_TERMINATOR))
+			if !bytes.Equal(got, want.Bytes()) {
+				t.Fatalf("JSON fallback row = %x; want %x", got, want.Bytes())
+			}
+
+			got, err = bulk.makeRowData([]interface{}{Vector{ElementType: elementType}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 1+8 || got[0] != byte(tokenRow) ||
+				binary.LittleEndian.Uint64(got[1:]) != _PLP_NULL {
+				t.Fatalf("NULL JSON fallback row = %x; want PLP NULL", got)
+			}
+		})
 	}
 }
 

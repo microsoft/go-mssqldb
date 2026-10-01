@@ -224,7 +224,11 @@ func (b *Bulk) makeRowData(row []interface{}) ([]byte, error) {
 			return nil, fmt.Errorf("no writer for column: %s, TypeId: %#x",
 				col.ColName, col.ti.TypeId)
 		}
-		err = col.ti.Writer(buf, param.ti, param.buffer, b.cn.sess.encoding)
+		writer := col.ti.Writer
+		if col.ti.TypeId == typeVectorN && !b.cn.sess.vectorSupported {
+			writer = writePLPType
+		}
+		err = writer(buf, param.ti, param.buffer, b.cn.sess.encoding)
 		if err != nil {
 			return nil, fmt.Errorf("bulkcopy: %s", err.Error())
 		}
@@ -752,7 +756,19 @@ func (b *Bulk) makeBulkVectorParam(vector Vector, col columnStruct) (res param, 
 		return b.makeParam(value, col)
 	}
 	if !b.cn.sess.vectorSupported {
-		return res, fmt.Errorf("mssql: native vector bulk copy requires vectortypesupport=v1")
+		if vector.Data == nil {
+			res.ti.Size = 0
+			return res, nil
+		}
+		value, valueErr := vector.Value()
+		if valueErr != nil {
+			return res, valueErr
+		}
+		jsonParam := makeStrParam(value.(string))
+		jsonParam.ti.TypeId = typeVectorN
+		jsonParam.ti.Size = col.ti.Size
+		jsonParam.ti.Scale = col.ti.Scale
+		return jsonParam, nil
 	}
 	if VectorElementType(col.ti.Scale) == VectorElementFloat16 {
 		return res, fmt.Errorf("mssql: float16 vector bulk copy requires vectortypesupport=v2, which is not supported")
