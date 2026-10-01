@@ -185,6 +185,66 @@ func TestLoginWithSQLServerAuth(t *testing.T) {
 	}
 }
 
+// TestLoginWithVectorTypeSupport tests that vectortypesupport=v1 causes the
+// vector feature extension to be sent in the login packet.
+func TestLoginWithVectorTypeSupport(t *testing.T) {
+	// Connection string with vectortypesupport=v1 enabled
+	conn, err := NewConnector("sqlserver://test:secret@localhost:1433?Workstation ID=localhost&log=128&protocol=tcp&notraceid=true&vectortypesupport=v1")
+	if err != nil {
+		t.Fatalf("Unable to parse dummy DSN: %v", err)
+	}
+	tl := testLogger{t: t}
+	defer tl.StopLogging()
+	SetLogger(&tl)
+	v := versionToHexString(getDriverVersion(driverVersion))
+	pid := versionToHexString(uint32(os.Getpid()))
+	mock := NewMockTransportDialer(
+		[]string{
+			fmt.Sprintf("12 01 00 2f 00 00 01 00  00 00 1a 00 06 01 00 20\n"+
+				"00 01 02 00 21 00 01 03  00 22 00 04 04 00 26 00\n"+
+				"01 ff %s             00 00  00 00 00 00 00 00 00\n", v),
+			// Login packet with vector feature extension (packet size 0xD1, login length 0xC9)
+			// OptionFlags3 now includes fExtension bit (0x10), extension offset at 0xBE points to 0xC2
+			// Feature extension: 0E (vector) + 01000000 (len=1) + 01 (version) + FF (terminator)
+			fmt.Sprintf("10 01 00 d1 00 00 01 00  c9 00 00 00 04 00 00 74\n"+
+				"00 10 00 00 %s           %s 00 00 00 00\n"+
+				"A0 02 00 10 00 00 00 00  00 00 00 00 5e 00 09 00\n"+
+				"70 00 04 00 78 00 06 00  84 00 0a 00 98 00 09 00\n"+
+				"be 00 04 00 aa 00 0a 00  be 00 00 00 be 00 00 00\n"+
+				"%s be 00  00 00 be 00 00 00 be 00\n"+
+				"00 00 00 00 00 00 6c 00  6f 00 63 00 61 00 6c 00\n"+
+				"68 00 6f 00 73 00 74 00  74 00 65 00 73 00 74 00\n"+
+				"92 a5 f3 a5 93 a5 82 a5  f3 a5 e2 a5 67 00 6f 00\n"+
+				"2d 00 6d 00 73 00 73 00  71 00 6c 00 64 00 62 00\n"+
+				"6c 00 6f 00 63 00 61 00  6c 00 68 00 6f 00 73 00\n"+
+				"74 00 67 00 6f 00 2d 00  6d 00 73 00 73 00 71 00\n"+
+				"6c 00 64 00 62 00 c2 00  00 00 0e 01 00 00 00 01\n"+
+				"ff\n", v, pid, clientIdToHexString()),
+		},
+		[]string{
+			"  04 01 00 20  00 00 01 00   00 00 10 00  06 01 00 16\n" +
+				"00 01 06 00  17 00 01 FF   0C 00 07 D0  00 00 02 01\n",
+			"  04 01 00 4A  00 00 01 00   AD 32 00 01 74  00 00 04\n" +
+				"14 4d 00 69  00 63 00 72   00 6f 00 73  00 6f 00 66\n" +
+				"00 74 00 20  00 53 00 51   00 4c 00 20  00 53 00 65\n" +
+				"00 72 00 76  00 65 00 72   00 0c 00 07  d0 fd 00 00\n" +
+				"00 00 00 00  00 00 00 00   00 00\n",
+		},
+	)
+
+	conn.Dialer = mock
+
+	_, err = connect(context.Background(), conn, driverInstanceNoProcess.logger, conn.params)
+	if err != nil {
+		t.Error(err)
+	}
+
+	err = <-mock.result
+	if err != nil {
+		t.Error(err)
+	}
+}
+
 func TestLoginWithSecurityTokenAuth(t *testing.T) {
 	config, err := msdsn.Parse("sqlserver://localhost:1433?Workstation ID=localhost&log=128&protocol=tcp&notraceid=true")
 	if err != nil {

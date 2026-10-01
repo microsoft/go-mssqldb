@@ -28,6 +28,8 @@ func TestInvalidConnectionString(t *testing.T) {
 		"disableretry=invalid",
 		"multisubnetfailover=invalid",
 		"timezone=invalid",
+		"vectortypesupport=invalid",
+		"vectortypesupport=v2", // not yet supported
 		"epa enabled=invalid",
 
 		// ODBC mode
@@ -45,6 +47,7 @@ func TestInvalidConnectionString(t *testing.T) {
 		"sqlserver://host?key=value1&key=value2", // duplicate keys
 		"sqlserver://host?TrustServerCertificate=true&trustservercertificate=false", // case-insensitive duplicate keys
 	}
+
 	for _, connStr := range connStrings {
 		_, err := Parse(connStr)
 		if !assert.Error(t, err, "Connection expected to fail for connection string %s but it didn't", connStr) {
@@ -53,6 +56,11 @@ func TestInvalidConnectionString(t *testing.T) {
 			t.Logf("Connection failed for %s as expected with error %v", connStr, err)
 		}
 	}
+}
+
+func TestInvalidVectorTypeSupportListsAcceptedValues(t *testing.T) {
+	_, err := Parse("vectortypesupport=v2")
+	require.EqualError(t, err, "invalid vectortypesupport 'v2': must be 'off', '0', 'v1', or '1'")
 }
 
 func TestCredentialNotLeakedInError(t *testing.T) {
@@ -159,6 +167,16 @@ func TestValidConnectionString(t *testing.T) {
 		{"epa enabled=0", func(p Config) bool { return !p.EpaEnabled }},
 		{"server=test;epa enabled=true", func(p Config) bool { return p.Host == "test" && p.EpaEnabled }},
 		{"server=test;epa enabled=false", func(p Config) bool { return p.Host == "test" && !p.EpaEnabled }},
+
+		// vectortypesupport tests (matches JDBC/ODBC pattern)
+		{"vectortypesupport=off", func(p Config) bool { return p.VectorTypeSupport() == VectorTypeSupportOff }},
+		{"vectortypesupport=v1", func(p Config) bool { return p.VectorTypeSupport() == VectorTypeSupportV1 }},
+		{"vectortypesupport=OFF", func(p Config) bool { return p.VectorTypeSupport() == VectorTypeSupportOff }},
+		{"vectortypesupport=V1", func(p Config) bool { return p.VectorTypeSupport() == VectorTypeSupportV1 }},
+		{"vectortypesupport=0", func(p Config) bool { return p.VectorTypeSupport() == VectorTypeSupportOff }},
+		{"vectortypesupport=1", func(p Config) bool { return p.VectorTypeSupport() == VectorTypeSupportV1 }},
+		{"", func(p Config) bool { return p.VectorTypeSupport() == VectorTypeSupportOff }}, // default is off
+		{"server=test;vectortypesupport=v1", func(p Config) bool { return p.Host == "test" && p.VectorTypeSupport() == VectorTypeSupportV1 }},
 
 		// ADO connection string tests with double-quoted values containing semicolons
 		{"server=test;password=\"pass;word\"", func(p Config) bool { return p.Host == "test" && p.Password == "pass;word" }},
@@ -270,6 +288,9 @@ func TestValidConnectionString(t *testing.T) {
 			return p.Host == "somehost" && p.User == "someuser" && p.Password == "somepass" && p.DisableRetry
 		}},
 		{"odbc:timezone={Asia/Shanghai}", func(p Config) bool { return p.Encoding.Timezone.String() == "Asia/Shanghai" }},
+		{"odbc:vectortypesupport=v1", func(p Config) bool { return p.VectorTypeSupport() == VectorTypeSupportV1 }},
+		{"odbc:vectortypesupport=off", func(p Config) bool { return p.VectorTypeSupport() == VectorTypeSupportOff }},
+		{"odbc:vectortypesupport={v1}", func(p Config) bool { return p.VectorTypeSupport() == VectorTypeSupportV1 }},
 		{"odbc:epa enabled=true", func(p Config) bool { return p.EpaEnabled }},
 		{"odbc:epa enabled=false", func(p Config) bool { return !p.EpaEnabled }},
 		{"odbc:server=somehost;epa enabled=1", func(p Config) bool { return p.Host == "somehost" && p.EpaEnabled }},
@@ -312,6 +333,8 @@ func TestValidConnectionString(t *testing.T) {
 			return p.Host == "somehost" && p.Encryption == EncryptionRequired && p.TLSConfig.MinVersion == tls.VersionTLS11 && p.ColumnEncryption && p.Encoding.GuidConversion
 		}},
 		{"sqlserver://someuser@somehost?timezone=Asia%2FShanghai", func(p Config) bool { return p.Encoding.Timezone.String() == "Asia/Shanghai" }},
+		{"sqlserver://somehost?vectortypesupport=v1", func(p Config) bool { return p.Host == "somehost" && p.VectorTypeSupport() == VectorTypeSupportV1 }},
+		{"sqlserver://somehost?vectortypesupport=off", func(p Config) bool { return p.Host == "somehost" && p.VectorTypeSupport() == VectorTypeSupportOff }},
 		{"sqlserver://somehost?epa+enabled=true", func(p Config) bool { return p.Host == "somehost" && p.EpaEnabled }},
 		{"sqlserver://somehost?epa+enabled=false", func(p Config) bool { return p.Host == "somehost" && !p.EpaEnabled }},
 		{"sqlserver://somehost?epa+enabled=1", func(p Config) bool { return p.Host == "somehost" && p.EpaEnabled }},
