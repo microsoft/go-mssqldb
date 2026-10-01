@@ -27,9 +27,13 @@ job executes 32-bit tests on the x64 agent. Each job publishes JUnit, Cobertura,
 native Go coverage, and test JSON. Required connection/transport/encryption tests
 must actually pass; a skipped test does not satisfy the job.
 
-The matrix uses `maxParallel: 1`: only one Windows job runs at a time per
-pipeline run, with a fresh agent for each configuration. This does not limit
-concurrency between separate pipeline runs.
+The four jobs use an explicit `dependsOn` chain: SQL auth, Always Encrypted,
+named pipes, then shared memory. Only one job is eligible to run at a time per
+pipeline run, with a fresh agent for each configuration. All four jobs may appear
+in the UI, but later jobs wait for their predecessor to finish before becoming
+eligible. A failed job does not skip subsequent configurations; cancellation
+stops the chain. This does not limit concurrency between separate pipeline runs.
+The shared steps are defined in `templates/windows-job.yml`.
 
 Reporting tools are pinned together in the separate `tools/go.mod` module and
 installed with `go install -mod=readonly tool`. Its `golang.org/x/tools` version
