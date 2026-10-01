@@ -46,6 +46,7 @@ jobs:
           go version
           # Guarantee all four password character classes regardless of the random prefix.
           SQLCMDPASSWORD="$(openssl rand -hex 14)aA1!"
+          echo "::add-mask::$SQLCMDPASSWORD"
           export SQLCMDPASSWORD
           export SQLCMDUSER=sa
           export SQLUSER=sa
@@ -127,6 +128,7 @@ jobs:
         run: |
           # Guarantee all four password character classes regardless of the random prefix.
           SQLCMDPASSWORD="$(openssl rand -hex 14)aA1!"
+          echo "::add-mask::$SQLCMDPASSWORD"
           export SQLCMDPASSWORD
           echo "SQLCMDPASSWORD=$SQLCMDPASSWORD" >> $GITHUB_ENV
           docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver \
@@ -155,15 +157,9 @@ jobs:
           # runs start from the same steady-state conditions.
           go test -run='^$' -bench="$BENCH_PATTERN" \
             -benchtime=100ms -count=1 -timeout=10m . ./msdsn > /dev/null 2>&1
-      - name: Run baseline benchmarks (main)
+      - name: Prepare baseline benchmark worktree (main)
         shell: bash
         run: |
-          export SQLUSER=sa
-          export SQLPASSWORD=$SQLCMDPASSWORD
-          export DATABASE=master
-          export HOST=localhost
-          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
-          BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
           git worktree add ../main-bench origin/main
           # Use the PR's benchmark definitions on both sides, but skip files that
           # are new in this PR because their production code does not exist on main.
@@ -172,14 +168,7 @@ jobs:
             if [ -e "../main-bench/$f" ]; then cp -v "$f" "../main-bench/$f"; fi
           done
           shopt -u nullglob
-          cd ../main-bench
-          go test -run='^$' -bench="$BENCH_PATTERN" \
-            -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn 2>&1 | \
-            tee "$GITHUB_WORKSPACE/bench_old_full.log"
-          grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' "$GITHUB_WORKSPACE/bench_old_full.log" > "$GITHUB_WORKSPACE/bench_old.txt"
-          cd "$GITHUB_WORKSPACE"
-          git worktree remove ../main-bench --force
-      - name: Run PR benchmarks
+      - name: Run paired baseline and PR benchmarks
         shell: bash
         run: |
           export SQLUSER=sa
@@ -188,10 +177,23 @@ jobs:
           export HOST=localhost
           export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
           BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
-          go test -run='^$' -bench="$BENCH_PATTERN" \
-            -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn 2>&1 | \
-            tee bench_new_full.log
-          grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' bench_new_full.log > bench_new.txt
+          : > "$GITHUB_WORKSPACE/bench_old.txt"
+          : > "$GITHUB_WORKSPACE/bench_new.txt"
+          for i in {1..10}; do
+            cd ../main-bench
+            go test -run='^$' -bench="$BENCH_PATTERN" \
+              -benchtime=1s -count=1 -benchmem -timeout=25m . ./msdsn 2>&1 | \
+              tee "$GITHUB_WORKSPACE/bench_old_${i}_full.log"
+            grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' \
+              "$GITHUB_WORKSPACE/bench_old_${i}_full.log" >> "$GITHUB_WORKSPACE/bench_old.txt"
+            cd "$GITHUB_WORKSPACE"
+            go test -run='^$' -bench="$BENCH_PATTERN" \
+              -benchtime=1s -count=1 -benchmem -timeout=25m . ./msdsn 2>&1 | \
+              tee "bench_new_${i}_full.log"
+            grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' \
+              "bench_new_${i}_full.log" >> bench_new.txt
+          done
+          git worktree remove ../main-bench --force
       - name: Compare benchmarks
         shell: bash
         run: |
