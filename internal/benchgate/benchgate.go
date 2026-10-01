@@ -137,14 +137,12 @@ func Parse(r io.Reader) ([]Row, error) {
 			return nil, fmt.Errorf("unrecognised table header %q", strings.Join(rec, ","))
 		}
 		if unit == "" {
-			// benchstat's preamble (goos, goarch, pkg, cpu) is single-column, so
-			// anything wider with no table in scope means a header went missing.
-			// Skipping it would drop whatever it says behind the tables that did
-			// parse, whatever its width.
-			if len(rec) > 1 {
-				return nil, fmt.Errorf("record outside any table: %q", strings.Join(rec, ","))
-			}
-			continue
+			// benchstat's preamble (goos, goarch, pkg, cpu) is single-column and
+			// always carries a colon, so the branch above has already consumed
+			// it. Anything still here with no table in scope means a header went
+			// missing, and skipping it would drop whatever it says behind the
+			// tables that did parse, whatever its width.
+			return nil, fmt.Errorf("record outside any table: %q", strings.Join(rec, ","))
 		}
 		if rec[0] == "geomean" {
 			continue

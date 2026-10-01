@@ -131,6 +131,23 @@ Regressed-4,1e-07,0%,1.25e-07,0%,25 percent worse,p=0.000 n=10
 	}
 }
 
+func TestParseFailsClosedOnOneColumnRowAfterTable(t *testing.T) {
+	const in = `,old,,new,,,
+,sec/op,CI,sec/op,CI,vs base,P
+Clean-4,1e-07,0%,1e-07,0%,~,p=0.900 n=10
+
+,old,,new,,,
+Regressed-4
+`
+	rows, err := Parse(strings.NewReader(in))
+	if err == nil {
+		t.Fatalf("truncated row was hidden behind a clean table: %+v", rows)
+	}
+	if !strings.Contains(err.Error(), "Regressed-4") {
+		t.Errorf("error = %v, want it to name the offending record", err)
+	}
+}
+
 // Benchmarks present on only one side have no delta to read. benchstat emits
 // them as short rows, and they must not be mistaken for format drift.
 func TestParseSkipsOneSidedBenchmarks(t *testing.T) {
