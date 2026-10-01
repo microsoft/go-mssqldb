@@ -338,9 +338,9 @@ mssql.SetVectorPrecisionWarnings(true)
 
 // Option 2: Use a custom handler for integration with your logging framework
 mssql.SetVectorPrecisionLossHandler(func(index int, original float64, converted float32) {
-    slog.Warn("vector precision loss", 
+    slog.Warn("vector precision loss",
         "index", index,
-        "original", original, 
+        "original", original,
         "converted", converted)
 })
 ```
