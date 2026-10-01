@@ -1,0 +1,182 @@
+name: windows-$(Date:yyyyMMdd).$(Rev:r)
+
+# Keep AppVeyor enabled until this pipeline is authorized and required on GitHub.
+trigger:
+  branches:
+    include:
+    - main
+pr:
+  autoCancel: true
+  branches:
+    include:
+    - main
+
+pool:
+  name: RUST-1ES-POOL-WUS3
+  demands:
+  - imageOverride -equals RUST-W22-SQL25
+
+variables:
+  GOTOOLCHAIN: local
+
+jobs:
+- job: Windows
+  timeoutInMinutes: 90
+  strategy:
+    matrix:
+      sql_auth:
+        targetArch: amd64
+        protocol: ''
+        testTags: ''
+        columnEncryption: ''
+        integratedAuth: 'false'
+      always_encrypted:
+        targetArch: amd64
+        protocol: ''
+        testTags: ''
+        columnEncryption: '1'
+        integratedAuth: 'false'
+      named_pipes_386:
+        targetArch: '386'
+        protocol: np
+        testTags: np
+        columnEncryption: ''
+        integratedAuth: 'false'
+      shared_memory_sspi:
+        targetArch: amd64
+        protocol: lpc
+        testTags: sm
+        columnEncryption: ''
+        integratedAuth: 'true'
+  steps:
+  - checkout: self
+    clean: true
+    persistCredentials: false
+
+  - task: PowerShell@2
+    displayName: Exercise required-test result assertions
+    inputs:
+      targetType: filePath
+      filePath: .pipelines/tests/Test-WindowsTestResults.ps1
+
+  - task: GoTool@0
+    inputs:
+      version: '1.25'
+    displayName: Install Go 1.25
+
+  - task: PowerShell@2
+    displayName: Install pinned test reporting tools
+    inputs:
+      targetType: inline
+      script: |
+        $ErrorActionPreference = 'Stop'
+        go install gotest.tools/gotestsum@v1.13.0
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        go install github.com/axw/gocov/gocov@v1.2.1
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        go install github.com/AlekSi/gocov-xml@v1.1.0
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Write-Host "##vso[task.prependpath]$env:GOBIN"
+    env:
+      GOARCH: amd64
+      GOBIN: $(Agent.TempDirectory)\go-tools
+
+  - task: PowerShell@2
+    displayName: Configure local SQL Server 2025
+    inputs:
+      targetType: filePath
+      filePath: .pipelines/scripts/Initialize-WindowsSql.ps1
+
+  - task: PowerShell@2
+    displayName: Build and run Windows integration tests
+    inputs:
+      targetType: inline
+      script: |
+        $ErrorActionPreference = 'Stop'
+        if ($env:INTEGRATED_AUTH -eq 'true') {
+          $env:SQLUSER = ''
+          $env:SQLPASSWORD = ''
+        }
+        if ([string]::IsNullOrEmpty($env:HOST) -or [string]::IsNullOrEmpty($env:DATABASE)) {
+          throw 'The SQL test connection must be configured; integration tests must not skip.'
+        }
+        if ($env:INTEGRATED_AUTH -ne 'true' -and [string]::IsNullOrEmpty($env:SQLPASSWORD)) {
+          throw 'SQL authentication requires the generated password.'
+        }
+        New-Item -ItemType Directory -Path $env:RESULTS_DIR -Force | Out-Null
+        go version
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $actualArch = go env GOARCH
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        if ($actualArch -ne $env:GOARCH) { throw 'Unexpected Go target architecture.' }
+        $tagArgs = @()
+        if ($env:TEST_TAGS) { $tagArgs = @('-tags', $env:TEST_TAGS) }
+        go build @tagArgs ./...
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        gotestsum --junitfile "$env:RESULTS_DIR\tests.xml" --jsonfile "$env:RESULTS_DIR\tests.json" -- `
+          @tagArgs -count=1 -timeout=30m -covermode=atomic "-coverprofile=$env:RESULTS_DIR\coverage.txt" ./...
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $required = @('TestConnect')
+        if ($env:PROTOCOL -eq 'np') { $required += 'TestNamedPipeConnection' }
+        if ($env:PROTOCOL -eq 'lpc') { $required += 'TestSharedMemoryConnection' }
+        if ($env:COLUMNENCRYPTION) {
+          $required += 'TestAlwaysEncryptedE2E/MSSQL_CERTIFICATE_STORE'
+        }
+        & .pipelines/scripts/Assert-WindowsTestResults.ps1 `
+          -Path "$env:RESULTS_DIR\tests.json" -RequiredTests $required
+    env:
+      GOARCH: $(targetArch)
+      HOST: localhost
+      DATABASE: test
+      SQLUSER: sa
+      SQLPASSWORD: $(WindowsSqlPassword)
+      # The full DSN takes precedence over PROTOCOL in GetConnParams.
+      SQLSERVER_DSN: ''
+      INSTANCE: ''
+      SQLINSTANCE: ''
+      PIPE: ''
+      AZURESERVER_DSN: ''
+      PROTOCOL: $(protocol)
+      TEST_TAGS: $(testTags)
+      COLUMNENCRYPTION: $(columnEncryption)
+      INTEGRATED_AUTH: $(integratedAuth)
+      RESULTS_DIR: $(Build.ArtifactStagingDirectory)\windows-results
+
+  - task: PublishTestResults@2
+    displayName: Publish Windows test results
+    condition: succeededOrFailed()
+    inputs:
+      testResultsFormat: JUnit
+      testResultsFiles: $(Build.ArtifactStagingDirectory)/windows-results/tests.xml
+      testRunTitle: Windows SQL 2025 - $(System.JobName)
+      failTaskOnFailedTests: true
+      failTaskOnMissingResultsFile: true
+
+  - task: PowerShell@2
+    displayName: Convert Go coverage to Cobertura
+    condition: succeededOrFailed()
+    inputs:
+      targetType: inline
+      script: |
+        $ErrorActionPreference = 'Stop'
+        $json = & gocov convert "$env:RESULTS_DIR\coverage.txt"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $xml = $json | & gocov-xml
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $xml | Set-Content -Path "$env:RESULTS_DIR\coverage.xml" -Encoding UTF8
+    env:
+      RESULTS_DIR: $(Build.ArtifactStagingDirectory)\windows-results
+
+  - task: PublishCodeCoverageResults@2
+    condition: succeededOrFailed()
+    inputs:
+      summaryFileLocation: $(Build.ArtifactStagingDirectory)/windows-results/coverage.xml
+      pathToSources: $(Build.SourcesDirectory)
+      failIfCoverageEmpty: true
+
+  - task: PublishPipelineArtifact@1
+    displayName: Preserve test output and native Go coverage
+    condition: succeededOrFailed()
+    inputs:
+      targetPath: $(Build.ArtifactStagingDirectory)/windows-results
+      artifact: windows-$(System.JobName)
