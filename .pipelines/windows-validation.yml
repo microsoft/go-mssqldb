@@ -12,7 +12,7 @@ pr:
     - main
 
 pool:
-  name: RUST-1ES-POOL-WUS3
+  name: RUST-PUBLIC-X64-WUS3
   demands:
   - imageOverride -equals RUST-W22-SQL25
 

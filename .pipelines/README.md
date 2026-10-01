@@ -8,7 +8,7 @@ Each YML will be sufficiently parameterized to be runnable in other environments
 
 ## Windows AppVeyor migration
 
-`windows-validation.yml` runs on `RUST-1ES-POOL-WUS3`, demanding image
+`windows-validation.yml` runs on `RUST-PUBLIC-X64-WUS3`, demanding image
 `RUST-W22-SQL25`, following the custom-pool approach used by
 [mssql-rs](https://github.com/microsoft/mssql-rs/blob/main/.pipeline/templates/validation-stages.yml).
 This is not the standard Azure Pipelines `windows-2025` image.
@@ -55,7 +55,7 @@ certificates separately from the SQL Server TLS certificate.
 
 ### Onboarding and cutover
 
-1. Arrange access to `RUST-1ES-POOL-WUS3` and its image for the target Azure
+1. Arrange access to `RUST-PUBLIC-X64-WUS3` and its image for the target Azure
    DevOps project; pool names are project-scoped. Confirm disposable-agent
    isolation and capacity for the four jobs with the pool owner.
 2. Authorize the Azure Pipelines GitHub integration for `microsoft/go-mssqldb`
