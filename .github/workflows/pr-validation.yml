@@ -179,19 +179,26 @@ jobs:
           BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
           : > "$GITHUB_WORKSPACE/bench_old.txt"
           : > "$GITHUB_WORKSPACE/bench_new.txt"
-          for i in {1..10}; do
-            cd ../main-bench
+          run_benchmarks() {
+            local revision="$1"
+            local directory="$2"
+            local sample="$3"
+            local output="$GITHUB_WORKSPACE/bench_${revision}_${sample}_full.log"
+            cd "$directory"
             go test -run='^$' -bench="$BENCH_PATTERN" \
-              -benchtime=1s -count=1 -benchmem -timeout=25m . ./msdsn 2>&1 | \
-              tee "$GITHUB_WORKSPACE/bench_old_${i}_full.log"
-            grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' \
-              "$GITHUB_WORKSPACE/bench_old_${i}_full.log" >> "$GITHUB_WORKSPACE/bench_old.txt"
+              -benchtime=1s -count=1 -benchmem -timeout=25m . ./msdsn 2>&1 | tee "$output"
+            grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' "$output" \
+              >> "$GITHUB_WORKSPACE/bench_${revision}.txt"
             cd "$GITHUB_WORKSPACE"
-            go test -run='^$' -bench="$BENCH_PATTERN" \
-              -benchtime=1s -count=1 -benchmem -timeout=25m . ./msdsn 2>&1 | \
-              tee "bench_new_${i}_full.log"
-            grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' \
-              "bench_new_${i}_full.log" >> bench_new.txt
+          }
+          for i in {1..10}; do
+            if (( i % 2 == 1 )); then
+              run_benchmarks old ../main-bench "$i"
+              run_benchmarks new "$GITHUB_WORKSPACE" "$i"
+            else
+              run_benchmarks new "$GITHUB_WORKSPACE" "$i"
+              run_benchmarks old ../main-bench "$i"
+            fi
           done
           git worktree remove ../main-bench --force
       - name: Compare benchmarks
