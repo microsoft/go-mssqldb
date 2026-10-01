@@ -31,6 +31,12 @@ The matrix uses `maxParallel: 1`: only one Windows job runs at a time per
 pipeline run, with a fresh agent for each configuration. This does not limit
 concurrency between separate pipeline runs.
 
+Reporting tools are pinned together in the separate `tools/go.mod` module and
+installed with `go install -mod=readonly tool`. Its `golang.org/x/tools` version
+is compatible with Go 1.25; installing `gocov@v1.2.1` independently selects an
+older dependency that fails to compile with this toolchain. Keep tool dependencies
+out of the driver's root module and update `tools/go.sum` alongside the tool pins.
+
 ### Agent prerequisites
 
 - A fresh, disposable Windows agent per job; never point this pipeline at a shared
