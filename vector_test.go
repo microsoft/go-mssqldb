@@ -740,7 +740,7 @@ func TestVectorRejectsZeroDimensions(t *testing.T) {
 }
 
 func TestBulkMakeParamVector(t *testing.T) {
-	bulk := &Bulk{cn: &Conn{sess: &tdsSession{}}}
+	bulk := &Bulk{cn: &Conn{sess: &tdsSession{vectorSupported: true}}}
 	column := columnStruct{ti: typeInfo{
 		TypeId: typeVectorN,
 		Size:   vectorHeaderSize + 3*VectorElementFloat32.BytesPerElement(),
@@ -764,7 +764,7 @@ func TestBulkMakeParamVector(t *testing.T) {
 }
 
 func TestBulkMakeParamVectorSlices(t *testing.T) {
-	bulk := &Bulk{cn: &Conn{sess: &tdsSession{}}}
+	bulk := &Bulk{cn: &Conn{sess: &tdsSession{vectorSupported: true}}}
 	column := columnStruct{ti: typeInfo{
 		TypeId: typeVectorN,
 		Size:   vectorHeaderSize + 3*VectorElementFloat32.BytesPerElement(),
@@ -807,7 +807,22 @@ func TestBulkMakeParamVectorJSONFallback(t *testing.T) {
 	}
 }
 
-func TestBulkMakeParamVectorFloat16UsesBinary(t *testing.T) {
+func TestBulkMakeParamVectorRequiresNegotiation(t *testing.T) {
+	bulk := &Bulk{cn: &Conn{sess: &tdsSession{}}}
+	column := columnStruct{ti: typeInfo{
+		TypeId: typeVectorN,
+		Size:   vectorHeaderSize + 3*VectorElementFloat32.BytesPerElement(),
+		Scale:  byte(VectorElementFloat32),
+	}}
+	vector := Vector{ElementType: VectorElementFloat32, Data: []float32{1, 2, 3}}
+
+	_, err := bulk.makeParam(vector, column)
+	if err == nil || !strings.Contains(err.Error(), "native vector bulk copy requires vectortypesupport=v1") {
+		t.Fatalf("makeParam error = %v; want unsupported native vector bulk copy", err)
+	}
+}
+
+func TestBulkMakeParamVectorFloat16RequiresV2(t *testing.T) {
 	bulk := &Bulk{cn: &Conn{sess: &tdsSession{vectorSupported: true}}}
 	column := columnStruct{ti: typeInfo{
 		TypeId: typeVectorN,
@@ -816,19 +831,14 @@ func TestBulkMakeParamVectorFloat16UsesBinary(t *testing.T) {
 	}}
 	vector := Vector{ElementType: VectorElementFloat16, Data: []float32{1, 2, 3}}
 
-	param, err := bulk.makeParam(vector, column)
-	if err != nil {
-		t.Fatal(err)
+	_, err := bulk.makeParam(vector, column)
+	if err == nil || !strings.Contains(err.Error(), "requires vectortypesupport=v2") {
+		t.Fatalf("makeParam error = %v; want unsupported float16 bulk copy", err)
 	}
-	if param.ti.TypeId != typeVectorN {
-		t.Fatalf("float16 bulk parameter type = %#x; want vector", param.ti.TypeId)
-	}
-	var decoded Vector
-	if err := decoded.decodeFromBytes(param.buffer); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(decoded.Data, vector.Data) {
-		t.Fatalf("float16 bulk vector = %v; want %v", decoded.Data, vector.Data)
+
+	_, err = bulk.makeParam(Vector{ElementType: VectorElementFloat16}, column)
+	if err == nil || !strings.Contains(err.Error(), "requires vectortypesupport=v2") {
+		t.Fatalf("NULL makeParam error = %v; want unsupported float16 bulk copy", err)
 	}
 }
 
@@ -854,11 +864,11 @@ func TestBulkMakeParamVectorValidation(t *testing.T) {
 }
 
 func TestBulkMakeParamNullVector(t *testing.T) {
-	bulk := &Bulk{cn: &Conn{sess: &tdsSession{}}}
+	bulk := &Bulk{cn: &Conn{sess: &tdsSession{vectorSupported: true}}}
 	column := columnStruct{ti: typeInfo{
 		TypeId: typeVectorN,
-		Size:   vectorHeaderSize + 3*VectorElementFloat16.BytesPerElement(),
-		Scale:  byte(VectorElementFloat16),
+		Size:   vectorHeaderSize + 3*VectorElementFloat32.BytesPerElement(),
+		Scale:  byte(VectorElementFloat32),
 	}}
 
 	for name, value := range map[string]interface{}{

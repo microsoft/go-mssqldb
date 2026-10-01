@@ -751,6 +751,12 @@ func (b *Bulk) makeBulkVectorParam(vector Vector, col columnStruct) (res param, 
 		}
 		return b.makeParam(value, col)
 	}
+	if !b.cn.sess.vectorSupported {
+		return res, fmt.Errorf("mssql: native vector bulk copy requires vectortypesupport=v1")
+	}
+	if VectorElementType(col.ti.Scale) == VectorElementFloat16 {
+		return res, fmt.Errorf("mssql: float16 vector bulk copy requires vectortypesupport=v2, which is not supported")
+	}
 	if vector.Data == nil {
 		res.ti.Size = 0
 		return res, nil
