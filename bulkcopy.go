@@ -760,6 +760,14 @@ func (b *Bulk) makeBulkVectorParam(vector Vector, col columnStruct) (res param, 
 			res.ti.Size = 0
 			return res, nil
 		}
+		if byte(vector.ElementType) != col.ti.Scale {
+			return res, fmt.Errorf("mssql: vector element type %s does not match column element type %s",
+				vector.ElementType, VectorElementType(col.ti.Scale))
+		}
+		dimensions, _, ok := vectorDimensionsFromTypeInfo(col.ti)
+		if !ok || len(vector.Data) != dimensions {
+			return res, fmt.Errorf("mssql: vector dimensions %d do not match column dimensions %d", len(vector.Data), dimensions)
+		}
 		value, valueErr := vector.Value()
 		if valueErr != nil {
 			return res, valueErr
