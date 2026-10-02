@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jcmturner/gokrb5/v8/config"
+	"github.com/go-krb5/krb5/config"
 	"github.com/microsoft/go-mssqldb/msdsn"
 	"github.com/stretchr/testify/assert"
 )
