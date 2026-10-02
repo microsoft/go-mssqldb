@@ -9,12 +9,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jcmturner/gokrb5/v8/client"
-	"github.com/jcmturner/gokrb5/v8/config"
-	"github.com/jcmturner/gokrb5/v8/credentials"
-	"github.com/jcmturner/gokrb5/v8/gssapi"
-	"github.com/jcmturner/gokrb5/v8/keytab"
-	"github.com/jcmturner/gokrb5/v8/spnego"
+	"github.com/go-krb5/krb5/client"
+	"github.com/go-krb5/krb5/config"
+	"github.com/go-krb5/krb5/credentials"
+	"github.com/go-krb5/krb5/gssapi"
+	"github.com/go-krb5/krb5/keytab"
+	"github.com/go-krb5/krb5/spnego"
 
 	"github.com/microsoft/go-mssqldb/integratedauth"
 	"github.com/microsoft/go-mssqldb/msdsn"
