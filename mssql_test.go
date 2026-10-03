@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/microsoft/go-mssqldb/msdsn"
@@ -62,6 +63,34 @@ func TestIsProc(t *testing.T) {
 			t.Errorf("for %q, got %t want %t", item.s, got, item.is)
 		}
 	}
+
+	t.Run("builtin commands", func(t *testing.T) {
+		for _, command := range builtinCommands {
+			t.Run(command, func(t *testing.T) {
+				if command == "" {
+					t.Fatal("builtinCommands must not contain an empty command")
+				}
+				for _, input := range []string{
+					strings.ToUpper(command),
+					strings.ToLower(command),
+					strings.ToUpper(command[:1]) + strings.ToLower(command[1:]),
+				} {
+					t.Run(input, func(t *testing.T) {
+						if isProc(input) {
+							t.Errorf("isProc(%q) = true, want false for builtin command", input)
+						}
+					})
+				}
+				for _, input := range []string{command + "X", "X" + command} {
+					t.Run(input, func(t *testing.T) {
+						if !isProc(input) {
+							t.Errorf("isProc(%q) = false, want true for non-builtin name", input)
+						}
+					})
+				}
+			})
+		}
+	})
 }
 
 func TestConvertIsolationLevel(t *testing.T) {
