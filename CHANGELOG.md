@@ -1,4 +1,11 @@
 # Changelog
+## [1.12.0](https://github.com/microsoft/go-mssqldb/compare/v1.11.2...v1.12.0) (2026-09-24)
+
+
+### Features
+
+* add ADO.Net Authentication connection string synonym and spaced value names ([#368](https://github.com/microsoft/go-mssqldb/issues/368)) ([8708412](https://github.com/microsoft/go-mssqldb/commit/8708412fc6d1cb34032962a53a80a540617bd2bb))
+
 ## [1.11.2](https://github.com/microsoft/go-mssqldb/compare/v1.11.1...v1.11.2) (2026-09-23)
 
 
