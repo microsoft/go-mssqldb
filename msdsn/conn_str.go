@@ -58,38 +58,39 @@ const (
 )
 
 const (
-	Database               = "database"
-	Encrypt                = "encrypt"
-	Password               = "password"
-	ChangePassword         = "change password"
-	UserID                 = "user id"
-	Port                   = "port"
-	TrustServerCertificate = "trustservercertificate"
-	Certificate            = "certificate"
-	ServerCertificate      = "servercertificate"
-	TLSMin                 = "tlsmin"
-	PacketSize             = "packet size"
-	LogParam               = "log"
-	ConnectionTimeout      = "connection timeout"
-	HostNameInCertificate  = "hostnameincertificate"
-	KeepAlive              = "keepalive"
-	ServerSpn              = "serverspn"
-	WorkstationID          = "workstation id"
-	AppName                = "app name"
-	ApplicationIntent      = "applicationintent"
-	FailoverPartner        = "failoverpartner"
-	FailOverPort           = "failoverport"
-	FailoverPartnerSpn     = "failoverpartnerspn"
-	DisableRetry           = "disableretry"
-	Server                 = "server"
-	Protocol               = "protocol"
-	DialTimeout            = "dial timeout"
-	Pipe                   = "pipe"
-	MultiSubnetFailover    = "multisubnetfailover"
-	NoTraceID              = "notraceid"
-	GuidConversion         = "guid conversion"
-	Timezone               = "timezone"
-	EpaEnabled             = "epa enabled"
+	Database                     = "database"
+	Encrypt                      = "encrypt"
+	Password                     = "password"
+	ChangePassword               = "change password"
+	UserID                       = "user id"
+	Port                         = "port"
+	TrustServerCertificate       = "trustservercertificate"
+	Certificate                  = "certificate"
+	ServerCertificate            = "servercertificate"
+	TLSMin                       = "tlsmin"
+	PacketSize                   = "packet size"
+	LogParam                     = "log"
+	ConnectionTimeout            = "connection timeout"
+	HostNameInCertificate        = "hostnameincertificate"
+	KeepAlive                    = "keepalive"
+	ServerSpn                    = "serverspn"
+	WorkstationID                = "workstation id"
+	AppName                      = "app name"
+	ApplicationIntent            = "applicationintent"
+	FailoverPartner              = "failoverpartner"
+	FailOverPort                 = "failoverport"
+	FailoverPartnerSpn           = "failoverpartnerspn"
+	DisableRetry                 = "disableretry"
+	Server                       = "server"
+	Protocol                     = "protocol"
+	DialTimeout                  = "dial timeout"
+	Pipe                         = "pipe"
+	MultiSubnetFailover          = "multisubnetfailover"
+	NoTraceID                    = "notraceid"
+	GuidConversion               = "guid conversion"
+	Timezone                     = "timezone"
+	EpaEnabled                   = "epa enabled"
+	DisableConnTimeoutAsQueryTimeout = "disableconntimeoutasquerytimeout"
 )
 
 type EncodeParameters struct {
@@ -169,6 +170,27 @@ type Config struct {
 	Encoding EncodeParameters
 	// EPA mode determines how the Channel Bindings are calculated.
 	EpaEnabled bool
+
+	// DisableConnTimeoutAsQueryTimeout controls whether ConnTimeout keeps
+	// being re-applied as a socket read/write deadline for the whole
+	// lifetime of the connection. The zero value (false) preserves the
+	// existing, backward-compatible behavior exactly as before, both when
+	// parsed from a DSN and when a msdsn.Config is built programmatically
+	// (e.g. via NewConnectorConfig): ConnTimeout keeps bounding command
+	// execution too, as it always has. Set to true so ConnTimeout only
+	// bounds the login/handshake phase; once logged in, command execution
+	// timeouts are governed exclusively by the caller-supplied
+	// context.Context deadline.
+	//
+	// This field is appended at the end of the struct, rather than
+	// grouped with the other timeout-related fields above, to minimize
+	// (not eliminate) disruption for any existing unkeyed composite
+	// literal of msdsn.Config that lists every field positionally: such a
+	// literal is already relying on an unsupported pattern for a struct
+	// this large and exported from another package (flagged by `go vet`'s
+	// composites check), and would already have needed updating for any
+	// past field addition to this struct.
+	DisableConnTimeoutAsQueryTimeout bool
 }
 
 func readDERFile(filename string) ([]byte, error) {
@@ -561,6 +583,20 @@ func Parse(dsn string) (Config, error) {
 		p.DisableRetry = disableRetryDefault
 	}
 
+	disableConnTimeoutAsQueryTimeout, ok := params[DisableConnTimeoutAsQueryTimeout]
+	if ok {
+		var err error
+		p.DisableConnTimeoutAsQueryTimeout, err = parseBoolParam(disableConnTimeoutAsQueryTimeout)
+		if err != nil {
+			f := "invalid disableconntimeoutasquerytimeout '%s': %s"
+			return p, fmt.Errorf(f, disableConnTimeoutAsQueryTimeout, err.Error())
+		}
+	}
+	// No else branch needed: the zero value (false) already matches the
+	// desired backward-compatible default, both here and for programmatic
+	// callers that build a msdsn.Config directly without going through
+	// Parse.
+
 	server := params[Server]
 	protocol, ok := params[Protocol]
 
@@ -704,6 +740,9 @@ func (p Config) URL() *url.URL {
 		host = net.JoinHostPort(host, strconv.Itoa(int(p.Port)))
 	}
 	q.Add(DisableRetry, fmt.Sprintf("%t", p.DisableRetry))
+	if p.DisableConnTimeoutAsQueryTimeout {
+		q.Add(DisableConnTimeoutAsQueryTimeout, fmt.Sprintf("%t", p.DisableConnTimeoutAsQueryTimeout))
+	}
 	protocolParam, ok := p.Parameters[Protocol]
 	if ok {
 		if protocol != "" && protocolParam != protocol {

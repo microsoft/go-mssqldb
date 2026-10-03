@@ -13,7 +13,11 @@ import (
 // mockConn implements a basic net.Conn for testing
 type mockConn struct {
 	*bytes.Buffer
-	closed bool
+	closed                bool
+	lastReadDeadline      time.Time
+	readDeadlineSetCount  int
+	lastWriteDeadline     time.Time
+	writeDeadlineSetCount int
 }
 
 func (m *mockConn) Close() error {
@@ -21,11 +25,23 @@ func (m *mockConn) Close() error {
 	return nil
 }
 
-func (m *mockConn) LocalAddr() net.Addr                { return nil }
-func (m *mockConn) RemoteAddr() net.Addr               { return nil }
-func (m *mockConn) SetDeadline(t time.Time) error      { return nil }
-func (m *mockConn) SetReadDeadline(t time.Time) error  { return nil }
-func (m *mockConn) SetWriteDeadline(t time.Time) error { return nil }
+func (m *mockConn) LocalAddr() net.Addr  { return nil }
+func (m *mockConn) RemoteAddr() net.Addr { return nil }
+func (m *mockConn) SetDeadline(t time.Time) error {
+	_ = m.SetReadDeadline(t)
+	_ = m.SetWriteDeadline(t)
+	return nil
+}
+func (m *mockConn) SetReadDeadline(t time.Time) error {
+	m.lastReadDeadline = t
+	m.readDeadlineSetCount++
+	return nil
+}
+func (m *mockConn) SetWriteDeadline(t time.Time) error {
+	m.lastWriteDeadline = t
+	m.writeDeadlineSetCount++
+	return nil
+}
 
 // errorConn is a mock that always returns errors
 type errorConn struct {
@@ -228,6 +244,50 @@ func TestTimeoutConn_Addr(t *testing.T) {
 
 	assert.Nil(t, tc.LocalAddr(), "LocalAddr() should return nil from mockConn")
 	assert.Nil(t, tc.RemoteAddr(), "RemoteAddr() should return nil from mockConn")
+}
+
+func TestTimeoutConn_DisableTimeout(t *testing.T) {
+	mock := &mockConn{Buffer: bytes.NewBuffer([]byte("hello world"))}
+	tc := newTimeoutConn(mock, 5*time.Second)
+
+	// Simulate login-phase I/O that leaves read and write deadlines set on
+	// the underlying connection.
+	_, err := tc.Read(make([]byte, 1))
+	assert.NoError(t, err, "Read()")
+	assert.NotZero(t, mock.lastReadDeadline, "SetReadDeadline should have been called by Read()")
+	_, err = tc.Write([]byte("hi"))
+	assert.NoError(t, err, "Write()")
+	assert.NotZero(t, mock.lastWriteDeadline, "SetWriteDeadline should have been called by Write()")
+
+	err = tc.disableTimeout()
+	assert.NoError(t, err, "disableTimeout()")
+	assert.True(t, tc.timeoutDisabled, "disableTimeout() should mark the timeout as disabled")
+	assert.True(t, mock.lastReadDeadline.IsZero(), "disableTimeout() should clear any read deadline left over from login I/O")
+	assert.True(t, mock.lastWriteDeadline.IsZero(), "disableTimeout() should clear any write deadline left over from login I/O")
+
+	// After disabling, further reads and writes must not re-apply a
+	// deadline: once disabled, protecting a stuck write against hanging
+	// forever is the caller's responsibility via context-based
+	// cancellation (see watchContextForWrite in mssql.go), not
+	// timeoutConn's.
+	readCountBefore := mock.readDeadlineSetCount
+	_, err = tc.Read(make([]byte, 1))
+	assert.NoError(t, err, "Read() after disableTimeout()")
+	assert.Equal(t, readCountBefore, mock.readDeadlineSetCount, "Read() should not call SetReadDeadline once the timeout is disabled")
+
+	writeCountBefore := mock.writeDeadlineSetCount
+	_, err = tc.Write([]byte("hello"))
+	assert.NoError(t, err, "Write() after disableTimeout()")
+	assert.Equal(t, writeCountBefore, mock.writeDeadlineSetCount, "Write() should not call SetWriteDeadline once the timeout is disabled")
+}
+
+func TestTimeoutConn_DisableTimeout_NoOpWhenNoTimeoutConfigured(t *testing.T) {
+	mock := &mockConn{Buffer: &bytes.Buffer{}}
+	tc := newTimeoutConn(mock, 0) // ConnTimeout==0: no deadline ever armed
+
+	err := tc.disableTimeout()
+	assert.NoError(t, err, "disableTimeout()")
+	assert.Zero(t, mock.readDeadlineSetCount, "disableTimeout() must not call SetReadDeadline when no timeout was ever configured, since some net.Conn implementations may not support it")
 }
 
 func TestTlsHandshakeConn_Close(t *testing.T) {
