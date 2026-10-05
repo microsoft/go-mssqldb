@@ -969,6 +969,10 @@ func TestConfigURLLeavesAnAmbientEpaValueToTheReader(t *testing.T) {
 		{name: "on at the writer, off at the reader", writeEnv: "true", readEnv: "", want: false},
 		{name: "off at the writer, on at the reader", writeEnv: "", readEnv: "true", want: true},
 		{name: "off at both ends", writeEnv: "", readEnv: "", want: false},
+		// Parse reads the environment with the same grammar as the parameter,
+		// so the ODBC spelling is an ambient value like any other.
+		{name: "yes at the writer, no at the reader", writeEnv: "yes", readEnv: "no", want: false},
+		{name: "no at the writer, yes at the reader", writeEnv: "no", readEnv: "yes", want: true},
 	}
 
 	for _, tt := range tests {

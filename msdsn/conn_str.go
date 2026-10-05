@@ -127,7 +127,7 @@ func epaEnabledFromEnvironment() (enabled bool, usable bool) {
 	if value == "" {
 		return false, true
 	}
-	enabled, err := strconv.ParseBool(value)
+	enabled, err := parseBoolParam(value)
 	return enabled, err == nil
 }
 
