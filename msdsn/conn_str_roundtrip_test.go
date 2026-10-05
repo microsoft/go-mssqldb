@@ -1547,6 +1547,23 @@ func TestConfigURLRefusesToWriteAChainAndAPin(t *testing.T) {
 	_, err = Parse(u.String())
 	require.Error(t, err, "the pair has to be refused: %q", u.String())
 	assert.Contains(t, err.Error(), "cannot specify both", "and the refusal should say which pair")
+
+	t.Run("with no name to write", func(t *testing.T) {
+		// Parse never leaves the host empty, but a caller can clear both it
+		// and the server name afterwards; the pair still has to be refused,
+		// and parseTLS only sees it when the name is non-empty.
+		bare := config
+		bare.TLSConfig = config.TLSConfig.Clone()
+		bare.TLSConfig.ServerName = ""
+		bare.Host = ""
+
+		u := bare.URL()
+		assert.NotEmpty(t, u.Query().Get(HostNameInCertificate), "the chain half needs a name for Parse to see it")
+
+		_, err := Parse(u.String())
+		require.Error(t, err, "the pair has to be refused: %q", u.String())
+		assert.Contains(t, err.Error(), "cannot specify both", "and the refusal should say which pair")
+	})
 }
 
 // TestConfigURLWritesTheNameChosenAfterAPinIsRemoved covers a connection string

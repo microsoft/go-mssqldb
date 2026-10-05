@@ -1191,6 +1191,12 @@ func (p Config) URL() *url.URL {
 				// to write, and Parse refuses the pair whatever the name is.
 				name = p.Host
 			}
+			if name == "" {
+				// Parse reads an empty server as localhost and refuses the
+				// pair only when the name is non-empty, so write the host it
+				// would read rather than nothing.
+				name = "localhost"
+			}
 			q.Add(HostNameInCertificate, name)
 		case pinWritten:
 		case p.HostInCertificateProvided:
