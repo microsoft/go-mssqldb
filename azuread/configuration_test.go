@@ -207,6 +207,39 @@ func TestValidateParameters(t *testing.T) {
 				fedAuthWorkflow: ActiveDirectoryOnBehalfOf,
 			},
 		},
+		{
+			name: "ADO.Net Authentication synonym for fedauth",
+			dsn:  "server=someserver.database.windows.net;Authentication=ActiveDirectoryDefault",
+			expected: &azureFedAuthConfig{
+				adalWorkflow:    mssql.FedAuthADALWorkflowPassword,
+				fedAuthWorkflow: ActiveDirectoryDefault,
+			},
+		},
+		{
+			name: "ADO.Net spaced auth name: Active Directory Password",
+			dsn:  "server=someserver.database.windows.net;Authentication=Active Directory Password;user id=azure-ad-user@example.com;password=somesecret;" + appid,
+			expected: &azureFedAuthConfig{
+				adalWorkflow:        mssql.FedAuthADALWorkflowPassword,
+				user:                "azure-ad-user@example.com",
+				password:            passphrase,
+				applicationClientID: "someguid",
+				fedAuthWorkflow:     ActiveDirectoryPassword,
+			},
+		},
+		{
+			name: "ADO.Net spaced auth name: Active Directory Managed Identity",
+			dsn:  "server=someserver.database.windows.net;Authentication=Active Directory Managed Identity;user id=identity-client-id",
+			expected: &azureFedAuthConfig{
+				adalWorkflow:    mssql.FedAuthADALWorkflowMSI,
+				clientID:        "identity-client-id",
+				fedAuthWorkflow: ActiveDirectoryManagedIdentity,
+			},
+		},
+		{
+			name:     "ADO.Net Sql Password means no fedauth",
+			dsn:      "server=someserver.database.windows.net;Authentication=Sql Password;user id=sa;password=somesecret",
+			expected: &azureFedAuthConfig{fedAuthLibrary: mssql.FedAuthLibraryReserved},
+		},
 	}
 	for _, tst := range tests {
 		config, err := parse(tst.dsn)
@@ -519,12 +552,77 @@ func TestAzurePipelinesEnvironmentVariables(t *testing.T) {
 	}
 }
 
-// TestFedAuthSurvivesConfigURLRoundTrip checks that a federated connection
-// string still selects the same workflow after msdsn.Config.URL() has rebuilt
-// it. None of these settings has a field on msdsn.Config; this package reads
-// them out of Config.Parameters, so a serializer that dropped them would leave
-// validateParameters with no fedauth value and quietly fall back to SQL
-// authentication. See microsoft/go-mssqldb#455.
+// TestADONetAuthenticationNames covers every value of SqlAuthenticationMethod,
+// the enum behind ADO.Net's Authentication keyword. A typo in any adoNetAuthMap
+// key would leave that method silently unmapped, so each is asserted rather
+// than spot-checked.
+func TestADONetAuthenticationNames(t *testing.T) {
+	for _, tst := range []struct {
+		ado  string
+		want string
+	}{
+		{"Sql Password", ""}, // SQL auth: no federated workflow
+		{"Active Directory Password", ActiveDirectoryPassword},
+		{"Active Directory Integrated", ActiveDirectoryIntegrated},
+		{"Active Directory Interactive", ActiveDirectoryInteractive},
+		{"Active Directory Service Principal", ActiveDirectoryServicePrincipal},
+		{"Active Directory Device Code Flow", ActiveDirectoryDeviceCode},
+		{"Active Directory Managed Identity", ActiveDirectoryManagedIdentity},
+		{"Active Directory MSI", ActiveDirectoryMSI},
+		{"Active Directory Default", ActiveDirectoryDefault},
+		{"Active Directory Workload Identity", ActiveDirectoryWorkloadIdentity},
+	} {
+		t.Run(tst.ado, func(t *testing.T) {
+			dsn := "server=s.database.windows.net;Authentication=" + tst.ado +
+				";user id=u@example.com;password=p;applicationclientid=someguid;clientid=cid"
+			config, err := parse(dsn)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if config.fedAuthWorkflow != tst.want {
+				t.Errorf("fedAuthWorkflow = %q, want %q", config.fedAuthWorkflow, tst.want)
+			}
+		})
+	}
+
+	// Casing is not significant in ADO.Net connection strings.
+	for _, variant := range []string{"ACTIVE DIRECTORY DEFAULT", "active directory default"} {
+		config, err := parse("server=s.database.windows.net;Authentication=" + variant)
+		if err != nil {
+			t.Fatalf("parse %q: %v", variant, err)
+		}
+		if config.fedAuthWorkflow != ActiveDirectoryDefault {
+			t.Errorf("%q: fedAuthWorkflow = %q, want %q", variant, config.fedAuthWorkflow, ActiveDirectoryDefault)
+		}
+	}
+}
+
+// msdsn trims semicolon-style values but leaves URL query values as written, so
+// only a URL DSN can deliver a padded authentication name to the lookup.
+func TestAuthenticationNameSurroundingWhitespace(t *testing.T) {
+	for _, tst := range []struct {
+		name string
+		enc  string
+		want string
+	}{
+		{"ado name, trailing space", "Active+Directory+Default+", ActiveDirectoryDefault},
+		{"ado name, leading space", "+Active+Directory+Default", ActiveDirectoryDefault},
+		{"ado name, both", "%20Active%20Directory%20Default%20", ActiveDirectoryDefault},
+		{"driver name, trailing space", "ActiveDirectoryDefault+", ActiveDirectoryDefault},
+		{"ado name, no padding", "Active+Directory+Default", ActiveDirectoryDefault},
+	} {
+		t.Run(tst.name, func(t *testing.T) {
+			config, err := parse("sqlserver://s.database.windows.net?fedauth=" + tst.enc)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if config.fedAuthWorkflow != tst.want {
+				t.Errorf("fedAuthWorkflow = %q, want %q", config.fedAuthWorkflow, tst.want)
+			}
+		})
+	}
+}
+
 // TestFedAuthSecretsDoNotSurviveConfigURLRoundTrip pins the other half of the
 // trade msdsn.Config.URL() makes. systemtoken, clientassertion and
 // userassertion are credentials azuread reads out of Config.Parameters, and
@@ -608,6 +706,12 @@ func TestFedAuthSecretsDoNotSurviveConfigURLRoundTrip(t *testing.T) {
 	})
 }
 
+// TestFedAuthSurvivesConfigURLRoundTrip checks that a federated connection
+// string still selects the same workflow after msdsn.Config.URL() has rebuilt
+// it. None of these settings has a field on msdsn.Config; this package reads
+// them out of Config.Parameters, so a serializer that dropped them would leave
+// validateParameters with no fedauth value and quietly fall back to SQL
+// authentication. See microsoft/go-mssqldb#455.
 func TestFedAuthSurvivesConfigURLRoundTrip(t *testing.T) {
 	tests := []struct {
 		name string
