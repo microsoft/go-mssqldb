@@ -756,8 +756,28 @@ func TestFedAuthSurvivesConfigURLRoundTrip(t *testing.T) {
 			before.mssqlConfig = msdsn.Config{}
 			after.mssqlConfig = msdsn.Config{}
 			if !reflect.DeepEqual(before, after) {
-				t.Errorf("federated configuration changed across a URL round trip:\nbefore: %+v\nafter:  %+v", before, after)
+				t.Errorf("federated configuration changed across a URL round trip:\nbefore: %+v\nafter:  %+v",
+					withoutSecrets(before), withoutSecrets(after))
 			}
 		})
 	}
+}
+
+// withoutSecrets copies a configuration for a test report, replacing each
+// credential it carries with a marker so that a failed comparison can be
+// printed without the credential itself.
+func withoutSecrets(c *azureFedAuthConfig) azureFedAuthConfig {
+	redacted := *c
+	for _, secret := range []*string{
+		&redacted.clientSecret,
+		&redacted.password,
+		&redacted.systemAccessToken,
+		&redacted.userAssertion,
+		&redacted.clientAssertion,
+	} {
+		if *secret != "" {
+			*secret = "<redacted>"
+		}
+	}
+	return redacted
 }
