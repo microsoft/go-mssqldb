@@ -4,8 +4,10 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"io"
+	"net/url"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,6 +46,11 @@ func TestInvalidConnectionString(t *testing.T) {
 		"sqlserver://\x00",
 		"sqlserver://host?key=value1&key=value2", // duplicate keys
 		"sqlserver://host?TrustServerCertificate=true&trustservercertificate=false", // case-insensitive duplicate keys
+		"sqlserver://host?app=a&app+name=b",                                         // a synonym and the key it stands for
+		"sqlserver://host?uid=a&user=b",                                             // two synonyms for one key
+		"sqlserver://someuser@host?uid=otheruser",                                   // a synonym for a key the user info sets
+		"sqlserver://host?address=otherhost",                                        // a synonym for the key the host sets
+		"sqlserver://host?app=a&app=b",                                              // a synonym given twice
 	}
 	for _, connStr := range connStrings {
 		_, err := Parse(connStr)
@@ -276,6 +283,15 @@ func TestValidConnectionString(t *testing.T) {
 		{"odbc:server=somehost;epa enabled=0", func(p Config) bool { return p.Host == "somehost" && !p.EpaEnabled }},
 		{"odbc:epa enabled={true}", func(p Config) bool { return p.EpaEnabled }},
 		{"odbc:epa enabled={false}", func(p Config) bool { return !p.EpaEnabled }},
+		{"odbc:addr=somehost;uid=someuser;pwd=somepass;initial catalog=somedb", func(p Config) bool {
+			return p.Host == "somehost" && p.User == "someuser" && p.Password == "somepass" && p.Database == "somedb"
+		}},
+		// A synonym and the key it stands for: the later one wins, as in an ADO string
+		{"odbc:app name=first;app=second", func(p Config) bool { return p.AppName == "second" }},
+		{"odbc:app=first;app name=second", func(p Config) bool { return p.AppName == "second" }},
+		// A synonym is resolved after the key is trimmed, and on a key with no value
+		{"odbc:server=somehost;app =myapp", func(p Config) bool { return p.AppName == "myapp" }},
+		{"odbc:server=somehost;app;", func(p Config) bool { return p.AppName == "" }},
 
 		// URL mode
 		{"sqlserver://somehost?connection+timeout=30", func(p Config) bool {
@@ -317,6 +333,13 @@ func TestValidConnectionString(t *testing.T) {
 		{"sqlserver://somehost?epa+enabled=1", func(p Config) bool { return p.Host == "somehost" && p.EpaEnabled }},
 		{"sqlserver://somehost?epa+enabled=0", func(p Config) bool { return p.Host == "somehost" && !p.EpaEnabled }},
 		{"sqlserver://somehost?epa+enabled=true&encrypt=true", func(p Config) bool { return p.Host == "somehost" && p.EpaEnabled && p.Encryption == EncryptionRequired }},
+		{"sqlserver://somehost?uid=someuser&pwd=somepass&initial+catalog=somedb", func(p Config) bool {
+			return p.Host == "somehost" && p.User == "someuser" && p.Password == "somepass" && p.Database == "somedb"
+		}},
+		// The user info names the user and leaves the password to the query
+		{"sqlserver://someuser@somehost?pwd=somepass", func(p Config) bool {
+			return p.Host == "somehost" && p.User == "someuser" && p.Password == "somepass"
+		}},
 	}
 	for _, ts := range connStrings {
 		p, err := Parse(ts.connStr)
@@ -336,6 +359,72 @@ func TestAdoSynonymServerCertificate(t *testing.T) {
 	params := splitConnectionString("Server Certificate=myfile.pem")
 	if v := params[ServerCertificate]; v != "myfile.pem" {
 		t.Fatalf("expected %s=myfile.pem, got %q", ServerCertificate, v)
+	}
+}
+
+// TestSynonymsApplyInURLAndOdbcStrings uses the connection strings from #464:
+// the same four synonyms in each format, with values that differ from the
+// parser defaults so that an ignored synonym shows in the result.
+func TestSynonymsApplyInURLAndOdbcStrings(t *testing.T) {
+	for _, dsn := range []string{
+		"server=host;app=myapp;wsid=mybox;connect timeout=7;multi subnet failover=false",
+		"sqlserver://host?app=myapp&wsid=mybox&connect+timeout=7&multi+subnet+failover=false",
+		"odbc:server=host;app=myapp;wsid=mybox;connect timeout=7;multi subnet failover=false",
+	} {
+		p, err := Parse(dsn)
+		require.NoError(t, err, dsn)
+		assert.Equal(t, "myapp", p.AppName, "AppName from %q", dsn)
+		assert.Equal(t, "mybox", p.Workstation, "Workstation from %q", dsn)
+		assert.Equal(t, 7*time.Second, p.ConnTimeout, "ConnTimeout from %q", dsn)
+		assert.False(t, p.MultiSubnetFailover, "MultiSubnetFailover from %q", dsn)
+	}
+}
+
+// TestEverySynonymMatchesItsKeyInEveryFormat holds each entry in adoSynonyms,
+// including any added later, to one rule in all three formats: a connection
+// string that spells a key with a synonym splits into the same parameters as
+// one that spells the key itself, or both fail. The synonym is written in
+// upper case, so a lookup made before the key is lowercased fails here.
+func TestEverySynonymMatchesItsKeyInEveryFormat(t *testing.T) {
+	formats := []struct {
+		name string
+		dsn  func(key string) string
+	}{
+		{"ADO", func(key string) string { return "server=somehost;" + key + "=somevalue" }},
+		{"URL", func(key string) string { return "sqlserver://somehost?" + url.Values{key: {"somevalue"}}.Encode() }},
+		{"ODBC", func(key string) string { return "odbc:server=somehost;" + key + "=somevalue" }},
+	}
+	for synonym, key := range adoSynonyms {
+		spelled := strings.ToUpper(synonym)
+		for _, format := range formats {
+			t.Run(format.name+"/"+synonym, func(t *testing.T) {
+				want, wantErr := getDsnParams(format.dsn(key))
+				got, gotErr := getDsnParams(format.dsn(spelled))
+				if wantErr != nil {
+					assert.Error(t, gotErr, "%q fails, so %q should too", format.dsn(key), format.dsn(spelled))
+					return
+				}
+				require.NoError(t, gotErr, "%q", format.dsn(spelled))
+				assert.Equal(t, want, got, "%q should split like %q", format.dsn(spelled), format.dsn(key))
+			})
+		}
+	}
+}
+
+// TestURLRejectsASynonymForAKeyAlreadySet checks the error for a synonym whose
+// key the URL already carries.
+func TestURLRejectsASynonymForAKeyAlreadySet(t *testing.T) {
+	for _, tt := range []struct {
+		dsn  string
+		want string
+	}{
+		{"sqlserver://host?app+name=a&app=b", `key "app" is a synonym for "app name", which is already set`},
+		{"sqlserver://host?address=otherhost", `key "address" is a synonym for "server", which is already set`},
+		{"sqlserver://host?uid=a&user=b", `is a synonym for "user id", which is already set`},
+	} {
+		_, err := Parse(tt.dsn)
+		require.Error(t, err, tt.dsn)
+		assert.Contains(t, err.Error(), tt.want, tt.dsn)
 	}
 }
 

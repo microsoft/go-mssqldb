@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -773,6 +774,8 @@ func (p Config) URL() *url.URL {
 }
 
 // adoSynonyms maps ADO.Net alternate keyword forms to this driver's canonical keys.
+// All three connection string formats apply it, so a synonym means the same
+// thing in a URL or an odbc: string as in an ADO one.
 // See https://learn.microsoft.com/dotnet/api/microsoft.data.sqlclient.sqlconnection.connectionstring
 var adoSynonyms = map[string]string{
 	"app":                       AppName,
@@ -923,15 +926,31 @@ func splitConnectionStringURL(dsn string) (map[string]string, error) {
 	}
 
 	query := u.Query()
+	var synonyms []string
 	for k, v := range query {
 		if len(v) > 1 {
 			return res, fmt.Errorf("key %s provided more than once", k)
 		}
 		lk := strings.ToLower(k)
+		if _, isSynonym := adoSynonyms[lk]; isSynonym {
+			synonyms = append(synonyms, k)
+			continue
+		}
 		if _, exists := res[lk]; exists {
 			return res, fmt.Errorf("key %q provided more than once (connection string keys are case-insensitive; remove the duplicate)", k)
 		}
 		res[lk] = v[0]
+	}
+	// Synonyms are resolved after every other key, in sorted order, so a clash
+	// with a key that is already set is reported against the synonym, the
+	// same way on every run.
+	sort.Strings(synonyms)
+	for _, k := range synonyms {
+		name := adoSynonyms[strings.ToLower(k)]
+		if _, exists := res[name]; exists {
+			return res, fmt.Errorf("key %q is a synonym for %q, which is already set; remove one of them", k, name)
+		}
+		res[name] = query[k][0]
 	}
 
 	return res, nil
@@ -1089,9 +1108,14 @@ func splitConnectionStringOdbc(dsn string) (map[string]string, error) {
 	return res, nil
 }
 
-// Normalizes the given string as an ODBC-format key
+// Normalizes the given string as an ODBC-format key, resolving an ADO.Net
+// synonym to the key it stands for as splitConnectionString does
 func normalizeOdbcKey(s string) string {
-	return strings.ToLower(strings.TrimRightFunc(s, unicode.IsSpace))
+	key := strings.ToLower(strings.TrimRightFunc(s, unicode.IsSpace))
+	if synonym, ok := adoSynonyms[key]; ok {
+		return synonym
+	}
+	return key
 }
 
 // ProtocolParser can populate Config with parameters to dial using its protocol
