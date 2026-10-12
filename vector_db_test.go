@@ -863,7 +863,26 @@ func TestVectorFloat16(t *testing.T) {
 		}
 	}
 
-	stmt, err := tx.Prepare(CopyIn(tableName, BulkOptions{}, "embedding"))
+	bulkConn, _ := openWithVectorTypeSupport(t, msdsn.VectorTypeSupportOff)
+	defer bulkConn.Close()
+	bulkTx, err := bulkConn.Begin()
+	if err != nil {
+		t.Fatal("Begin float16 bulk transaction failed:", err)
+	}
+	defer bulkTx.Rollback()
+
+	bulkTableName := "#test_vector_float16_bulk"
+	_, err = bulkTx.Exec(fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT IDENTITY(1,1) PRIMARY KEY,
+			embedding VECTOR(3, float16) NOT NULL
+		)
+	`, bulkTableName))
+	if err != nil {
+		t.Fatalf("Failed to create float16 bulk table: %v", err)
+	}
+
+	stmt, err := bulkTx.Prepare(CopyIn(bulkTableName, BulkOptions{}, "embedding"))
 	if err != nil {
 		t.Fatalf("Failed to prepare float16 bulk copy: %v", err)
 	}
@@ -878,8 +897,8 @@ func TestVectorFloat16(t *testing.T) {
 	}
 
 	var bulkVector Vector
-	err = tx.QueryRow(
-		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 3", tableName),
+	err = bulkTx.QueryRow(
+		fmt.Sprintf("SELECT embedding FROM %s WHERE id = 1", bulkTableName),
 	).Scan(&bulkVector)
 	if err != nil {
 		t.Fatalf("Failed to scan float16 bulk vector: %v", err)

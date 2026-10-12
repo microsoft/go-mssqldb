@@ -285,7 +285,13 @@ func (b *Bulk) createColMetadata() []byte {
 		}
 		binary.Write(buf, binary.LittleEndian, uint16(col.Flags))
 
-		writeTypeInfo(buf, &b.bulkColumns[i].ti, false, b.cn.sess.encoding)
+		ti := col.ti
+		if ti.TypeId == typeVectorN && !b.cn.sess.vectorSupported {
+			ti.TypeId = typeNVarChar
+			ti.Size = 0xffff
+		}
+		writeTypeInfo(buf, &ti, false, b.cn.sess.encoding)
+		b.bulkColumns[i].ti.Writer = ti.Writer
 
 		if col.ti.TypeId == typeNText ||
 			col.ti.TypeId == typeText ||
@@ -756,8 +762,8 @@ func (b *Bulk) makeBulkVectorParam(vector Vector, col columnStruct) (res param, 
 		return b.makeParam(value, col)
 	}
 	if !b.cn.sess.vectorSupported {
+		res.ti = typeInfo{TypeId: typeNVarChar, Size: 0xffff, Collation: col.ti.Collation}
 		if vector.Data == nil {
-			res.ti.Size = 0
 			return res, nil
 		}
 		if byte(vector.ElementType) != col.ti.Scale {
@@ -773,9 +779,8 @@ func (b *Bulk) makeBulkVectorParam(vector Vector, col columnStruct) (res param, 
 			return res, valueErr
 		}
 		jsonParam := makeStrParam(value.(string))
-		jsonParam.ti.TypeId = typeVectorN
-		jsonParam.ti.Size = col.ti.Size
-		jsonParam.ti.Scale = col.ti.Scale
+		jsonParam.ti.Size = 0xffff
+		jsonParam.ti.Collation = col.ti.Collation
 		return jsonParam, nil
 	}
 	if VectorElementType(col.ti.Scale) == VectorElementFloat16 {

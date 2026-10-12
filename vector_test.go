@@ -818,6 +818,12 @@ func TestBulkMakeRowDataVectorJSONFallback(t *testing.T) {
 				Writer: writeVectorType,
 			}}
 			bulk.bulkColumns = []columnStruct{column}
+			metadata := bulk.createColMetadata()
+			if metadata[7] != typeNVarChar ||
+				binary.LittleEndian.Uint16(metadata[8:10]) != 0xffff {
+				t.Fatalf("JSON fallback column metadata = %x; want NVARCHAR(MAX)", metadata)
+			}
+
 			vector := Vector{ElementType: elementType, Data: []float32{1, 2, 3}}
 
 			got, err := bulk.makeRowData([]interface{}{vector})
