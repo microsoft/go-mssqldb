@@ -5,6 +5,7 @@ package mssql
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,6 +32,7 @@ func TestTVPType_columnTypes(t *testing.T) {
 	type customTypeAllFieldsSkipOne struct {
 		SkipTest int `tvp:"-"`
 	}
+
 	type customTypeAllFieldsSkipMoreOne struct {
 		SkipTest  int `tvp:"-"`
 		SkipTest1 int `json:"-"`
@@ -123,6 +125,23 @@ func TestTVPType_columnTypes(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Errorf("TVP.columnTypes() error = %v, wantErr %v", err, tt.wantErr)
 				return
+			}
+		})
+	}
+}
+
+func TestTVPTypeRejectsVectorFields(t *testing.T) {
+	for name, value := range map[string]interface{}{
+		"Vector":        []struct{ Vector Vector }{{Vector: Vector{ElementType: VectorElementFloat32, Data: []float32{1}}}},
+		"NullVector":    []struct{ Vector *NullVector }{{Vector: &NullVector{Valid: true}}},
+		"float32 slice": []struct{ Vector []float32 }{{Vector: []float32{1}}},
+		"float64 slice": []struct{ Vector []float64 }{{Vector: []float64{1}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tvp := TVP{TypeName: "VectorTableType", Value: value}
+			_, _, err := tvp.columnTypes()
+			if err == nil || !strings.Contains(err.Error(), "Vector fields are not supported in table-valued parameters") {
+				t.Fatalf("TVP.columnTypes() error = %v", err)
 			}
 		})
 	}
