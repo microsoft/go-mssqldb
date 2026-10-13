@@ -1,13 +1,19 @@
 package krb5
 
 import (
+	"crypto/rand"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/go-krb5/krb5/config"
+	"github.com/go-krb5/krb5/iana/etypeID"
+	"github.com/go-krb5/krb5/iana/nametype"
+	"github.com/go-krb5/krb5/messages"
+	"github.com/go-krb5/krb5/types"
 	"github.com/microsoft/go-mssqldb/msdsn"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReadKrb5ConfigHappyPath(t *testing.T) {
@@ -520,6 +526,50 @@ func TestKrbAuthFree(t *testing.T) {
 	auth.Free()
 
 	assert.Nil(t, auth.krb5Client, "krb5Client should remain nil after Free")
+}
+
+// TestTGSReqUsesClientRealmAcrossReferrals is a regression test for
+// https://github.com/microsoft/go-mssqldb/issues/264. When a KDC refers a client
+// across a realm boundary, the TGS-REQ pre-authentication data must authenticate
+// as the client's own home realm, not the realm of whichever KDC issued the
+// ticket being presented at this hop. The old jcmturner/gokrb5 dependency got
+// this wrong - it used the presented ticket's realm - which a KDC on the next
+// hop rejects with KRB_AP_ERR_BADMATCH; go-krb5/krb5 fixed this by taking the
+// client's realm as an explicit parameter.
+func TestTGSReqUsesClientRealmAcrossReferrals(t *testing.T) {
+	const (
+		clientHomeRealm = "CLIENT.REALM"
+		referralRealm   = "INTERMEDIATE.REALM" // realm of the TGT received from an earlier referral hop
+		targetRealm     = "TARGET.REALM"
+	)
+
+	cname := types.NewPrincipalName(nametype.KRB_NT_PRINCIPAL, "clientuser")
+	sname := types.NewPrincipalName(nametype.KRB_NT_SRV_INST, "service/host")
+
+	key := make([]byte, 32)
+	_, err := rand.Read(key)
+	require.NoError(t, err)
+	sessionKey := types.EncryptionKey{KeyType: etypeID.AES256_CTS_HMAC_SHA1_96, KeyValue: key}
+
+	// Simulates presenting a ticket obtained from an earlier referral hop: issued
+	// by an intermediate realm, not the client's own.
+	referralTicket := messages.Ticket{Realm: referralRealm, SName: sname}
+
+	cfg := config.New()
+	cfg.LibDefaults.DefaultTGSEnctypeIDs = []int32{etypeID.AES256_CTS_HMAC_SHA1_96}
+	cfg.LibDefaults.NoAddresses = true
+
+	tgsReq, err := messages.NewTGSReq(cname, clientHomeRealm, targetRealm, cfg, referralTicket, sessionKey, sname, false)
+	require.NoError(t, err, "NewTGSReq should succeed building a referral TGS-REQ")
+	require.NotEmpty(t, tgsReq.PAData, "TGS-REQ should carry PA-DATA for the AP-REQ")
+
+	var apReq messages.APReq
+	require.NoError(t, apReq.Unmarshal(tgsReq.PAData[0].PADataValue), "PA-DATA should unmarshal as an AP-REQ")
+	require.NoError(t, apReq.DecryptAuthenticator(sessionKey), "authenticator should decrypt with the session key")
+
+	assert.Equal(t, clientHomeRealm, apReq.Authenticator.CRealm,
+		"TGS-REQ authenticator must use the client's own realm, not the referral ticket's realm, "+
+			"or a KDC on the next hop rejects it with KRB_AP_ERR_BADMATCH")
 }
 
 func TestFileExistsOS(t *testing.T) {
