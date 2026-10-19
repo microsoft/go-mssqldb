@@ -2,11 +2,9 @@ package mssql
 
 import (
 	"context"
-	"database/sql"
 	"encoding/binary"
 	"errors"
 	"io"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -104,16 +102,60 @@ func TestRollbackDeadlineReturnsWithoutTheResponse(t *testing.T) {
 	}
 }
 
+// A cancelled rollback whose response read fails must return that error.
+// Keeping context.Canceled would leave the broken connection in the pool.
+func TestRollbackCanceledContextReadErrorDiscardsConnection(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseRead := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseRead)
+
+	conn := &Conn{
+		sess: &tdsSession{
+			buf: newTdsBuffer(defaultPacketSize, &gatedTransport{
+				release: release,
+				readErr: io.EOF,
+			}),
+			tranid: 7,
+		},
+		connectionGood: true,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- conn.simpleProcessResp(ctx, true)
+	}()
+
+	select {
+	case err := <-done:
+		t.Fatalf("rollback returned while its response was still held: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	releaseRead()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, io.EOF) {
+			t.Fatalf("rollback error = %v, want the read error", err)
+		}
+		if errors.Is(err, context.Canceled) {
+			t.Fatal("rollback kept context.Canceled after the response read failed")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("rollback did not return after its response read failed")
+	}
+	if conn.connectionGood {
+		t.Fatal("a failed rollback read left the connection usable")
+	}
+}
+
 func TestCancelledTxRollbackDoesNotRaceWithReuse(t *testing.T) {
-	dsn := os.Getenv("SQLSERVER_DSN")
-	if dsn == "" {
-		t.Skip("SQLSERVER_DSN is not set")
-	}
-	db, err := sql.Open("sqlserver", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db := requireTestDB(t)
 	if err := db.PingContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -140,16 +182,21 @@ func TestCancelledTxRollbackDoesNotRaceWithReuse(t *testing.T) {
 }
 
 // gatedTransport serves one TDS packet after release is closed.
+// A non-nil readErr is returned instead of the packet.
 type gatedTransport struct {
 	packet  []byte
 	off     int
 	release <-chan struct{}
+	readErr error
 
 	once sync.Once
 }
 
 func (g *gatedTransport) Read(p []byte) (int, error) {
 	g.once.Do(func() { <-g.release })
+	if g.readErr != nil {
+		return 0, g.readErr
+	}
 	if g.off >= len(g.packet) {
 		return 0, io.EOF
 	}
