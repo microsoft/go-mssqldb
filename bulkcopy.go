@@ -224,7 +224,11 @@ func (b *Bulk) makeRowData(row []interface{}) ([]byte, error) {
 			return nil, fmt.Errorf("no writer for column: %s, TypeId: %#x",
 				col.ColName, col.ti.TypeId)
 		}
-		err = col.ti.Writer(buf, param.ti, param.buffer, b.cn.sess.encoding)
+		writer := col.ti.Writer
+		if col.ti.TypeId == typeVectorN && !b.cn.sess.vectorSupported {
+			writer = writePLPType
+		}
+		err = writer(buf, param.ti, param.buffer, b.cn.sess.encoding)
 		if err != nil {
 			return nil, fmt.Errorf("bulkcopy: %s", err.Error())
 		}
@@ -281,7 +285,13 @@ func (b *Bulk) createColMetadata() []byte {
 		}
 		binary.Write(buf, binary.LittleEndian, uint16(col.Flags))
 
-		writeTypeInfo(buf, &b.bulkColumns[i].ti, false, b.cn.sess.encoding)
+		ti := col.ti
+		if ti.TypeId == typeVectorN && !b.cn.sess.vectorSupported {
+			ti.TypeId = typeNVarChar
+			ti.Size = 0xffff
+		}
+		writeTypeInfo(buf, &ti, false, b.cn.sess.encoding)
+		b.bulkColumns[i].ti.Writer = ti.Writer
 
 		if col.ti.TypeId == typeNText ||
 			col.ti.TypeId == typeText ||
@@ -373,6 +383,41 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 		return b.makeParam(valuer.Decimal, col)
 	case Money[shopspring.NullDecimal]:
 		return b.makeParam(valuer.Decimal, col)
+	case []float32:
+		vector, e := NewVector(valuer)
+		if e != nil {
+			return res, e
+		}
+		return b.makeBulkVectorParam(vector, col)
+	case []float64:
+		vector, e := NewVectorFromFloat64(valuer)
+		if e != nil {
+			return res, e
+		}
+		return b.makeBulkVectorParam(vector, col)
+	case Vector:
+		return b.makeBulkVectorParam(valuer, col)
+	case *Vector:
+		if valuer == nil {
+			res.ti = col.ti
+			res.ti.Size = 0
+			return
+		}
+		return b.makeBulkVectorParam(*valuer, col)
+	case NullVector:
+		if !valuer.Valid {
+			res.ti = col.ti
+			res.ti.Size = 0
+			return
+		}
+		return b.makeBulkVectorParam(valuer.Vector, col)
+	case *NullVector:
+		if valuer == nil || !valuer.Valid {
+			res.ti = col.ti
+			res.ti.Size = 0
+			return
+		}
+		return b.makeBulkVectorParam(valuer.Vector, col)
 	case driver.Valuer:
 		var e error
 		val, e = driver.DefaultParameterConverter.ConvertValue(valuer)
@@ -705,6 +750,59 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 	}
 	return
 
+}
+
+func (b *Bulk) makeBulkVectorParam(vector Vector, col columnStruct) (res param, err error) {
+	res.ti = col.ti
+	if col.ti.TypeId != typeVectorN {
+		value, valueErr := vector.Value()
+		if valueErr != nil {
+			return res, valueErr
+		}
+		return b.makeParam(value, col)
+	}
+	if !b.cn.sess.vectorSupported {
+		res.ti = typeInfo{TypeId: typeNVarChar, Size: 0xffff, Collation: col.ti.Collation}
+		if vector.Data == nil {
+			return res, nil
+		}
+		if byte(vector.ElementType) != col.ti.Scale {
+			return res, fmt.Errorf("mssql: vector element type %s does not match column element type %s",
+				vector.ElementType, VectorElementType(col.ti.Scale))
+		}
+		dimensions, _, ok := vectorDimensionsFromTypeInfo(col.ti)
+		if !ok || len(vector.Data) != dimensions {
+			return res, fmt.Errorf("mssql: vector dimensions %d do not match column dimensions %d", len(vector.Data), dimensions)
+		}
+		value, valueErr := vector.Value()
+		if valueErr != nil {
+			return res, valueErr
+		}
+		jsonParam := makeStrParam(value.(string))
+		jsonParam.ti.Size = 0xffff
+		jsonParam.ti.Collation = col.ti.Collation
+		return jsonParam, nil
+	}
+	if VectorElementType(col.ti.Scale) == VectorElementFloat16 {
+		return res, fmt.Errorf("mssql: float16 vector bulk copy requires vectortypesupport=v2, which is not supported")
+	}
+	if vector.Data == nil {
+		res.ti.Size = 0
+		return res, nil
+	}
+	if byte(vector.ElementType) != col.ti.Scale {
+		return res, fmt.Errorf("mssql: vector element type %s does not match column element type %s",
+			vector.ElementType, VectorElementType(col.ti.Scale))
+	}
+	dimensions, _, ok := vectorDimensionsFromTypeInfo(col.ti)
+	if !ok || len(vector.Data) != dimensions {
+		return res, fmt.Errorf("mssql: vector dimensions %d do not match column dimensions %d", len(vector.Data), dimensions)
+	}
+	res.buffer, err = vector.encodeToBytes()
+	if err == nil {
+		res.ti.Size = len(res.buffer)
+	}
+	return res, err
 }
 
 func (b *Bulk) dlogf(ctx context.Context, format string, v ...interface{}) {
