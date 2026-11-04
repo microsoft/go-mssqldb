@@ -621,3 +621,29 @@ func TestAuthenticationNameSurroundingWhitespace(t *testing.T) {
 		})
 	}
 }
+
+func TestSplitAuthorityAndTenant(t *testing.T) {
+	const tenant = "aaaabbbb-0000-cccc-1111-dddd2222eeee"
+	tests := []struct {
+		name          string
+		stsURL        string
+		wantAuthority string
+		wantTenant    string
+	}{
+		{"azure sql", "https://login.windows.net/" + tenant, "https://login.windows.net", tenant},
+		{"dataverse", "https://login.microsoftonline.com/" + tenant + "/oauth2/authorize", "https://login.microsoftonline.com", tenant},
+		{"trailing slash", "https://login.microsoftonline.com/" + tenant + "/", "https://login.microsoftonline.com", tenant},
+		{"sovereign cloud", "https://login.microsoftonline.us/" + tenant + "/oauth2/authorize", "https://login.microsoftonline.us", tenant},
+		{"no scheme falls back to last slash", "login.windows.net/" + tenant, "login.windows.net", tenant},
+		{"unparseable falls back to last slash", "https://[::1/" + tenant, "https://[::1", tenant},
+	}
+	for _, tst := range tests {
+		t.Run(tst.name, func(t *testing.T) {
+			authority, gotTenant := splitAuthorityAndTenant(tst.stsURL)
+			if authority != tst.wantAuthority || gotTenant != tst.wantTenant {
+				t.Errorf("splitAuthorityAndTenant(%q) = (%q, %q), want (%q, %q)",
+					tst.stsURL, authority, gotTenant, tst.wantAuthority, tst.wantTenant)
+			}
+		})
+	}
+}

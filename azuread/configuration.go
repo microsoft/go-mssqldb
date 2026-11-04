@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -331,7 +332,15 @@ func splitTenantAndClientID(user string) (string, string) {
 	return user[0:at], user[at+1:]
 }
 
+// splitAuthorityAndTenant splits the STS URL from FEDAUTHINFO into the authority
+// host (scheme://host) and the tenant (first path segment). Azure SQL sends
+// https://<host>/<tenant>; other TDS endpoints, such as Dataverse, send more path
+// after the tenant (https://<host>/<tenant>/oauth2/authorize).
 func splitAuthorityAndTenant(authorityURL string) (string, string) {
+	if u, err := url.Parse(authorityURL); err == nil && u.Scheme != "" && u.Host != "" {
+		tenant, _, _ := strings.Cut(strings.TrimPrefix(u.Path, "/"), "/")
+		return u.Scheme + "://" + u.Host, tenant
+	}
 	separatorIndex := strings.LastIndex(authorityURL, "/")
 	tenant := authorityURL[separatorIndex+1:]
 	authority := authorityURL[:separatorIndex]
