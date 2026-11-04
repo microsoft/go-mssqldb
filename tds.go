@@ -1143,6 +1143,39 @@ func prepareLogin(ctx context.Context, c *Connector, p msdsn.Config, logger Cont
 	return l, nil
 }
 
+// wrapTLSError wraps a TLS handshake error with actionable guidance when the
+// failure matches known Go crypto/tls policy changes.
+func wrapTLSError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	msgLower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(msgLower, "negative serial number"):
+		return fmt.Errorf("TLS Handshake failed: %w. "+
+			"The server certificate has a negative serial number and does not comply with RFC 5280. "+
+			"Replace it with a certificate that has a positive serial number. "+
+			"For temporary local development or CI compatibility only, add x509negativeserial=1 to your GODEBUG environment variable, "+
+			"or use encrypt=disable. Do not use either setting in production", err)
+	case strings.Contains(msgLower, "insecure algorithm") && strings.Contains(msgLower, "sha1"):
+		// x509sha1 was removed in Go 1.24, so no GODEBUG re-enables this one.
+		return fmt.Errorf("TLS Handshake failed: %w. "+
+			"The server certificate uses the obsolete SHA-1 signature algorithm. "+
+			"Reissue the certificate with SHA-256 or better. "+
+			"No GODEBUG setting re-enables SHA-1 certificate verification. "+
+			"For non-production servers, use encrypt=disable", err)
+	case strings.Contains(msgLower, "cannot read handshake") && strings.Contains(msgLower, "eof"):
+		return fmt.Errorf("TLS Handshake failed: %w. "+
+			"The server may have an incompatible TLS configuration, including obsolete SHA-1 signatures. "+
+			"Update the server TLS configuration and certificate. "+
+			"If the server is confirmed to use SHA-1, add tlssha1=1 to GODEBUG for temporary compatibility, "+
+			"or use encrypt=disable for non-production servers", err)
+	default:
+		return fmt.Errorf("TLS Handshake failed: %w", err)
+	}
+}
+
 func getTLSConn(conn *timeoutConn, p msdsn.Config, alpnSeq string) (tlsConn *tls.Conn, err error) {
 	var config *tls.Config
 	if pc := p.TLSConfig; pc != nil {
@@ -1159,7 +1192,7 @@ func getTLSConn(conn *timeoutConn, p msdsn.Config, alpnSeq string) (tlsConn *tls
 	tlsConn = tls.Client(conn.c, config)
 	err = tlsConn.Handshake()
 	if err != nil {
-		return nil, fmt.Errorf("TLS Handshake failed: %w", err)
+		return nil, wrapTLSError(err)
 	}
 	return tlsConn, nil
 }
@@ -1289,7 +1322,7 @@ initiate_connection:
 			tlsConn := tls.Client(&passthrough, config)
 			err = tlsConn.Handshake()
 			if err != nil {
-				return nil, fmt.Errorf("TLS Handshake failed: %v", err)
+				return nil, wrapTLSError(err)
 			}
 			// Flush any pending packet from the handshake
 			// The driver's Finished message is still in the buffer
