@@ -29,6 +29,7 @@ func TestInvalidConnectionString(t *testing.T) {
 		"multisubnetfailover=invalid",
 		"timezone=invalid",
 		"epa enabled=invalid",
+		"disableconntimeoutasquerytimeout=invalid",
 
 		// ODBC mode
 		"odbc:password={",
@@ -149,6 +150,11 @@ func TestValidConnectionString(t *testing.T) {
 		{"disableretry=1", func(p Config) bool { return p.DisableRetry }},
 		{"disableretry=0", func(p Config) bool { return !p.DisableRetry }},
 		{"", func(p Config) bool { return p.DisableRetry == disableRetryDefault }},
+		{"disableconntimeoutasquerytimeout=true", func(p Config) bool { return p.DisableConnTimeoutAsQueryTimeout }},
+		{"disableconntimeoutasquerytimeout=false", func(p Config) bool { return !p.DisableConnTimeoutAsQueryTimeout }},
+		{"disableconntimeoutasquerytimeout=1", func(p Config) bool { return p.DisableConnTimeoutAsQueryTimeout }},
+		{"disableconntimeoutasquerytimeout=0", func(p Config) bool { return !p.DisableConnTimeoutAsQueryTimeout }},
+		{"", func(p Config) bool { return !p.DisableConnTimeoutAsQueryTimeout }},
 		{"MultiSubnetFailover=true;NoTraceID=true", func(p Config) bool { return p.MultiSubnetFailover && p.NoTraceID }},
 		{"MultiSubnetFailover=false", func(p Config) bool { return !p.MultiSubnetFailover }},
 		{"timezone=Asia/Shanghai", func(p Config) bool { return p.Encoding.Timezone.String() == "Asia/Shanghai" }},
@@ -715,6 +721,8 @@ func TestBooleanParamsAcceptYesNo(t *testing.T) {
 		{"trustservercertificate=no", "server=host;trustservercertificate=no", func(p Config) bool { return !p.TrustServerCertificate }},
 		{"disableretry=yes", "server=host;disableretry=yes", func(p Config) bool { return p.DisableRetry }},
 		{"disableretry=no", "server=host;disableretry=no", func(p Config) bool { return !p.DisableRetry }},
+		{"disableconntimeoutasquerytimeout=yes", "server=host;disableconntimeoutasquerytimeout=yes", func(p Config) bool { return p.DisableConnTimeoutAsQueryTimeout }},
+		{"disableconntimeoutasquerytimeout=no", "server=host;disableconntimeoutasquerytimeout=no", func(p Config) bool { return !p.DisableConnTimeoutAsQueryTimeout }},
 		{"columnencryption=yes", "server=host;columnencryption=yes", func(p Config) bool { return p.ColumnEncryption }},
 		{"multisubnetfailover=no", "server=host;multisubnetfailover=no", func(p Config) bool { return !p.MultiSubnetFailover }},
 		{"notraceid=yes", "server=host;notraceid=yes", func(p Config) bool { return p.NoTraceID }},
@@ -754,8 +762,45 @@ func TestTrustServerCertificateRoundTrip(t *testing.T) {
 	}
 }
 
-func TestEncryptionStrictRoundTrip(t *testing.T) {
-	config, err := Parse("sqlserver://user:pass@host?encrypt=strict")
+func TestDisableConnTimeoutAsQueryTimeoutRoundTrip(t *testing.T) {
+	tests := []struct {
+		name    string
+		connStr string
+	}{
+		{"disableconntimeoutasquerytimeout=true round-trips", "sqlserver://host?disableconntimeoutasquerytimeout=true"},
+		{"disableconntimeoutasquerytimeout=false round-trips", "sqlserver://host?disableconntimeoutasquerytimeout=false"},
+		{"Implicit default (false) not emitted", "sqlserver://host"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config, err := Parse(tt.connStr)
+			require.NoError(t, err, "Failed to parse connection string")
+			urlStr := config.URL().String()
+			config2, err := Parse(urlStr)
+			require.NoError(t, err, "Failed to parse round-tripped URL")
+			assert.Equal(t, config.DisableConnTimeoutAsQueryTimeout, config2.DisableConnTimeoutAsQueryTimeout,
+				"DisableConnTimeoutAsQueryTimeout changed after round-trip (URL: %s)", urlStr)
+		})
+	}
+
+	// The default (false) must never be emitted in the URL, since it is
+	// also the safe zero-value for programmatic Config construction.
+	config, err := Parse("sqlserver://host")
+	require.NoError(t, err)
+	assert.False(t, config.DisableConnTimeoutAsQueryTimeout)
+	assert.NotContains(t, config.URL().String(), "disableconntimeoutasquerytimeout",
+		"URL() should not emit the parameter when it is false (the default)")
+
+	// When true, it must be emitted so the setting survives a round-trip.
+	config, err = Parse("sqlserver://host?disableconntimeoutasquerytimeout=true")
+	require.NoError(t, err)
+	assert.True(t, config.DisableConnTimeoutAsQueryTimeout)
+	assert.Contains(t, config.URL().String(), "disableconntimeoutasquerytimeout=true",
+		"URL() should emit the parameter when it is true")
+}
+
+func TestEncryptionStrictRoundTrip(t *testing.T) {	config, err := Parse("sqlserver://user:pass@host?encrypt=strict")
 	require.NoError(t, err, "Failed to parse connection string")
 
 	urlStr := config.URL().String()

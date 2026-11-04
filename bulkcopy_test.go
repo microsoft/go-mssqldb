@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -17,6 +18,23 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestBulkWriteRequestInvalidatesConnectionOnError(t *testing.T) {
+	buf := newTdsBuffer(defaultPacketSize, failBuffer{})
+	conn := &Conn{
+		sess:           &tdsSession{buf: buf},
+		connectionGood: true,
+	}
+	bulk := &Bulk{cn: conn}
+	writeErr := errors.New("partial write")
+
+	err := bulk.writeRequest(context.Background(), func() error {
+		return writeErr
+	})
+
+	assert.ErrorIs(t, err, writeErr)
+	assert.False(t, conn.connectionGood, "a failed bulk write may leave the TDS stream desynchronized")
+}
 
 func TestBulkcopyWithInvalidNullableType(t *testing.T) {
 	// Arrange

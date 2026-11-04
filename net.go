@@ -7,8 +7,17 @@ import (
 )
 
 type timeoutConn struct {
-	c       net.Conn
-	timeout time.Duration
+	c net.Conn
+	// timeout bounds both Read and Write while timeoutDisabled is false
+	// (the default). Once disableTimeout() is called, neither Read nor
+	// Write re-arm a ConnTimeout-based deadline any more: command
+	// execution (both sending the request and reading the response) is
+	// then governed exclusively by the caller's context.Context. Writes
+	// are protected against hanging forever in that mode by a separate,
+	// context-aware mechanism (see watchContextForWrite in mssql.go),
+	// not by this struct.
+	timeout         time.Duration
+	timeoutDisabled bool
 }
 
 func newTimeoutConn(conn net.Conn, timeout time.Duration) *timeoutConn {
@@ -19,7 +28,14 @@ func newTimeoutConn(conn net.Conn, timeout time.Duration) *timeoutConn {
 }
 
 func (c *timeoutConn) Read(b []byte) (n int, err error) {
-	if c.timeout > 0 {
+	if c.timeout > 0 && !c.timeoutDisabled {
+		// SetDeadline (not SetReadDeadline) is used deliberately here, to
+		// preserve the exact legacy/default (timeoutDisabled==false)
+		// semantics: every I/O call re-arms a single, shared deadline for
+		// both directions, so e.g. a read during a multi-step handshake
+		// also extends how long a subsequent write may still take, and
+		// vice versa. Splitting these per-direction here would silently
+		// change that default behavior even when the opt-in flag is off.
 		err = c.c.SetDeadline(time.Now().Add(c.timeout))
 		if err != nil {
 			return
@@ -29,13 +45,35 @@ func (c *timeoutConn) Read(b []byte) (n int, err error) {
 }
 
 func (c *timeoutConn) Write(b []byte) (n int, err error) {
-	if c.timeout > 0 {
+	if c.timeout > 0 && !c.timeoutDisabled {
 		err = c.c.SetDeadline(time.Now().Add(c.timeout))
 		if err != nil {
 			return
 		}
 	}
 	return c.c.Write(b)
+}
+
+// disableTimeout stops the connect timeout from being (re)applied as a
+// socket read/write deadline, and clears any deadline left over from the
+// last login-phase Read/Write call. It must be called once the login
+// handshake has completed successfully, so that subsequent command
+// execution is governed exclusively by the caller-supplied context.Context
+// deadline instead of being cut short by the connection timeout. Callers
+// must independently guard against a Write blocking forever once the
+// deadline is gone (see watchContextForWrite in mssql.go), since nothing
+// here re-applies any deadline once disabled.
+func (c *timeoutConn) disableTimeout() error {
+	c.timeoutDisabled = true
+	if c.timeout <= 0 {
+		// No deadline was ever armed by this wrapper (ConnTimeout==0), so
+		// there is nothing to clear. Some net.Conn implementations
+		// (e.g. from a custom Connector.Dialer) may not support deadlines
+		// at all; avoid calling SetDeadline unless we know we previously
+		// set one.
+		return nil
+	}
+	return c.c.SetDeadline(time.Time{})
 }
 
 func (c timeoutConn) Close() error {

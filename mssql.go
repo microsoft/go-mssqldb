@@ -13,6 +13,7 @@ import (
 	"net"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -352,7 +353,14 @@ func (c *Conn) sendCommitRequest() error {
 	}
 	reset := c.resetSession
 	c.resetSession = false
-	if err := sendCommitXact(c.sess.buf, headers, "", 0, 0, "", reset); err != nil {
+	ctx := c.transactionCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	err := withWriteGuard(ctx, c.sess, func() error {
+		return sendCommitXact(c.sess.buf, headers, "", 0, 0, "", reset)
+	})
+	if err != nil {
 		c.sess.LogF(c.transactionCtx, msdsn.LogErrors, "Failed to send CommitXact with %v", err)
 		c.connectionGood = false
 		return fmt.Errorf("faild to send CommitXact: %v", err)
@@ -382,7 +390,14 @@ func (c *Conn) sendRollbackRequest() error {
 	}
 	reset := c.resetSession
 	c.resetSession = false
-	if err := sendRollbackXact(c.sess.buf, headers, "", 0, 0, "", reset); err != nil {
+	ctx := c.transactionCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	err := withWriteGuard(ctx, c.sess, func() error {
+		return sendRollbackXact(c.sess.buf, headers, "", 0, 0, "", reset)
+	})
+	if err != nil {
 		c.sess.LogF(c.transactionCtx, msdsn.LogErrors, "Failed to send RollbackXact with %v", err)
 		c.connectionGood = false
 		return fmt.Errorf("failed to send RollbackXact: %v", err)
@@ -417,7 +432,10 @@ func (c *Conn) sendBeginRequest(ctx context.Context, tdsIsolation isoLevel) erro
 	}
 	reset := c.resetSession
 	c.resetSession = false
-	if err := sendBeginXact(c.sess.buf, headers, tdsIsolation, "", reset); err != nil {
+	err := withWriteGuard(ctx, c.sess, func() error {
+		return sendBeginXact(c.sess.buf, headers, tdsIsolation, "", reset)
+	})
+	if err != nil {
 		c.sess.LogF(ctx, msdsn.LogErrors, "Failed to send BeginXact with %v", err)
 		c.connectionGood = false
 		return fmt.Errorf("failed to send BeginXact: %v", err)
@@ -543,6 +561,97 @@ func (s *Stmt) NumInput() int {
 	return s.paramCount
 }
 
+type writeDeadlineCloser interface {
+	SetWriteDeadline(time.Time) error
+	Close() error
+}
+
+// watchContextForWrite arms an immediate write deadline on transport if ctx is
+// cancelled before the returned stop function is called. It exists to bound
+// synchronous request writes (see sendQuery) that would otherwise be able to
+// block forever once the transport's own ConnTimeout-based write deadline
+// has been disabled via disableconntimeoutasquerytimeout: without it, a
+// write stuck because the server stopped consuming would never notice ctx
+// cancellation, since no response reader exists yet to observe it. It is a
+// no-op if ctx can never be cancelled (e.g. context.Background()).
+//
+// stop() blocks until the monitoring goroutine has fully exited and clears
+// any deadline it armed. If setting or clearing the deadline fails, the
+// transport is closed and the error is returned so the connection cannot be
+// reused with an in-flight request or stale deadline.
+func watchContextForWrite(ctx context.Context, transport writeDeadlineCloser) (stop func() error) {
+	if ctx.Done() == nil {
+		return func() error { return nil }
+	}
+	done := make(chan struct{})
+	stopped := make(chan struct{})
+	var deadlineErr error
+	var deadlineArmed bool
+	go func() {
+		defer close(stopped)
+		select {
+		case <-ctx.Done():
+			// Force any in-flight or subsequent Write on this transport to
+			// fail immediately instead of blocking indefinitely.
+			if deadlineErr = transport.SetWriteDeadline(time.Now()); deadlineErr != nil {
+				// net.Conn.Close must unblock concurrent operations. It is the
+				// only remaining cancellation mechanism when deadlines are
+				// unsupported by a custom transport.
+				_ = transport.Close()
+			} else {
+				deadlineArmed = true
+			}
+		case <-done:
+		}
+	}()
+	var stopOnce sync.Once
+	var stopErr error
+	return func() error {
+		stopOnce.Do(func() {
+			close(done)
+			<-stopped
+			if deadlineArmed {
+				if clearErr := transport.SetWriteDeadline(time.Time{}); clearErr != nil {
+					_ = transport.Close()
+					stopErr = clearErr
+					return
+				}
+			}
+			stopErr = deadlineErr
+		})
+		return stopErr
+	}
+}
+
+// withWriteGuard executes write while protecting it with
+// watchContextForWrite against blocking forever should ctx be cancelled
+// and the connection's own ConnTimeout-based write deadline have been
+// disabled (disableconntimeoutasquerytimeout=true). It centralizes the
+// pattern needed by every synchronous request writer (sendQuery,
+// sendBeginRequest, sendCommitRequest, sendRollbackRequest, bulk copy),
+// and is a no-op in legacy mode to preserve the previous ConnTimeout behavior.
+func withWriteGuard(ctx context.Context, sess *tdsSession, write func() error) error {
+	if !sess.disableConnTimeoutAsQueryTimeout {
+		return write()
+	}
+	transport, ok := sess.buf.transport.(writeDeadlineCloser)
+	if !ok {
+		_ = sess.buf.transport.Close()
+		return &net.OpError{
+			Op:  "guard request write",
+			Net: "mssql",
+			Err: errors.New("transport does not support write deadlines"),
+		}
+	}
+	stop := watchContextForWrite(ctx, transport)
+	writeErr := write()
+	deadlineErr := stop()
+	if deadlineErr != nil {
+		return &net.OpError{Op: "guard request write", Net: "mssql", Err: deadlineErr}
+	}
+	return writeErr
+}
+
 func (s *Stmt) sendQuery(ctx context.Context, args []namedValue) (err error) {
 	// Fail fast if XACT_ABORT rolled back the transaction. The mssql.Error
 	// type avoids triggering checkBadConn's retry/reconnect path.
@@ -582,16 +691,13 @@ func (s *Stmt) sendQuery(ctx context.Context, args []namedValue) (err error) {
 
 	reset := conn.resetSession
 	conn.resetSession = false
+
 	isProc := isProc(s.query)
-	if len(args) == 0 && !isProc {
-		if err = sendSqlBatch72(conn.sess.buf, s.query, headers, reset); err != nil {
-			conn.sess.LogF(ctx, msdsn.LogErrors, "Failed to send SqlBatch with %v", err)
-			conn.connectionGood = false
-			return fmt.Errorf("failed to send SQL Batch: %v", err)
-		}
-	} else {
-		proc := sp_ExecuteSql
-		var params []param
+	isBatch := len(args) == 0 && !isProc
+
+	proc := sp_ExecuteSql
+	var params []param
+	if !isBatch {
 		if isProc {
 			proc.name = s.query
 			params, _, err = s.makeRPCParams(args, true)
@@ -607,11 +713,32 @@ func (s *Stmt) sendQuery(ctx context.Context, args []namedValue) (err error) {
 			params[0] = makeStrParam(s.query)
 			params[1] = makeStrParam(strings.Join(decls, ","))
 		}
-		if err = sendRpc(conn.sess.buf, headers, proc, 0, params, reset, conn.sess.encoding); err != nil {
-			conn.sess.LogF(ctx, msdsn.LogErrors, "Failed to send Rpc with %v", err)
-			conn.connectionGood = false
-			return fmt.Errorf("failed to send RPC: %v", err)
+	}
+
+	// The write below (sendSqlBatch72/sendRpc) is synchronous and doesn't
+	// otherwise observe ctx. Normally that's fine because ConnTimeout
+	// keeps bounding it via toconn's own deadline (see net.go). But once
+	// disableconntimeoutasquerytimeout has disabled that deadline, a write
+	// could block forever if the server stops consuming (e.g. a full TCP
+	// send window), with no response reader yet running to notice ctx
+	// cancellation. withWriteGuard protects against that by forcing an
+	// immediate write deadline if ctx is cancelled while the write is in
+	// flight.
+	err = withWriteGuard(ctx, conn.sess, func() error {
+		if isBatch {
+			return sendSqlBatch72(conn.sess.buf, s.query, headers, reset)
 		}
+		return sendRpc(conn.sess.buf, headers, proc, 0, params, reset, conn.sess.encoding)
+	})
+	if err != nil {
+		if isBatch {
+			conn.sess.LogF(ctx, msdsn.LogErrors, "Failed to send SqlBatch with %v", err)
+			conn.connectionGood = false
+			return fmt.Errorf("failed to send SQL Batch: %v", err)
+		}
+		conn.sess.LogF(ctx, msdsn.LogErrors, "Failed to send Rpc with %v", err)
+		conn.connectionGood = false
+		return fmt.Errorf("failed to send RPC: %v", err)
 	}
 	return
 }
