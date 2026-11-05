@@ -325,6 +325,15 @@ func (c *Conn) simpleProcessResp(ctx context.Context, isRollback bool) error {
 
 	var resultError error
 	err := reader.iterateResponse()
+	if isRollback && errors.Is(err, context.Canceled) {
+		// The rollback is already on the wire. A cancelled transaction context
+		// makes nextToken return here, and database/sql then puts the connection
+		// back in the pool. Finish the reader first so it is not still writing
+		// session state when the connection is reused.
+		if drainErr := reader.drainUntilReaderDone(); drainErr != nil {
+			err = drainErr
+		}
+	}
 	if err != nil {
 		return c.checkBadConn(ctx, err, false)
 	}
@@ -443,7 +452,6 @@ func (d *Driver) open(ctx context.Context, dsn string) (*Conn, error) {
 	c := newConnector(params, nil)
 	return d.connect(ctx, c, params)
 }
-
 
 func failoverPartnerParams(params msdsn.Config) *msdsn.Config {
 	if params.FailOverPartner == "" {
