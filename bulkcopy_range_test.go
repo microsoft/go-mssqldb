@@ -27,7 +27,7 @@ func TestBulkCopyOutOfRangeValues(t *testing.T) {
 		{"tinyint", intCol(1), []interface{}{int64(0), int64(255), float64(255.9)}, []interface{}{int64(-1), int64(256), float64(300)}},
 		{"smallint", intCol(2), []interface{}{int64(math.MinInt16), int64(math.MaxInt16)}, []interface{}{int64(math.MinInt16 - 1), int64(math.MaxInt16 + 1)}},
 		{"int", intCol(4), []interface{}{int64(math.MinInt32), int64(math.MaxInt32), float32(1.5)}, []interface{}{int64(math.MaxInt32 + 1), int64(1<<32 + 1)}},
-		{"bigint", intCol(8), []interface{}{int64(math.MinInt64), float64(math.MinInt64), float64(9.2e18)}, []interface{}{float64(1e19), float64(-1e19), math.NaN(), math.Inf(1)}},
+		{"bigint", intCol(8), []interface{}{int64(math.MinInt64), float64(math.MinInt64), float64(9.2e18)}, []interface{}{float64(1e19), float64(-1e19), math.NaN(), math.Inf(1), float32(1e19)}},
 		{"smallmoney", moneyCol(4), []interface{}{"214748.3647", "-214748.3648"}, []interface{}{"214748.3648", "-214748.3649", "429496.7296"}},
 		{"money", moneyCol(8), []interface{}{"922337203685477.5807", "-922337203685477.5808"}, []interface{}{"922337203685477.5808", "-922337203685477.5809", "1844674407370955.1616", "123456789012345678901234"}},
 	}
