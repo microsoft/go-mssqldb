@@ -161,10 +161,14 @@ func (c *Conn) CheckNamedValue(nv *driver.NamedValue) error {
 	}
 }
 
-func makeMoneyParam(val decimal.Decimal) (res param) {
+func makeMoneyParam(val decimal.Decimal) (res param, err error) {
 	res.ti.TypeId = typeMoneyN
 
-	coeff := val.Mul(decimal.New(1, 4)).IntPart()
+	scaled := val.Mul(decimal.New(1, 4)).BigInt()
+	if !scaled.IsInt64() {
+		return res, fmt.Errorf("mssql: value %s out of range for money", val)
+	}
+	coeff := scaled.Int64()
 
 	res.buffer = make([]byte, 8)
 	res.ti.Size = 8
@@ -221,10 +225,10 @@ func (s *Stmt) makeParamExtra(val driver.Value) (res param, err error) {
 	case sql.Out:
 		switch dest := val.Dest.(type) {
 		case Money[decimal.Decimal]:
-			res = makeMoneyParam(dest.Decimal)
+			res, err = makeMoneyParam(dest.Decimal)
 		case Money[decimal.NullDecimal]:
 			if dest.Decimal.Valid {
-				res = makeMoneyParam(dest.Decimal.Decimal)
+				res, err = makeMoneyParam(dest.Decimal.Decimal)
 			} else {
 				res.ti.TypeId = typeMoneyN
 				res.buffer = []byte{}

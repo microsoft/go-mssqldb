@@ -404,3 +404,30 @@ func readMoney(buf []byte) int64 {
 func readSmallMoney(buf []byte) int64 {
 	return int64(int32(binary.LittleEndian.Uint32(buf)))
 }
+
+func TestMoneyOutOfRange(t *testing.T) {
+	t.Parallel()
+
+	s := &Stmt{}
+
+	for _, v := range []string{"922337203685477.5807", "-922337203685477.5808"} {
+		d := shopspring.RequireFromString(v)
+		res, err := s.makeParam(sql.Out{Dest: Money[shopspring.Decimal]{d}})
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %s", v, err)
+		}
+		if m := readMoney(res.buffer); m != d.Shift(4).IntPart() {
+			t.Errorf("%s: wrong money value: %d", v, m)
+		}
+	}
+
+	for _, v := range []string{"922337203685477.5808", "-922337203685477.5809", "1844674407370955.1616"} {
+		d := shopspring.RequireFromString(v)
+		if _, err := s.makeParam(sql.Out{Dest: Money[shopspring.Decimal]{d}}); err == nil {
+			t.Errorf("%s: expected error", v)
+		}
+		if _, err := s.makeParam(sql.Out{Dest: Money[shopspring.NullDecimal]{shopspring.NewNullDecimal(d)}}); err == nil {
+			t.Errorf("%s: expected error for NullDecimal", v)
+		}
+	}
+}
