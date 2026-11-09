@@ -184,6 +184,21 @@ func TestNullableUniqueIdentifierUnmarshalJSONNull(t *testing.T) {
 	assert.Equal(t, expected, u, "u.UnmarshalJSON()")
 }
 
+func TestNullableUniqueIdentifierJSONUnmarshalInvalidLength(t *testing.T) {
+	t.Parallel()
+
+	for _, input := range []string{`""`, `"01"`, `"01234567-89AB-CDEF-0123-456789ABCDEF00"`} {
+		t.Run(input, func(t *testing.T) {
+			t.Parallel()
+
+			initial := UniqueIdentifier{0xFF, 0xEE, 0xDD, 0xCC}
+			u := NullUniqueIdentifier{UUID: initial, Valid: true}
+			assert.Error(t, json.Unmarshal([]byte(input), &u))
+			assert.Equal(t, initial, u.UUID, "invalid input must not change the UUID")
+		})
+	}
+}
+
 func TestNullableUniqueIdentifierMarshalJSONNull(t *testing.T) {
 	t.Parallel()
 	nullUUID := NullUniqueIdentifier{

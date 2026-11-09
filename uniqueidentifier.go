@@ -92,6 +92,9 @@ func (u *UniqueIdentifier) UnmarshalJSON(b []byte) error {
 	if err != nil {
 		return err
 	}
+	if len(bytes) != len(u) {
+		return errors.New("mssql: invalid UniqueIdentifier length")
+	}
 	// Copy the bytes to the UniqueIdentifier
 	copy(u[:], bytes)
 
