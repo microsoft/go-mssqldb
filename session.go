@@ -47,7 +47,7 @@ func (s *tdsSession) preparePreloginFields(ctx context.Context, p msdsn.Config, 
 	v := getDriverVersion(driverVersion)
 	fields := map[uint8][]byte{
 		// 4 bytes for version and 2 bytes for minor version
-		preloginVERSION:    {byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24), 0, 0},
+		preloginVERSION:    {byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v), 0, 0},
 		preloginENCRYPTION: {encrypt},
 		preloginINSTOPT:    instance_buf,
 		preloginTHREADID:   {0, 0, 0, 0},
