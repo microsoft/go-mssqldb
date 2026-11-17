@@ -46,6 +46,7 @@ jobs:
           go version
           # Guarantee all four password character classes regardless of the random prefix.
           SQLCMDPASSWORD="$(openssl rand -hex 14)aA1!"
+          echo "::add-mask::$SQLCMDPASSWORD"
           export SQLCMDPASSWORD
           export SQLCMDUSER=sa
           export SQLUSER=sa
@@ -127,6 +128,7 @@ jobs:
         run: |
           # Guarantee all four password character classes regardless of the random prefix.
           SQLCMDPASSWORD="$(openssl rand -hex 14)aA1!"
+          echo "::add-mask::$SQLCMDPASSWORD"
           export SQLCMDPASSWORD
           echo "SQLCMDPASSWORD=$SQLCMDPASSWORD" >> $GITHUB_ENV
           docker run -m 2GB -e ACCEPT_EULA=1 -d --name sqlserver \
@@ -155,26 +157,18 @@ jobs:
           # runs start from the same steady-state conditions.
           go test -run='^$' -bench="$BENCH_PATTERN" \
             -benchtime=100ms -count=1 -timeout=10m . ./msdsn > /dev/null 2>&1
-      - name: Run baseline benchmarks (main)
+      - name: Prepare baseline benchmark worktree (main)
         shell: bash
         run: |
-          export SQLUSER=sa
-          export SQLPASSWORD=$SQLCMDPASSWORD
-          export DATABASE=master
-          export HOST=localhost
-          export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
-          BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
           git worktree add ../main-bench origin/main
-          cp -v *_benchmark_test.go ../main-bench/ 2>/dev/null || true
-          cp -v msdsn/*_benchmark_test.go ../main-bench/msdsn/ 2>/dev/null || true
-          cd ../main-bench
-          go test -run='^$' -bench="$BENCH_PATTERN" \
-            -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn 2>&1 | \
-            tee "$GITHUB_WORKSPACE/bench_old_full.log"
-          grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' "$GITHUB_WORKSPACE/bench_old_full.log" > "$GITHUB_WORKSPACE/bench_old.txt"
-          cd "$GITHUB_WORKSPACE"
-          git worktree remove ../main-bench --force
-      - name: Run PR benchmarks
+          # Use the PR's benchmark definitions on both sides, but skip files that
+          # are new in this PR because their production code does not exist on main.
+          shopt -s nullglob
+          for f in *_benchmark_test.go msdsn/*_benchmark_test.go; do
+            if [ -e "../main-bench/$f" ]; then cp -v "$f" "../main-bench/$f"; fi
+          done
+          shopt -u nullglob
+      - name: Run paired baseline and PR benchmarks
         shell: bash
         run: |
           export SQLUSER=sa
@@ -183,10 +177,30 @@ jobs:
           export HOST=localhost
           export SQLSERVER_DSN="sqlserver://${SQLUSER}:${SQLPASSWORD}@localhost:1433?database=${DATABASE}&trustServerCertificate=true"
           BENCH_PATTERN='Benchmark(BulkMakeParam|ConvertAssign|Decode|Encode|ManglePassword|Parse|Read|RoundTrip|Send|Str2ucs2|TdsBuffer|Ucs22str|Write)'
-          go test -run='^$' -bench="$BENCH_PATTERN" \
-            -benchtime=1s -count=10 -benchmem -timeout=25m . ./msdsn 2>&1 | \
-            tee bench_new_full.log
-          grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' bench_new_full.log > bench_new.txt
+          : > "$GITHUB_WORKSPACE/bench_old.txt"
+          : > "$GITHUB_WORKSPACE/bench_new.txt"
+          run_benchmarks() {
+            local revision="$1"
+            local directory="$2"
+            local sample="$3"
+            local output="$GITHUB_WORKSPACE/bench_${revision}_${sample}_full.log"
+            cd "$directory"
+            go test -run='^$' -bench="$BENCH_PATTERN" \
+              -benchtime=1s -count=1 -benchmem -timeout=25m . ./msdsn 2>&1 | tee "$output"
+            grep -E '^(Benchmark|goos:|goarch:|pkg:|cpu:)' "$output" \
+              >> "$GITHUB_WORKSPACE/bench_${revision}.txt"
+            cd "$GITHUB_WORKSPACE"
+          }
+          for i in {1..10}; do
+            if (( i % 2 == 1 )); then
+              run_benchmarks old ../main-bench "$i"
+              run_benchmarks new "$GITHUB_WORKSPACE" "$i"
+            else
+              run_benchmarks new "$GITHUB_WORKSPACE" "$i"
+              run_benchmarks old ../main-bench "$i"
+            fi
+          done
+          git worktree remove ../main-bench --force
       - name: Compare benchmarks
         shell: bash
         run: |

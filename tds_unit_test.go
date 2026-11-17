@@ -470,6 +470,36 @@ func TestLoginHeaderCreation(t *testing.T) {
 	assert.Equal(t, uint32(4096), hdr.PacketSize, "loginHeader.PacketSize")
 }
 
+func TestServerSupportsJSONFeatureExt(t *testing.T) {
+	tests := []struct {
+		name   string
+		fields map[uint8][]byte
+		want   bool
+	}{
+		{name: "missing version", fields: map[uint8][]byte{}, want: false},
+		{name: "SQL Server 2005", fields: map[uint8][]byte{preloginVERSION: {9, 0, 0, 0, 0, 0}}, want: false},
+		{name: "SQL Server 2008", fields: map[uint8][]byte{preloginVERSION: {10, 0, 0, 0, 0, 0}}, want: false},
+		{name: "SQL Server 2012", fields: map[uint8][]byte{preloginVERSION: {11, 0, 0, 0, 0, 0}}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			supported := serverSupportsJSONFeatureExt(tt.fields)
+			assert.Equal(t, tt.want, supported)
+
+			login, err := prepareLogin(context.Background(), &Connector{}, msdsn.Config{}, nil, nil, &featureExtFedAuth{}, 4096, supported)
+			assert.NoError(t, err)
+			_, jsonRequested := login.FeatureExt.features[featExtJSONSUPPORT]
+			assert.Equal(t, tt.want, jsonRequested)
+			if tt.want {
+				assert.Len(t, login.FeatureExt.features, 1)
+			} else {
+				assert.Empty(t, login.FeatureExt.features)
+			}
+		})
+	}
+}
+
 func TestFeatureExtsAdd(t *testing.T) {
 	t.Parallel()
 
