@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 
@@ -152,6 +154,33 @@ func TestParseFeatureExtAck(t *testing.T) {
 		}
 
 		parseFeatureExtAck(r)
+	}
+}
+
+func TestParseFeatureExtAckVector(t *testing.T) {
+	t.Run("version 1", func(t *testing.T) {
+		ack := parseFeatureExtAck(makeFinalBuf([]byte{
+			featExtVECTORSUPPORT, 1, 0, 0, 0, 1, featExtTERMINATOR,
+		}))
+		if got := ack[featExtVECTORSUPPORT]; got != byte(1) {
+			t.Fatalf("vector version = %v, want 1", got)
+		}
+	})
+
+	for _, length := range []uint32{0, 2} {
+		t.Run(fmt.Sprintf("length %d", length), func(t *testing.T) {
+			data := []byte{featExtVECTORSUPPORT, byte(length), 0, 0, 0}
+			data = append(data, make([]byte, length)...)
+			data = append(data, featExtTERMINATOR)
+
+			defer func() {
+				err, ok := recover().(error)
+				if !ok || !strings.Contains(err.Error(), fmt.Sprintf("feature ack length %d", length)) {
+					t.Fatalf("unexpected panic: %v", err)
+				}
+			}()
+			parseFeatureExtAck(makeFinalBuf(data))
+		})
 	}
 }
 
