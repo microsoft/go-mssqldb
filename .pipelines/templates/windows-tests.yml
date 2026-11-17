@@ -1,0 +1,93 @@
+parameters:
+- name: configuration
+  type: object
+
+steps:
+- task: PowerShell@2
+  displayName: Build and test - ${{ parameters.configuration.name }}
+  # Continue after another configuration fails, but never after setup fails or cancellation.
+  condition: and(succeededOrFailed(), eq(variables['WindowsSetupReady'], 'true'))
+  inputs:
+    targetType: inline
+    script: |
+      $ErrorActionPreference = 'Stop'
+      if ($env:INTEGRATED_AUTH -eq 'true') {
+        $env:SQLUSER = ''
+        $env:SQLPASSWORD = ''
+      }
+      if ([string]::IsNullOrEmpty($env:HOST) -or $env:DATABASE -notmatch '^[a-zA-Z0-9_]+$') {
+        throw 'The SQL test connection must specify a host and a simple database identifier.'
+      }
+      if ($env:INTEGRATED_AUTH -ne 'true' -and [string]::IsNullOrEmpty($env:SQLPASSWORD)) {
+        throw 'SQL authentication requires the generated password.'
+      }
+      New-Item -ItemType Directory -Path $env:RESULTS_DIR -Force | Out-Null
+      # Isolate database objects left behind by a failed configuration.
+      sqlcmd -S 'lpc:localhost' -E -C -b -l 5 -t 30 -Q "IF DB_ID(N'$env:DATABASE') IS NULL CREATE DATABASE [$env:DATABASE];"
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      go version
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      $actualArch = go env GOARCH
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      if ($actualArch -ne $env:GOARCH) { throw 'Unexpected Go target architecture.' }
+      $tagArgs = @()
+      if ($env:TEST_TAGS) { $tagArgs = @('-tags', $env:TEST_TAGS) }
+      go build @tagArgs ./...
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      gotestsum --junitfile "$env:RESULTS_DIR\tests.xml" --jsonfile "$env:RESULTS_DIR\tests.json" -- `
+        @tagArgs -count=1 -timeout=30m -covermode=atomic "-coverprofile=$env:RESULTS_DIR\coverage.txt" ./...
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      $required = @('TestConnect')
+      if ($env:PROTOCOL -eq 'np') { $required += 'TestNamedPipeConnection' }
+      if ($env:PROTOCOL -eq 'lpc') { $required += 'TestSharedMemoryConnection' }
+      if ($env:COLUMNENCRYPTION) {
+        $required += 'TestAlwaysEncryptedE2E/MSSQL_CERTIFICATE_STORE'
+      }
+      & .pipelines/scripts/Assert-WindowsTestResults.ps1 `
+        -Path "$env:RESULTS_DIR\tests.json" -RequiredTests $required
+  env:
+    GOARCH: ${{ parameters.configuration.targetArch }}
+    HOST: localhost
+    DATABASE: test_${{ parameters.configuration.name }}
+    SQLUSER: sa
+    SQLPASSWORD: $(WindowsSqlPassword)
+    # The full DSN takes precedence over PROTOCOL in GetConnParams.
+    SQLSERVER_DSN: ''
+    INSTANCE: ''
+    SQLINSTANCE: ''
+    PIPE: ''
+    AZURESERVER_DSN: ''
+    PROTOCOL: ${{ parameters.configuration.protocol }}
+    TEST_TAGS: ${{ parameters.configuration.testTags }}
+    COLUMNENCRYPTION: ${{ parameters.configuration.columnEncryption }}
+    INTEGRATED_AUTH: ${{ parameters.configuration.integratedAuth }}
+    RESULTS_DIR: $(Build.ArtifactStagingDirectory)\windows-results\${{ parameters.configuration.name }}
+
+- task: PublishTestResults@2
+  displayName: Publish tests - ${{ parameters.configuration.name }}
+  condition: and(succeededOrFailed(), eq(variables['WindowsSetupReady'], 'true'))
+  inputs:
+    testResultsFormat: JUnit
+    testResultsFiles: $(Build.ArtifactStagingDirectory)/windows-results/${{ parameters.configuration.name }}/tests.xml
+    testRunTitle: Windows SQL 2025 - ${{ parameters.configuration.name }}
+    failTaskOnFailedTests: true
+    failTaskOnMissingResultsFile: true
+
+- task: PowerShell@2
+  displayName: Convert coverage - ${{ parameters.configuration.name }}
+  condition: and(succeededOrFailed(), eq(variables['WindowsSetupReady'], 'true'))
+  inputs:
+    targetType: filePath
+    filePath: .pipelines/scripts/Convert-GoCoverage.ps1
+  env:
+    # Coverage analysis must use the same build context as the test execution.
+    GOARCH: ${{ parameters.configuration.targetArch }}
+    GOFLAGS: -tags=${{ parameters.configuration.testTags }}
+    RESULTS_DIR: $(Build.ArtifactStagingDirectory)\windows-results\${{ parameters.configuration.name }}
+
+- task: PublishPipelineArtifact@1
+  displayName: Preserve results - ${{ parameters.configuration.name }}
+  condition: and(succeededOrFailed(), eq(variables['WindowsSetupReady'], 'true'))
+  inputs:
+    targetPath: $(Build.ArtifactStagingDirectory)/windows-results/${{ parameters.configuration.name }}
+    artifact: windows-${{ parameters.configuration.name }}

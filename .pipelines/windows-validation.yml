@@ -1,0 +1,116 @@
+name: windows-$(Date:yyyyMMdd).$(Rev:r)
+
+# Keep AppVeyor enabled until this pipeline is authorized and required on GitHub.
+trigger:
+  branches:
+    include:
+    - main
+pr:
+  autoCancel: true
+  branches:
+    include:
+    - main
+
+pool:
+  name: RUST-PUBLIC-X64-WUS3
+  demands:
+  - imageOverride -equals RUST-W22-SQL25
+
+variables:
+  GOTOOLCHAIN: local
+  WindowsSetupReady: 'false'
+
+jobs:
+- job: Windows
+  timeoutInMinutes: 180
+  steps:
+  - checkout: self
+    clean: true
+    persistCredentials: false
+
+  - task: GoTool@0
+    inputs:
+      version: '1.25'
+    displayName: Install Go 1.25
+
+  - task: PowerShell@2
+    displayName: Install pinned test reporting tools
+    inputs:
+      targetType: inline
+      workingDirectory: $(Build.SourcesDirectory)/.pipelines/tools
+      script: |
+        $ErrorActionPreference = 'Stop'
+        go install -mod=readonly tool
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Write-Host "##vso[task.prependpath]$env:GOBIN"
+    env:
+      GOARCH: amd64
+      GOBIN: $(Agent.TempDirectory)\go-tools
+
+  - task: PowerShell@2
+    displayName: Configure SQL TLS certificate using mssql-rs script
+    inputs:
+      targetType: filePath
+      filePath: .pipelines/scripts/Generate-SqlCertificates.ps1
+      arguments: '-InstanceName "MSSQLSERVER"'
+      errorActionPreference: stop
+
+  - task: PowerShell@2
+    displayName: Configure local SQL Server 2025
+    inputs:
+      targetType: filePath
+      filePath: .pipelines/scripts/Initialize-WindowsSql.ps1
+
+  - task: PowerShell@2
+    displayName: Mark shared setup ready
+    inputs:
+      targetType: inline
+      script: Write-Host "##vso[task.setvariable variable=WindowsSetupReady]true"
+
+  - template: templates/windows-tests.yml
+    parameters:
+      configuration:
+        name: sql_auth
+        targetArch: amd64
+        protocol: ''
+        testTags: ''
+        columnEncryption: ''
+        integratedAuth: 'false'
+
+  - template: templates/windows-tests.yml
+    parameters:
+      configuration:
+        name: always_encrypted
+        targetArch: amd64
+        protocol: ''
+        testTags: ''
+        columnEncryption: '1'
+        integratedAuth: 'false'
+
+  - template: templates/windows-tests.yml
+    parameters:
+      configuration:
+        name: named_pipes_386
+        targetArch: '386'
+        protocol: np
+        testTags: np
+        columnEncryption: ''
+        integratedAuth: 'false'
+
+  - template: templates/windows-tests.yml
+    parameters:
+      configuration:
+        name: shared_memory_sspi
+        targetArch: amd64
+        protocol: lpc
+        testTags: sm
+        columnEncryption: ''
+        integratedAuth: 'true'
+
+  - task: PublishCodeCoverageResults@2
+    displayName: Publish combined Windows coverage
+    condition: and(succeededOrFailed(), eq(variables['WindowsSetupReady'], 'true'))
+    inputs:
+      summaryFileLocation: $(Build.ArtifactStagingDirectory)/windows-results/*/coverage.xml
+      pathToSources: $(Build.SourcesDirectory)
+      failIfCoverageEmpty: true
