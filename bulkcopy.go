@@ -403,11 +403,18 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 		case int64:
 			intvalue = val
 		case float32:
-			intvalue = int64(val)
+			if intvalue, err = floatToInt64(float64(val)); err != nil {
+				return
+			}
 		case float64:
-			intvalue = int64(val)
+			if intvalue, err = floatToInt64(val); err != nil {
+				return
+			}
 		default:
 			err = fmt.Errorf("mssql: invalid type for int column: %T", val)
+			return
+		}
+		if err = checkIntRange(intvalue, col.ti.Size); err != nil {
 			return
 		}
 
@@ -596,6 +603,10 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 				return res, err
 			}
 
+			if !moneyFits(money, col.ti.Size) {
+				return res, fmt.Errorf("mssql: value %s out of range for %d-byte money column", v, col.ti.Size)
+			}
+
 			buf := make([]byte, col.ti.Size)
 
 			integer0 := money.GetInteger(0)
@@ -711,4 +722,40 @@ func (b *Bulk) dlogf(ctx context.Context, format string, v ...interface{}) {
 	if b.Debug {
 		b.cn.sess.LogF(ctx, msdsn.LogDebug, format, v...)
 	}
+}
+
+// floatToInt64 truncates f toward zero, as SQL Server does when converting float to int.
+// Go leaves out-of-range float to int conversions implementation-defined, so check first.
+func floatToInt64(f float64) (int64, error) {
+	if math.IsNaN(f) || f < math.MinInt64 || f >= math.MaxInt64 {
+		return 0, fmt.Errorf("mssql: value %v out of range for int column", f)
+	}
+	return int64(f), nil
+}
+
+func checkIntRange(v int64, size int) error {
+	switch {
+	case size == 1 && (v < 0 || v > math.MaxUint8),
+		size == 2 && (v < math.MinInt16 || v > math.MaxInt16),
+		size == 4 && (v < math.MinInt32 || v > math.MaxInt32):
+		return fmt.Errorf("mssql: value %d out of range for %d-byte int column", v, size)
+	}
+	return nil
+}
+
+// moneyFits reports whether d, already scaled by 10^4, fits in the signed
+// 4-byte (smallmoney) or 8-byte (money) integer sent on the wire.
+func moneyFits(d decimal.Decimal, size int) bool {
+	if d.GetInteger(2) != 0 || d.GetInteger(3) != 0 {
+		return false
+	}
+	mag := uint64(d.GetInteger(1))<<32 | uint64(d.GetInteger(0))
+	limit := uint64(math.MaxInt64)
+	if size == 4 {
+		limit = math.MaxInt32
+	}
+	if !d.IsPositive() {
+		limit++ // two's complement allows one more on the negative side
+	}
+	return mag <= limit
 }
