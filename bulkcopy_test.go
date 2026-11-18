@@ -811,3 +811,38 @@ func TestBulkcopyFailure(t *testing.T) {
 	_, err = stmt.ExecContext(ctx)
 	assert.NoError(t, err)
 }
+
+func TestBulkcopyNilIntoNotNullFixedColumn(t *testing.T) {
+	pool, logger := open(t)
+	defer pool.Close()
+	defer logger.StopLogging()
+
+	ctx := context.Background()
+	conn, err := pool.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, "CREATE TABLE #nullfixed (a int NOT NULL, b int NOT NULL, c int NULL)"); err != nil {
+		t.Fatal(err)
+	}
+	stmt, err := conn.PrepareContext(ctx, CopyIn("#nullfixed", BulkOptions{}, "a", "b", "c"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = stmt.ExecContext(ctx, 7, nil, 9)
+	assert.ErrorContains(t, err, `column "b"`)
+
+	_, err = stmt.ExecContext(ctx, 1, 2, 3)
+	assert.NoError(t, err)
+	_, err = stmt.ExecContext(ctx)
+	assert.NoError(t, err)
+	assert.NoError(t, stmt.Close())
+
+	var n, a, b, c int
+	err = conn.QueryRowContext(ctx, "SELECT COUNT(*), MIN(a), MIN(b), MIN(c) FROM #nullfixed").Scan(&n, &a, &b, &c)
+	assert.NoError(t, err)
+	assert.Equal(t, []int{1, 1, 2, 3}, []int{n, a, b, c})
+}

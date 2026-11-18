@@ -205,6 +205,15 @@ func (b *Bulk) AddRow(row []interface{}) (err error) {
 	return
 }
 
+func isFixedLengthType(typeId byte) bool {
+	switch typeId {
+	case typeInt1, typeBit, typeInt2, typeInt4, typeInt8, typeFlt4, typeFlt8,
+		typeMoney, typeMoney4, typeDateTime, typeDateTim4:
+		return true
+	}
+	return false
+}
+
 func (b *Bulk) makeRowData(row []interface{}) ([]byte, error) {
 	buf := new(bytes.Buffer)
 	buf.WriteByte(byte(tokenRow))
@@ -218,6 +227,12 @@ func (b *Bulk) makeRowData(row []interface{}) ([]byte, error) {
 		param, err := b.makeParam(row[i], col)
 		if err != nil {
 			return nil, fmt.Errorf("bulkcopy: %s", err.Error())
+		}
+
+		// Fixed-length TDS types have no NULL encoding, so a nil would desync the row.
+		if param.buffer == nil && isFixedLengthType(col.ti.TypeId) {
+			return nil, fmt.Errorf("bulkcopy: cannot insert NULL into NOT NULL column %q (TypeId: %#x)",
+				col.ColName, col.ti.TypeId)
 		}
 
 		if col.ti.Writer == nil {
