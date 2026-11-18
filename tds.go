@@ -201,6 +201,10 @@ type tdsSession struct {
 	connid          UniqueIdentifier
 	activityid      UniqueIdentifier
 	encoding        msdsn.EncodeParameters
+	// These settings are retained so the opt-in path can bound the attention
+	// write after the caller's context has already been cancelled.
+	connTimeout                      time.Duration
+	disableConnTimeoutAsQueryTimeout bool
 	// readDone is closed when the current processSingleResponse goroutine
 	// completes. startResponseReader waits on this to prevent concurrent buffer reads.
 	readDone chan struct{}
@@ -990,6 +994,47 @@ func sendAttention(buf *tdsBuffer) error {
 	return buf.FinishPacket()
 }
 
+// defaultAttentionWriteTimeout bounds the attention write in the opt-in path
+// when no connection timeout is configured.
+const defaultAttentionWriteTimeout = 30 * time.Second
+
+// sendAttentionWithGuard preserves the legacy attention-write behavior unless
+// the caller opted out of using ConnTimeout for query execution. In that mode,
+// the normal transport deadline is disabled and a fixed deadline is required:
+// this function is called only after ctx has fired, so a context-based write
+// guard would expire immediately. The deadline is always cleared afterward.
+func sendAttentionWithGuard(sess *tdsSession) (err error) {
+	if !sess.disableConnTimeoutAsQueryTimeout {
+		return sendAttention(sess.buf)
+	}
+	wd, ok := sess.buf.transport.(interface{ SetWriteDeadline(time.Time) error })
+	if !ok {
+		_ = sess.buf.transport.Close()
+		return &net.OpError{
+			Op:  "guard attention write",
+			Net: "mssql",
+			Err: errors.New("transport does not support write deadlines"),
+		}
+	}
+	timeout := sess.connTimeout
+	if timeout <= 0 {
+		timeout = defaultAttentionWriteTimeout
+	}
+	if err = wd.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+		_ = sess.buf.transport.Close()
+		return &net.OpError{Op: "set attention write deadline", Net: "mssql", Err: err}
+	}
+	defer func() {
+		if clearErr := wd.SetWriteDeadline(time.Time{}); clearErr != nil {
+			_ = sess.buf.transport.Close()
+			if err == nil {
+				err = &net.OpError{Op: "clear attention write deadline", Net: "mssql", Err: clearErr}
+			}
+		}
+	}()
+	return sendAttention(sess.buf)
+}
+
 // Makes an attempt to connect with each available protocol, in order, until one succeeds or the timeout elapses
 func dialConnection(ctx context.Context, c *Connector, p *msdsn.Config, logger ContextLogger) (conn net.Conn, err error) {
 	var instances msdsn.BrowserData
@@ -1424,6 +1469,22 @@ initiate_connection:
 			case error:
 				return nil, fmt.Errorf("login error: %s", token.Error())
 			}
+		}
+	}
+
+	// Login succeeded. By default (DisableConnTimeoutAsQueryTimeout=false,
+	// its zero value) we preserve the existing, backward-compatible
+	// behavior of continuing to apply the connect timeout as a socket
+	// read/write deadline for the whole lifetime of the connection: some
+	// callers rely on it as a de-facto command timeout when they don't set
+	// up their own context deadline. Set
+	// "disableconntimeoutasquerytimeout=true" to restrict the connect
+	// timeout to the login/handshake phase only, so long-running commands
+	// are governed exclusively by the caller-supplied context.Context
+	// deadline instead of being cut short by the connection timeout.
+	if p.DisableConnTimeoutAsQueryTimeout {
+		if err := toconn.disableTimeout(); err != nil {
+			return nil, err
 		}
 	}
 

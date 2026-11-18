@@ -30,8 +30,9 @@ Boolean parameters accept `1`, `t`, `T`, `TRUE`, `true`, `True`, `0`, `f`, `F`, 
 * `user id` - enter the SQL Server Authentication user id or the Windows Authentication user id in the DOMAIN\User format. On Windows, if user id is empty or missing Single-Sign-On is used. The user domain sensitive to the case which is defined in the connection string.
 * `password`
 * `database`
-* `connection timeout` - in seconds (default is 0 for no timeout), set to 0 for no timeout. Recommended to set to 0 and use context to manage query and connection timeouts.
+* `connection timeout` - in seconds (default is 0 for no timeout), set to 0 for no timeout. Recommended to set to 0 and use context to manage query and connection timeouts. Note: by default, for backward compatibility, this timeout is also re-applied as a socket read/write deadline for the whole lifetime of the connection, so it can end up cutting short long-running commands as well, not just the login. Set `disableconntimeoutasquerytimeout=true` to restrict it to the login/handshake phase only and rely exclusively on `context.Context` deadlines for command execution timeouts.
 * `dial timeout` - in seconds (default is 15 times the number of registered protocols), set to 0 for no timeout.
+* `disableconntimeoutasquerytimeout` - `false` by default (preserves the historical behavior described above for `connection timeout`). Set to `true` so `connection timeout` only bounds the login/handshake phase; once logged in, command execution timeouts (both reads and writes) are governed solely by the caller-supplied `context.Context` deadline, not by `connection timeout`. A synchronous request write that would otherwise be able to block forever (e.g. because the server stopped consuming) is still bounded, but by watching `ctx` for cancellation rather than by `connection timeout`.
 * `encrypt`
   * `strict` - Data sent between client and server is encrypted E2E using [TDS8](https://learn.microsoft.com/en-us/sql/relational-databases/security/networking/tds-8?view=sql-server-ver16).
   * `disable` - Data send between client and server is not encrypted.
