@@ -596,6 +596,28 @@ func TestADONetAuthenticationNames(t *testing.T) {
 	}
 }
 
+// TestSqlPasswordAuthenticationInEveryFormat covers SqlPassword, the ODBC
+// driver's spelling of SQL authentication. URL and odbc: strings ignored the
+// authentication keyword until msdsn applied ADO.Net synonyms to them (#464),
+// so a string carrying it connected with SQL authentication and still has to.
+// An ADO string carrying it was rejected until the value was mapped.
+func TestSqlPasswordAuthenticationInEveryFormat(t *testing.T) {
+	for _, dsn := range []string{
+		"server=s.database.windows.net;user id=u;password=p;Authentication=SqlPassword",
+		"sqlserver://u:p@s.database.windows.net?authentication=SqlPassword",
+		"odbc:server=s.database.windows.net;user id=u;password=p;Authentication=SqlPassword",
+	} {
+		config, err := parse(dsn)
+		if err != nil {
+			t.Fatalf("parse(%q): %v", dsn, err)
+		}
+		if config.fedAuthLibrary != mssql.FedAuthLibraryReserved || config.fedAuthWorkflow != "" {
+			t.Errorf("%q: fedAuthLibrary = %d, fedAuthWorkflow = %q, want SQL authentication",
+				dsn, config.fedAuthLibrary, config.fedAuthWorkflow)
+		}
+	}
+}
+
 // msdsn trims semicolon-style values but leaves URL query values as written, so
 // only a URL DSN can deliver a padded authentication name to the lookup.
 func TestAuthenticationNameSurroundingWhitespace(t *testing.T) {

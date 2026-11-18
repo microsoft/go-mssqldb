@@ -98,6 +98,7 @@ func parse(dsn string) (*azureFedAuthConfig, error) {
 // Microsoft.Data.SqlClient's DbConnectionStringUtilities.
 var adoNetAuthMap = map[string]string{
 	"sql password":                        "", // SQL auth, no fedauth needed
+	"sqlpassword":                         "", // the ODBC driver's spelling, which SqlClient also accepts
 	"active directory password":           ActiveDirectoryPassword,
 	"active directory integrated":         ActiveDirectoryIntegrated,
 	"active directory interactive":        ActiveDirectoryInteractive,

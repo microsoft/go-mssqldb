@@ -195,7 +195,7 @@ For further information on usage:
     * `server=localhost;user id=sa;database=master;app name=MyAppName;krb5-configfile=path/to/file;krb5-realm=domain.com;krb5-keytabfile=path/to/keytabfile;authenticator=krb5`
 
 
-    ADO strings support synonyms for common connection parameters:
+    All three formats accept synonyms for common connection parameters:
     * server <= addr, address, network address, data source
     * user id <= user, uid
     * password <= pwd
@@ -212,6 +212,10 @@ For further information on usage:
     * servercertificate <= server certificate
     * workstation id <= wsid
     * columnencryption <= column encryption setting
+    * fedauth <= authentication
+
+    A URL sets server from its host, and user id and password from its user info. Naming one of those
+    again in the query, by key or by synonym, is an error.
 
 3. ODBC: Prefix with `odbc`, `key=value` pairs separated by `;`. Allow `;` by wrapping
     values in `{}`. Examples:
