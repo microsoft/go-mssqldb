@@ -1224,6 +1224,21 @@ func startReading(sess *tdsSession, ctx context.Context, outs outputs) *tokenPro
 	}
 }
 
+// drainUntilReaderDone reads until the response reader closes the token channel.
+// The reader writes session state, such as the transaction id, before that close.
+func (t *tokenProcessor) drainUntilReaderDone() error {
+	var readErr error
+	for {
+		tok, ok := <-t.tokChan
+		if !ok {
+			return readErr
+		}
+		if err, isErr := tok.(error); isErr && readErr == nil {
+			readErr = err
+		}
+	}
+}
+
 func (t *tokenProcessor) iterateResponse() error {
 	for {
 		tok, err := t.nextToken()
