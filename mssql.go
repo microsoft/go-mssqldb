@@ -488,8 +488,19 @@ func (d *Driver) connect(ctx context.Context, c *Connector, params msdsn.Config)
 }
 
 func (c *Conn) Close() error {
+	// A response reader may still read into the buffer (e.g., one left draining
+	// a canceled query) until the transport is closed. The pool hands a released
+	// buffer to the next connection, so release it only once the reader exits.
+	err := c.sess.buf.transport.Close()
+	if done := c.sess.readDone; done != nil {
+		go func() {
+			<-done
+			c.sess.buf.bufClose()
+		}()
+		return err
+	}
 	c.sess.buf.bufClose()
-	return c.sess.buf.transport.Close()
+	return err
 }
 
 type Stmt struct {

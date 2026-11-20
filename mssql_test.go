@@ -9,6 +9,7 @@ import (
 	"net"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/microsoft/go-mssqldb/msdsn"
 )
@@ -345,4 +346,69 @@ func TestBadConnRejection(t *testing.T) {
 			"got err = '%+v', wanted err = '%+v'", err, driver.ErrBadConn)
 	}
 
+}
+
+// The pool hands a released buffer to the next connection, so Close must not
+// release it while a response reader (e.g., one left draining a canceled query)
+// still reads into it. Nor may Close wait for the reader: an unbuffered token
+// channel nobody drains keeps it blocked on its send.
+func TestConnCloseReleasesBufferAfterReader(t *testing.T) {
+	client, server := net.Pipe()
+	defer server.Close()
+	var (
+		sess     = &tdsSession{buf: newTdsBuffer(defaultPacketSize, client)}
+		tokChan  = make(chan tokenStruct)
+		released = make(chan struct{})
+		closed   = make(chan error, 1)
+	)
+	sess.startResponseReader(context.Background(), tokChan, outputs{})
+	readDone := sess.readDone
+	sess.buf.bufClose = func() {
+		select {
+		case <-readDone:
+		default:
+			t.Error("buffer released while the response reader still reads into it")
+		}
+		close(released)
+	}
+	go func() { closed <- (&Conn{sess: sess}).Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close blocked on a response reader that waits for its tokens to be drained")
+	}
+	select {
+	case <-released:
+		t.Fatal("buffer released before the response reader exited")
+	default:
+	}
+	if tok, ok := <-tokChan; !ok {
+		t.Fatal("expected the response reader to report its failed read")
+	} else if _, ok := tok.(error); !ok {
+		t.Fatalf("expected an error token, got %T", tok)
+	}
+	select {
+	case <-released:
+	case <-time.After(5 * time.Second):
+		t.Fatal("buffer not released after the response reader exited")
+	}
+}
+
+func TestConnCloseReleasesBufferWithoutReader(t *testing.T) {
+	client, server := net.Pipe()
+	defer server.Close()
+	var (
+		sess     = &tdsSession{buf: newTdsBuffer(defaultPacketSize, client)}
+		released bool
+	)
+	sess.buf.bufClose = func() { released = true }
+	if err := (&Conn{sess: sess}).Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !released {
+		t.Fatal("buffer not released on Close")
+	}
 }
