@@ -198,6 +198,7 @@ func TestValidConnectionString(t *testing.T) {
 		{"PWD=somepass", func(p Config) bool { return p.Password == "somepass" }},
 		{"Initial Catalog=mydb", func(p Config) bool { return p.Database == "mydb" }},
 		{"Connect Timeout=60", func(p Config) bool { return p.ConnTimeout == 60*time.Second }},
+		{"ConnectTimeout=30", func(p Config) bool { return p.ConnTimeout == 30*time.Second }},
 		{"Timeout=45", func(p Config) bool { return p.ConnTimeout == 45*time.Second }},
 		{"Failover Partner=mirror", func(p Config) bool { return p.FailOverPartner == "mirror" }},
 		{"Failover Partner SPN=MSSQLSvc/mirror:1433", func(p Config) bool { return p.FailOverPartnerSPN == "MSSQLSvc/mirror:1433" }},
@@ -207,6 +208,8 @@ func TestValidConnectionString(t *testing.T) {
 		{"Host Name In Certificate=myhost", func(p Config) bool { return p.HostInCertificateProvided }},
 		{"Server SPN=MSSQLSvc/myhost:1433", func(p Config) bool { return p.ServerSPN == "MSSQLSvc/myhost:1433" }},
 		{"WSID=myworkstation", func(p Config) bool { return p.Workstation == "myworkstation" }},
+		{"WorkstationID=myworkstation", func(p Config) bool { return p.Workstation == "myworkstation" }},
+		{"PacketSize=8192", func(p Config) bool { return p.PacketSize == 8192 }},
 		{"Column Encryption Setting=true", func(p Config) bool { return p.ColumnEncryption }},
 		// Verify synonym keys work together in the same connection string
 		{"Data Source=somehost;Initial Catalog=mydb;Connect Timeout=30", func(p Config) bool {
