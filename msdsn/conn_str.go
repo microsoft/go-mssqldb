@@ -786,6 +786,7 @@ var adoSynonyms = map[string]string{
 	"pwd":                       Password,
 	"initial catalog":           Database,
 	"connect timeout":           ConnectionTimeout,
+	"connecttimeout":            ConnectionTimeout,
 	"timeout":                   ConnectionTimeout,
 	"failover partner":          FailoverPartner,
 	"failover partner spn":      FailoverPartnerSpn,
@@ -796,6 +797,8 @@ var adoSynonyms = map[string]string{
 	"server spn":                ServerSpn,
 	"server certificate":        ServerCertificate,
 	"wsid":                      WorkstationID,
+	"workstationid":             WorkstationID,
+	"packetsize":                PacketSize,
 	"column encryption setting": "columnencryption",
 	"authentication":            "fedauth",
 }

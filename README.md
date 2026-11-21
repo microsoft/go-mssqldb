@@ -201,7 +201,7 @@ For further information on usage:
     * password <= pwd
     * database <= initial catalog
     * app name <= application name, app
-    * connection timeout <= connect timeout, timeout
+    * connection timeout <= connect timeout, connecttimeout, timeout
     * failoverpartner <= failover partner
     * failoverpartnerspn <= failover partner spn
     * applicationintent <= application intent
@@ -210,7 +210,8 @@ For further information on usage:
     * hostnameincertificate <= host name in certificate
     * serverspn <= server spn
     * servercertificate <= server certificate
-    * workstation id <= wsid
+    * workstation id <= wsid, workstationid
+    * packet size <= packetsize
     * columnencryption <= column encryption setting
 
 3. ODBC: Prefix with `odbc`, `key=value` pairs separated by `;`. Allow `;` by wrapping
