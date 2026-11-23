@@ -994,6 +994,19 @@ func parseReturnValue(r *tdsBuffer, s *tdsSession) (nv namedValue) {
 	return
 }
 
+// enqueueMsgqReadError reports an error that ends reading the response in
+// message queue mode. The MsgNextResultSet after the MsgError makes the
+// application call NextResultSet, which returns the error from the token
+// channel and ends its message loop. Without it, nothing else is queued for
+// this response and the application waits for a message forever.
+func enqueueMsgqReadError(ctx context.Context, outs outputs, err error) {
+	if outs.msgq == nil {
+		return
+	}
+	_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgError{Error: err})
+	_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgNextResultSet{})
+}
+
 func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenStruct, outs outputs) {
 	defer func() {
 		if err := recover(); err != nil {
@@ -1006,8 +1019,7 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 				default:
 					derr = fmt.Errorf("unhandled session error: %v", e)
 				}
-				_ = sqlexp.ReturnMessageEnqueue(ctx, outs.msgq, sqlexp.MsgError{Error: derr})
-
+				enqueueMsgqReadError(ctx, outs, derr)
 			}
 			ch <- err
 		}
@@ -1024,6 +1036,7 @@ func processSingleResponse(ctx context.Context, sess *tdsSession, ch chan tokenS
 			// the named pipe provider returns a raw win32 error so fake an OpError
 			err = &net.OpError{Op: "Read", Err: err}
 		}
+		enqueueMsgqReadError(ctx, outs, err)
 		ch <- err
 		return
 	}
