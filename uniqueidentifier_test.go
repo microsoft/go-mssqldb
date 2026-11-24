@@ -138,3 +138,27 @@ func TestUniqueIdentifierScanInvalidStringLength(t *testing.T) {
 var _ fmt.Stringer = UniqueIdentifier{}
 var _ sql.Scanner = &UniqueIdentifier{}
 var _ driver.Valuer = UniqueIdentifier{}
+
+func TestUniqueIdentifierInvalidHexLength(t *testing.T) {
+	t.Parallel()
+	orig := UniqueIdentifier{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}
+
+	// 36 characters but no dashes: 18 bytes of hex used to overrun u.
+	u := orig
+	assert.NotPanics(t, func() {
+		assert.Error(t, u.Scan("0123456789abcdef0123456789abcdef0123"))
+	})
+	assert.Equal(t, orig, u, "Scan modified u on error")
+
+	// Correct length, but the last digit is not hex: decoding fails after a
+	// valid prefix and must not leave a partially written value behind.
+	u = orig
+	assert.Error(t, u.Scan("FF234567-89AB-CDEF-0123-456789ABCDEG"))
+	assert.Equal(t, orig, u, "Scan modified u on invalid hex")
+
+	for _, input := range []string{`"1234"`, `"01234567-89AB-CDEF-0123-456789ABCDEF00"`, `""`} {
+		u := orig
+		assert.Error(t, u.UnmarshalJSON([]byte(input)), "UnmarshalJSON(%s)", input)
+		assert.Equal(t, orig, u, "UnmarshalJSON(%s) modified u on error", input)
+	}
+}
