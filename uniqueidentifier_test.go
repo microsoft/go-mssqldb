@@ -150,6 +150,12 @@ func TestUniqueIdentifierInvalidHexLength(t *testing.T) {
 	})
 	assert.Equal(t, orig, u, "Scan modified u on error")
 
+	// Correct length, but the last digit is not hex: decoding fails after a
+	// valid prefix and must not leave a partially written value behind.
+	u = orig
+	assert.Error(t, u.Scan("FF234567-89AB-CDEF-0123-456789ABCDEG"))
+	assert.Equal(t, orig, u, "Scan modified u on invalid hex")
+
 	for _, input := range []string{`"1234"`, `"01234567-89AB-CDEF-0123-456789ABCDEF00"`, `""`} {
 		u := orig
 		assert.Error(t, u.UnmarshalJSON([]byte(input)), "UnmarshalJSON(%s)", input)
