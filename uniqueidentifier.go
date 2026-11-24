@@ -38,16 +38,7 @@ func (u *UniqueIdentifier) Scan(v interface{}) error {
 			return errors.New("mssql: invalid UniqueIdentifier string length")
 		}
 
-		b := []byte(vt)
-		for i, c := range b {
-			switch c {
-			case '-':
-				b = append(b[:i], b[i+1:]...)
-			}
-		}
-
-		_, err := hex.Decode(u[:], []byte(b))
-		return err
+		return u.parseString(vt)
 	default:
 		return fmt.Errorf("mssql: cannot convert %T to UniqueIdentifier", v)
 	}
@@ -85,15 +76,21 @@ func (u UniqueIdentifier) MarshalText() (text []byte, err error) {
 // "01234567-89AB-CDEF-0123-456789ABCDEF" -> [48, 49, 50, 51, 52, 53, 54, 55, 45, 56, 57, 65, 66, 45, 67, 68, 69, 70, 45, 48, 49, 50, 51, 45, 52, 53, 54, 55, 56, 57, 65, 66, 67, 68, 69, 70]
 func (u *UniqueIdentifier) UnmarshalJSON(b []byte) error {
 	// remove quotes
-	input := strings.Trim(string(b), `"`)
-	// decode
-	bytes, err := hex.DecodeString(strings.Replace(input, "-", "", -1))
+	return u.parseString(strings.Trim(string(b), `"`))
+}
 
-	if err != nil {
+// parseString decodes s, the hex digits of a UniqueIdentifier optionally
+// separated by dashes, into u. u is left unchanged if s does not hold exactly
+// 16 bytes of hex.
+func (u *UniqueIdentifier) parseString(s string) error {
+	h := strings.ReplaceAll(s, "-", "")
+	if len(h) != hex.EncodedLen(len(u)) {
+		return fmt.Errorf("mssql: invalid UniqueIdentifier %q", s)
+	}
+	var raw UniqueIdentifier
+	if _, err := hex.Decode(raw[:], []byte(h)); err != nil {
 		return err
 	}
-	// Copy the bytes to the UniqueIdentifier
-	copy(u[:], bytes)
-
+	*u = raw
 	return nil
 }
